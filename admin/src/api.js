@@ -100,6 +100,52 @@ export const api = {
   saveSettingsAgreement: (body) => request('/api/admin/settings/agreement', { method: 'PUT', body }),
   settingsContract: () => request('/api/admin/settings/contract'),
   saveSettingsContract: (body) => request('/api/admin/settings/contract', { method: 'PUT', body }),
+  systemVersion: () => request('/api/admin/system/version'),
+  systemUpdates: () => request('/api/admin/system/updates'),
+  applyUpdate: (tag) => request('/api/admin/system/apply-update', { method: 'POST', body: tag ? { tag } : {} }),
+  databaseInfo: () => request('/api/admin/system/database'),
+  saveInitSnapshot: () => request('/api/admin/system/database/init-snapshot', { method: 'POST' }),
+  async exportDatabase() {
+    const token = getToken();
+    const response = await fetch('/api/admin/system/database/export', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      let message = '导出失败';
+      try {
+        const payload = await response.json();
+        message = payload.message || message;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const match = /filename="?([^"]+)"?/i.exec(response.headers.get('content-disposition') || '');
+    const name = match?.[1] || `HalfThereClass-db-${Date.now()}.db`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return { name, size: blob.size };
+  },
+  async importDatabase(file) {
+    const token = getToken();
+    const body = new FormData();
+    body.append('file', file);
+    const response = await fetch('/api/admin/system/database/import', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body,
+    });
+    const payload = await response.json();
+    if (payload.code !== 0) throw new Error(payload.message || '导入失败');
+    return payload.data;
+  },
   createSchool: (body) => request('/api/admin/schools', { method: 'POST', body }),
   updateSchool: (id, body) => request(`/api/admin/schools/${id}`, { method: 'PUT', body }),
   deleteSchool: (id) => request(`/api/admin/schools/${id}`, { method: 'DELETE' }),

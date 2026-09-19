@@ -1,0 +1,10 @@
+{
+  "name": "half-there-class",
+  "version": "1.0.0",
+  "private": true,
+  "description": "半堂课 / 诺维思 发布与打包",
+  "scripts": {
+    "pack": "node scripts/pack-release.mjs",
+    "pack:publish": "node scripts/pack-release.mjs --publish"
+  }
+}

@@ -7,6 +7,15 @@ node_modules/
 
 # 编译输出
 backend/dist/
+admin/dist/
+
+# 本地打包产物
+release/
+
+# 运行时 SQLite（服务器与本机），只允许初始快照进库
+backend/prisma/dev.db
+backend/prisma/*.db-journal
+*.db-journal
 
 # 日志
 *.log
@@ -29,3 +38,4 @@ miniprogram/miniprogram_npm/
 backend/certs/
 *.pem
 *.key
+backend/uploads/

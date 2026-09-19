@@ -22,7 +22,9 @@ const RULES: { test: RegExp; permission: AdminPermission }[] = [
   { test: /\/(semesters|holidays|sessions)(?:\/|$)/, permission: 'schedule' },
   { test: /\/orders(?:\/|$)/, permission: 'order' },
   { test: /\/comments(?:\/|$)/, permission: 'comment' },
-  { test: /\/(dashboard|search|me|permissions)(?:\/|$)/, permission: 'overview' },
+  { test: /\/system(?:\/|$)/, permission: 'overview' },
+  { test: /\/system\/(database|apply-update)(?:\/|$)/, permission: 'admin' },
+  { test: /\/(dashboard|search|me|permissions|system)(?:\/|$)/, permission: 'overview' },
 ];
 
 export function permissionFor(url = '') {

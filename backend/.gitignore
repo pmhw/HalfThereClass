@@ -1,7 +1,11 @@
 node_modules
 dist
 .env
+# 运行时数据库只留在服务器 / 本机，不进 Git
+*.db
 *.db-journal
+# 仅保留初始库快照
+!prisma/init.db
 *.log
 .DS_Store
 certs/

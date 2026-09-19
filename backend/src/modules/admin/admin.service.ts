@@ -1,9 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { randomBytes } from 'crypto';
-import { readFileSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { copyFileSync, createReadStream, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { randomBytes, randomUUID } from 'crypto';
+import { spawn } from 'child_process';
+import { tmpdir } from 'os';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import {
@@ -55,6 +56,7 @@ function saveCaptchaStore(map: Map<string, CaptchaTicket>) {
 
 @Injectable()
 export class AdminService implements OnModuleInit {
+  private updating = false;
 
   constructor(
     private prisma: PrismaService,
@@ -644,6 +646,371 @@ export class AdminService implements OnModuleInit {
       }),
     ]);
     return { title, content };
+  }
+
+  getAppVersion() {
+    const candidates = [
+      join(process.cwd(), 'VERSION'),
+      join(process.cwd(), '..', 'VERSION'),
+    ];
+    for (const file of candidates) {
+      if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+    }
+    return process.env.APP_VERSION || '0.0.0';
+  }
+
+  private compareVersion(a: string, b: string) {
+    const left = String(a || '0').replace(/^v/i, '').split('.').map((n) => Number(n) || 0);
+    const right = String(b || '0').replace(/^v/i, '').split('.').map((n) => Number(n) || 0);
+    const len = Math.max(left.length, right.length);
+    for (let i = 0; i < len; i += 1) {
+      const x = left[i] || 0;
+      const y = right[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+
+  async getSystemInfo() {
+    const current = this.getAppVersion();
+    const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
+    return {
+      name: 'HalfThereClass',
+      current,
+      repo: `https://github.com/${repo}`,
+      releasesUrl: `https://github.com/${repo}/releases`,
+    };
+  }
+
+  async getSystemUpdates() {
+    const current = this.getAppVersion();
+    const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
+    let releases: any[] = [];
+    try {
+      const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, {
+        headers: this.githubHeaders(),
+      });
+      if (response.ok) releases = await response.json();
+    } catch {
+      releases = [];
+    }
+    const list = (Array.isArray(releases) ? releases : [])
+      .filter((item) => !item.draft)
+      .map((item) => {
+        const asset = (item.assets || []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
+          || (item.assets || []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''))
+          || null;
+        return {
+          tag: item.tag_name,
+          name: item.name || item.tag_name,
+          publishedAt: item.published_at,
+          notes: item.body || '',
+          htmlUrl: item.html_url,
+          downloadUrl: asset?.browser_download_url || item.html_url,
+          assetName: asset?.name || '',
+          size: asset?.size || 0,
+          newer: this.compareVersion(item.tag_name, current) > 0,
+        };
+      });
+    const updates = list.filter((item) => item.newer);
+    const latest = updates[0] || list[0] || null;
+    return {
+      current,
+      latest,
+      hasUpdate: updates.length > 0,
+      updates,
+      releases: list,
+      repo: `https://github.com/${repo}`,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  private installRoot() {
+    const cwd = process.cwd();
+    if (existsSync(join(cwd, '..', 'VERSION')) && existsSync(join(cwd, '..', 'www'))) {
+      return join(cwd, '..');
+    }
+    if (existsSync(join(cwd, 'VERSION'))) return cwd;
+    return cwd;
+  }
+
+  private githubHeaders(extra: Record<string, string> = {}) {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'HalfThereClass-Admin',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...extra,
+    };
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
+
+  async applyUpdate(tag?: string) {
+    if (this.updating) throw new BadRequestException('正在更新，请稍候');
+    const info = await this.getSystemUpdates();
+    const target = tag
+      ? info.releases.find((item: any) => item.tag === tag || item.tag === `v${tag}`)
+      : info.updates[0] || null;
+    if (!target) throw new BadRequestException('没有可更新的版本');
+    if (!target.newer && !tag) throw new BadRequestException('已经是最新版本');
+    if (!target.assetName || !/\.tar\.gz$/i.test(target.assetName)) {
+      throw new BadRequestException('该版本没有 Ubuntu 部署包，无法自动更新');
+    }
+    this.updating = true;
+    try {
+      const root = this.installRoot();
+      const work = join(root, 'uploads', 'updates');
+      mkdirSync(work, { recursive: true });
+      const archive = join(work, target.assetName);
+      const extractDir = join(work, `extract-${Date.now()}`);
+      mkdirSync(extractDir, { recursive: true });
+
+      const download = await fetch(target.downloadUrl, {
+        headers: this.githubHeaders({ Accept: 'application/octet-stream' }),
+        redirect: 'follow',
+      });
+      if (!download.ok) {
+        throw new BadRequestException(`下载更新包失败（${download.status}）。私有仓库请配置 GITHUB_TOKEN`);
+      }
+      const bytes = Buffer.from(await download.arrayBuffer());
+      writeFileSync(archive, bytes);
+
+      await this.runCommand(`tar -xzf "${archive}" -C "${extractDir}"`, root);
+      const entries = readdirSync(extractDir);
+      const packageDir = entries
+        .map((name) => join(extractDir, name))
+        .find((path) => existsSync(join(path, 'VERSION')) && existsSync(join(path, 'backend')));
+      if (!packageDir) throw new BadRequestException('更新包结构不正确');
+
+      const keepEnv = join(root, 'backend', '.env');
+      const keepDb = join(root, 'backend', 'prisma', 'dev.db');
+      const envBackup = existsSync(keepEnv) ? readFileSync(keepEnv) : null;
+      const dbBackup = existsSync(keepDb) ? keepDb : null;
+      const dbTemp = dbBackup ? join(work, `dev-keep-${Date.now()}.db`) : null;
+      if (dbBackup && dbTemp) copyFileSync(dbBackup, dbTemp);
+
+      if (existsSync(join(packageDir, 'www'))) {
+        rmSync(join(root, 'www'), { recursive: true, force: true });
+        cpSync(join(packageDir, 'www'), join(root, 'www'), { recursive: true });
+      }
+      mkdirSync(join(root, 'backend'), { recursive: true });
+      for (const name of ['dist', 'package.json', 'package-lock.json', '.env.example', 'nest-cli.json', 'tsconfig.json', 'VERSION']) {
+        const from = join(packageDir, 'backend', name);
+        const to = join(root, 'backend', name);
+        if (!existsSync(from)) continue;
+        rmSync(to, { recursive: true, force: true });
+        cpSync(from, to, { recursive: true });
+      }
+      if (existsSync(join(packageDir, 'backend', 'prisma'))) {
+        mkdirSync(join(root, 'backend', 'prisma'), { recursive: true });
+        for (const name of readdirSync(join(packageDir, 'backend', 'prisma'))) {
+          if (name === 'dev.db' || name.endsWith('.db-journal')) continue;
+          const from = join(packageDir, 'backend', 'prisma', name);
+          const to = join(root, 'backend', 'prisma', name);
+          rmSync(to, { recursive: true, force: true });
+          cpSync(from, to, { recursive: true });
+        }
+      }
+      for (const name of ['VERSION', 'start.sh', 'install.sh', 'README-SERVER.md']) {
+        const from = join(packageDir, name);
+        if (!existsSync(from)) continue;
+        copyFileSync(from, join(root, name));
+      }
+      if (existsSync(join(packageDir, 'systemd'))) {
+        cpSync(join(packageDir, 'systemd'), join(root, 'systemd'), { recursive: true });
+      }
+      if (envBackup) writeFileSync(keepEnv, envBackup);
+      if (dbTemp && existsSync(dbTemp)) copyFileSync(dbTemp, keepDb);
+
+      await this.runCommand('npm ci --omit=dev', join(root, 'backend'));
+      await this.runCommand('npx prisma generate', join(root, 'backend'));
+      await this.runCommand('npx prisma migrate deploy', join(root, 'backend'));
+
+      writeFileSync(join(root, 'VERSION'), `${String(target.tag).replace(/^v/i, '')}\n`);
+      writeFileSync(join(root, 'backend', 'VERSION'), `${String(target.tag).replace(/^v/i, '')}\n`);
+
+      this.scheduleRestart(root);
+      return {
+        ok: true,
+        restarting: true,
+        version: String(target.tag).replace(/^v/i, ''),
+        tag: target.tag,
+        message: `已更新到 ${target.tag}，面板即将重启`,
+      };
+    } finally {
+      setTimeout(() => { this.updating = false; }, 3000);
+    }
+  }
+
+  private runCommand(command: string, cwd: string) {
+    return new Promise<void>((resolve, reject) => {
+      const child = spawn(command, {
+        cwd,
+        shell: true,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let err = '';
+      child.stderr?.on('data', (chunk) => { err += String(chunk); });
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new BadRequestException(`命令失败: ${command}${err ? ` (${err.trim()})` : ''}`));
+      });
+    });
+  }
+
+  private scheduleRestart(root: string) {
+    setTimeout(() => {
+      try {
+        const service = '/etc/systemd/system/halfthereclass.service';
+        if (process.platform !== 'win32' && existsSync(service)) {
+          spawn('systemctl', ['restart', 'halfthereclass'], { detached: true, stdio: 'ignore' }).unref();
+          process.exit(0);
+          return;
+        }
+        const startSh = join(root, 'start.sh');
+        if (process.platform !== 'win32' && existsSync(startSh)) {
+          spawn('bash', [startSh], {
+            cwd: root,
+            detached: true,
+            stdio: 'ignore',
+            env: process.env,
+          }).unref();
+          process.exit(0);
+          return;
+        }
+        spawn(process.execPath, process.argv.slice(1), {
+          cwd: process.cwd(),
+          detached: true,
+          stdio: 'ignore',
+          env: process.env,
+        }).unref();
+        process.exit(0);
+      } catch {
+        process.exit(0);
+      }
+    }, 900);
+  }
+
+  private dbPath() {
+    return join(process.cwd(), 'prisma', 'dev.db');
+  }
+
+  private initDbPath() {
+    return join(process.cwd(), 'prisma', 'init.db');
+  }
+
+  private backupDir() {
+    const dir = join(process.cwd(), 'uploads', 'backups');
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  private stamp() {
+    const now = new Date();
+    const p = (n: number) => `${n}`.padStart(2, '0');
+    return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  }
+
+  getDatabaseInfo() {
+    const path = this.dbPath();
+    const initPath = this.initDbPath();
+    if (!existsSync(path)) {
+      return {
+        exists: false,
+        path: 'prisma/dev.db',
+        size: 0,
+        updatedAt: null,
+        hasInit: existsSync(initPath),
+      };
+    }
+    const stat = statSync(path);
+    return {
+      exists: true,
+      path: 'prisma/dev.db',
+      size: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+      hasInit: existsSync(initPath),
+    };
+  }
+
+  async exportDatabase() {
+    const source = this.dbPath();
+    if (!existsSync(source)) throw new NotFoundException('当前没有数据库文件');
+    const name = `HalfThereClass-db-${this.stamp()}.db`;
+    const target = join(this.backupDir(), name);
+    try {
+      const escaped = target.replace(/'/g, "''");
+      await this.prisma.$executeRawUnsafe(`VACUUM INTO '${escaped}'`);
+    } catch {
+      copyFileSync(source, target);
+    }
+    return new StreamableFile(createReadStream(target), {
+      type: 'application/octet-stream',
+      disposition: `attachment; filename="${name}"`,
+      length: statSync(target).size,
+    });
+  }
+
+  async importDatabase(file?: { buffer?: Buffer; originalname?: string; size?: number }) {
+    const buffer = file?.buffer;
+    if (!buffer?.length) throw new BadRequestException('请上传 .db 数据库文件');
+    if (buffer.length > 200 * 1024 * 1024) throw new BadRequestException('数据库文件不能超过 200MB');
+    if (buffer.slice(0, 15).toString('utf8') !== 'SQLite format 3') {
+      throw new BadRequestException('不是有效的 SQLite 数据库文件');
+    }
+    const target = this.dbPath();
+    const dir = join(process.cwd(), 'prisma');
+    mkdirSync(dir, { recursive: true });
+    const incoming = join(this.backupDir(), `import-${randomUUID()}.db`);
+    writeFileSync(incoming, buffer);
+    let backupName = '';
+    if (existsSync(target)) {
+      backupName = `before-import-${this.stamp()}.db`;
+      copyFileSync(target, join(this.backupDir(), backupName));
+    }
+    await this.prisma.$disconnect();
+    try {
+      copyFileSync(incoming, target);
+      await this.prisma.$connect();
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch (err) {
+      if (backupName) {
+        copyFileSync(join(this.backupDir(), backupName), target);
+        try { await this.prisma.$connect(); } catch { /* ignore */ }
+      }
+      throw new BadRequestException(`导入失败，已尝试回滚：${(err as Error).message || '未知错误'}`);
+    } finally {
+      try { unlinkSync(incoming); } catch { /* ignore */ }
+    }
+    return {
+      ok: true,
+      backup: backupName || null,
+      size: buffer.length,
+      message: backupName ? `导入成功，原库已备份为 ${backupName}` : '导入成功',
+    };
+  }
+
+  async saveInitSnapshot() {
+    const source = this.dbPath();
+    if (!existsSync(source)) throw new NotFoundException('当前没有数据库文件');
+    const target = this.initDbPath();
+    try {
+      const escaped = target.replace(/'/g, "''");
+      await this.prisma.$executeRawUnsafe(`VACUUM INTO '${escaped}'`);
+    } catch {
+      copyFileSync(source, target);
+    }
+    const stat = statSync(target);
+    return {
+      ok: true,
+      path: 'prisma/init.db',
+      size: stat.size,
+      message: '已写入初始库快照 init.db，可提交到 Git 作为新环境起点',
+    };
   }
 
   async deleteSchool(id: number) {

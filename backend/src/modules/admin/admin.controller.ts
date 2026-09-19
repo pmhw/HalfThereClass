@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { AdminLoginDto, CaptchaCheckDto } from './dto/admin-login.dto';
@@ -108,6 +109,49 @@ export class AdminController {
   @ApiOperation({ summary: '保存教师服务合同' })
   saveContractSettings(@Body() body: { title?: string; content?: string }) {
     return this.adminService.saveContractConfig(body || {});
+  }
+
+  @Get('system/version')
+  @ApiOperation({ summary: '当前系统版本' })
+  systemVersion() {
+    return this.adminService.getSystemInfo();
+  }
+
+  @Get('system/updates')
+  @ApiOperation({ summary: '可更新版本列表' })
+  systemUpdates() {
+    return this.adminService.getSystemUpdates();
+  }
+
+  @Post('system/apply-update')
+  @ApiOperation({ summary: '下载更新包并自动重启' })
+  applyUpdate(@Body() body: { tag?: string }) {
+    return this.adminService.applyUpdate(body?.tag);
+  }
+
+  @Get('system/database')
+  @ApiOperation({ summary: '数据库状态' })
+  databaseInfo() {
+    return this.adminService.getDatabaseInfo();
+  }
+
+  @Get('system/database/export')
+  @ApiOperation({ summary: '导出数据库' })
+  exportDatabase() {
+    return this.adminService.exportDatabase();
+  }
+
+  @Post('system/database/import')
+  @ApiOperation({ summary: '导入数据库' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 200 * 1024 * 1024 } }))
+  importDatabase(@UploadedFile() file: { buffer?: Buffer; originalname?: string; size?: number }) {
+    return this.adminService.importDatabase(file);
+  }
+
+  @Post('system/database/init-snapshot')
+  @ApiOperation({ summary: '把当前库写成初始快照' })
+  saveInitSnapshot() {
+    return this.adminService.saveInitSnapshot();
   }
 
   @Delete('admins/:id')

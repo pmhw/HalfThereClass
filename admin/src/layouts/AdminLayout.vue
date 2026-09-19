@@ -1,11 +1,70 @@
 <template>
   <div class="shell" :class="{ collapsed }">
     <aside class="sidebar">
-      <div class="brand">
-        <div class="logo">半</div>
+      <div
+        class="brand"
+        :class="{ 'has-update': updates.hasUpdate }"
+        @mouseenter="openVersion"
+        @mouseleave="closeVersion"
+        @focusin="openVersion"
+        @focusout="closeVersion"
+      >
+        <div class="logo">
+          半
+          <i v-if="updates.hasUpdate" class="update-dot"></i>
+        </div>
         <div class="brand-text">
           <strong>半堂课</strong>
-          <span>课程平台管理后台</span>
+          <span>{{ updates.hasUpdate ? `有新版本 ${updates.latest?.tag || ''}` : '课程平台管理后台' }}</span>
+        </div>
+      </div>
+      <Teleport to="body">
+        <div
+          v-if="versionOpen"
+          class="version-pop"
+          :style="versionStyle"
+          @mouseenter="openVersion"
+          @mouseleave="closeVersion"
+          @mousedown.prevent
+        >
+          <div class="version-head">
+            <strong>系统版本</strong>
+            <em v-if="updates.hasUpdate" class="new">有更新</em>
+          </div>
+          <p class="version-current">当前版本 <b>v{{ updates.current || version.current || '—' }}</b></p>
+          <p v-if="updates.latest" class="version-latest">
+            {{ updates.hasUpdate ? '可更新到' : '最新发布' }} <b>{{ updates.latest.tag }}</b>
+            <small v-if="updates.latest.publishedAt"> · {{ formatTime(updates.latest.publishedAt) }}</small>
+          </p>
+          <p v-else class="version-latest muted">{{ versionLoading ? '正在检测更新…' : '暂未检测到可更新版本' }}</p>
+          <div v-if="updates.updates?.length" class="version-list">
+            <div v-for="item in updates.updates" :key="item.tag" class="version-item">
+              <div>
+                <strong>{{ item.tag }}</strong>
+                <small>{{ item.assetName || '发布包' }}</small>
+              </div>
+              <button class="link" type="button" :disabled="applying" @click="applyUpdate(item.tag)">更新</button>
+            </div>
+          </div>
+          <div class="version-actions">
+            <button type="button" class="link" :disabled="versionLoading || applying" @click="refreshUpdates(true)">
+              {{ versionLoading ? '检测中…' : '立即检测' }}
+            </button>
+            <button
+              v-if="updates.hasUpdate"
+              class="btn tiny primary"
+              type="button"
+              :disabled="applying"
+              @click="applyUpdate()"
+            >{{ applying ? '更新中…' : '一键更新并重启' }}</button>
+          </div>
+          <p v-if="versionError" class="version-error">{{ versionError }}</p>
+        </div>
+      </Teleport>
+      <div v-if="applying" class="update-mask">
+        <div class="update-card">
+          <strong>正在更新并重启面板</strong>
+          <p>{{ applyMessage || '下载安装包、替换文件后将自动重启，请稍候…' }}</p>
         </div>
       </div>
       <div v-for="group in menus" :key="group.key" class="nav-group">
@@ -105,7 +164,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import { api, clearToken, getProfile } from '../api';
@@ -118,6 +177,17 @@ const open = ref(false);
 const help = ref(false);
 const userMenu = ref(false);
 const pendingCount = ref(0);
+const versionOpen = ref(false);
+const versionLoading = ref(false);
+const applying = ref(false);
+const applyMessage = ref('');
+const versionError = ref('');
+const versionStyle = ref({ left: '12px', top: '64px' });
+const version = ref({ current: '', repo: '' });
+const updates = ref({ current: '', hasUpdate: false, updates: [], latest: null, releases: [], repo: '', releasesUrl: '' });
+let versionTimer = 0;
+let updateTimer = 0;
+let pollTimer = 0;
 const collapsed = ref(localStorage.getItem('admin_nav_collapsed') === '1');
 const opened = ref({ course: true, trade: false, admin: true });
 const result = ref({ courses: [], users: [], orders: [] });
@@ -234,9 +304,117 @@ function logout() {
   router.push('/login');
 }
 
+function formatTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const m = `${date.getMonth() + 1}`.padStart(2, '0');
+  const d = `${date.getDate()}`.padStart(2, '0');
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
+async function refreshUpdates(forceOpen = false) {
+  versionLoading.value = true;
+  versionError.value = '';
+  try {
+    const [info, list] = await Promise.all([api.systemVersion(), api.systemUpdates()]);
+    version.value = info;
+    updates.value = {
+      ...list,
+      releasesUrl: list.repo ? `${list.repo}/releases` : '',
+    };
+    if (forceOpen || list.hasUpdate) {
+      placeVersionPop();
+      versionOpen.value = true;
+    }
+  } catch (err) {
+    updates.value = {
+      current: version.value.current || '',
+      hasUpdate: false,
+      updates: [],
+      latest: null,
+      releases: [],
+      repo: version.value.repo || '',
+      releasesUrl: '',
+    };
+    if (forceOpen) versionError.value = err.message || '检测失败';
+  } finally {
+    versionLoading.value = false;
+  }
+}
+
+function placeVersionPop() {
+  const el = document.querySelector('.brand');
+  if (!el) {
+    versionStyle.value = { left: '12px', top: '64px' };
+    return;
+  }
+  const rect = el.getBoundingClientRect();
+  versionStyle.value = {
+    left: `${Math.max(12, rect.left)}px`,
+    top: `${rect.bottom + 8}px`,
+  };
+}
+
+function openVersion() {
+  clearTimeout(versionTimer);
+  placeVersionPop();
+  versionOpen.value = true;
+  if (!updates.value.current && !versionLoading.value) refreshUpdates();
+}
+
+function closeVersion() {
+  if (applying.value) return;
+  clearTimeout(versionTimer);
+  versionTimer = window.setTimeout(() => { versionOpen.value = false; }, 180);
+}
+
+async function waitForRestart(expectVersion) {
+  applyMessage.value = '服务重启中，正在等待面板恢复…';
+  const started = Date.now();
+  while (Date.now() - started < 120000) {
+    await new Promise((resolve) => { setTimeout(resolve, 1500); });
+    try {
+      const info = await api.systemVersion();
+      if (!expectVersion || String(info.current) === String(expectVersion) || info.current) {
+        applyMessage.value = '更新完成，正在刷新面板…';
+        window.location.reload();
+        return;
+      }
+    } catch {
+      /* still restarting */
+    }
+  }
+  applyMessage.value = '等待超时，请手动刷新页面';
+  applying.value = false;
+}
+
+async function applyUpdate(tag) {
+  if (applying.value) return;
+  const label = tag || updates.value.latest?.tag || '最新版';
+  if (!window.confirm(`确定更新到 ${label} 并自动重启面板？\n数据库与 .env 会保留。`)) return;
+  applying.value = true;
+  versionOpen.value = true;
+  versionError.value = '';
+  applyMessage.value = '正在下载并安装更新包…';
+  try {
+    const result = await api.applyUpdate(tag);
+    applyMessage.value = result.message || '安装完成，准备重启…';
+    await waitForRestart(result.version);
+  } catch (err) {
+    versionError.value = err.message || '更新失败';
+    applyMessage.value = '';
+    applying.value = false;
+  }
+}
+
 watch(() => route.path, syncOpen);
 onMounted(async () => {
   syncOpen();
+  await nextTick();
+  refreshUpdates();
+  updateTimer = window.setInterval(() => refreshUpdates(), 10 * 60 * 1000);
+  window.addEventListener('resize', placeVersionPop);
   if (!allow(profile.value, 'overview')) return;
   try {
     const data = await api.dashboard();
@@ -244,5 +422,12 @@ onMounted(async () => {
   } catch {
     pendingCount.value = 0;
   }
+});
+
+onUnmounted(() => {
+  clearTimeout(versionTimer);
+  clearInterval(updateTimer);
+  clearInterval(pollTimer);
+  window.removeEventListener('resize', placeVersionPop);
 });
 </script>

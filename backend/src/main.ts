@@ -1,5 +1,6 @@
-import 'dotenv/config';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -8,14 +9,37 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 
+function resolveWww() {
+  const candidates = [
+    join(process.cwd(), 'www'),
+    join(process.cwd(), '..', 'www'),
+    join(process.cwd(), 'public'),
+  ];
+  return candidates.find((dir) => existsSync(join(dir, 'index.html'))) || null;
+}
+
+function resolveVersion() {
+  const candidates = [
+    join(process.cwd(), 'VERSION'),
+    join(process.cwd(), '..', 'VERSION'),
+  ];
+  for (const file of candidates) {
+    if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+  }
+  return process.env.APP_VERSION || '0.0.0';
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
-  // 全局前缀
+  const www = resolveWww();
+  if (www) {
+    app.useStaticAssets(www, { index: false });
+  }
+
   app.setGlobalPrefix('api');
 
-  // 全局验证管道
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -23,28 +47,35 @@ async function bootstrap() {
     }),
   );
 
-  // 全局异常过滤器
   app.useGlobalFilters(new HttpExceptionFilter());
-
-  // 全局响应拦截器
   app.useGlobalInterceptors(new TransformInterceptor());
-
-  // CORS
   app.enableCors();
 
-  // Swagger 文档
+  const version = resolveVersion();
+  process.env.APP_VERSION = version;
   const config = new DocumentBuilder()
     .setTitle('半堂课 API 文档')
     .setDescription('课程平台后端接口文档')
-    .setVersion('1.0')
+    .setVersion(version)
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  if (www) {
+    const server = app.getHttpAdapter().getInstance();
+    server.get(/^\/(?!api(?:\/|$)|uploads(?:\/|$)).*/, (req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      if (req.path !== '/' && existsSync(join(www, req.path))) return next();
+      return res.sendFile(join(www, 'index.html'));
+    });
+  }
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`🚀 服务运行于 http://localhost:${port}`);
   console.log(`📖 API 文档: http://localhost:${port}/api/docs`);
+  if (www) console.log(`🖥️  管理后台: http://localhost:${port}/`);
+  console.log(`📦 版本: ${version}`);
 }
 bootstrap();
