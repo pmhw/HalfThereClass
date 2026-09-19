@@ -39,15 +39,15 @@ sudo journalctl -u halfthereclass -f
 sudo nano /opt/HalfThereClass/backend/.env
 ```
 
-或把运维脚本拷到服务器后：
+仓库内运维脚本：
 
 ```bash
-sudo bash /opt/HalfThereClass/../  # 仓库内
 sudo bash scripts/server-ctl.sh status
 sudo bash scripts/server-ctl.sh restart
 sudo bash scripts/server-ctl.sh logs
+sudo bash scripts/server-ctl.sh env
+sudo bash scripts/server-ctl.sh url
 ```
-
 ## 本地打包发布
 
 ```bash
