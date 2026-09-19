@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # HalfThereClass - Ubuntu 22.04 一键安装 / 开机自启
 #
-# 远程安装（复制到服务器执行）：
+# 海外 / 有 GitHub 直连：
 #   curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo bash
+#
+# 国内推荐（走代理镜像，避免卡住无输出）：
+#   curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo CN_MIRROR=1 bash
+#   或：
+#   curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 bash
 #
 # 可选环境变量：
 #   PORT=3000
@@ -10,6 +15,8 @@
 #   GITHUB_TOKEN=xxx   # 私有仓库下载 Release 时需要
 #   TAG=v1.0.1         # 指定版本，默认最新
 #   APP_USER=halfthere
+#   CN_MIRROR=1        # 启用国内镜像（GitHub 代理 + npm 淘宝源）
+#   GITHUB_PROXY=https://ghfast.top/   # 自定义 GitHub 代理前缀
 set -euo pipefail
 
 REPO="${GITHUB_REPO:-pmhw/HalfThereClass}"
@@ -19,10 +26,16 @@ SERVICE_NAME="${SERVICE_NAME:-halfthereclass}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
 APP_USER="${APP_USER:-halfthere}"
 VERSION_RESOLVED=""
+CN_MIRROR="${CN_MIRROR:-0}"
+GITHUB_PROXY="${GITHUB_PROXY:-https://ghfast.top/}"
+# curl：连接超时 + 总超时，避免国内直连 GitHub 无限挂起「没反应」
+CURL_CONN="${CURL_CONNECT_TIMEOUT:-15}"
+CURL_MAX="${CURL_MAX_TIME:-300}"
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
+step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -41,7 +54,34 @@ detect_os() {
   fi
 }
 
+# 给 GitHub / raw / release URL 套代理（已是代理地址则不重复套）
+proxy_url() {
+  local url="$1"
+  if [[ "${CN_MIRROR}" != "1" && "${CN_MIRROR}" != "true" && "${CN_MIRROR}" != "yes" ]]; then
+    printf '%s' "${url}"
+    return
+  fi
+  case "${url}" in
+    "${GITHUB_PROXY}"*) printf '%s' "${url}" ;;
+    http://*|https://*)
+      # 保证代理前缀以 / 结尾
+      local p="${GITHUB_PROXY}"
+      [[ "${p}" == */ ]] || p="${p}/"
+      printf '%s%s' "${p}" "${url}"
+      ;;
+    *) printf '%s' "${url}" ;;
+  esac
+}
+
+curl_get() {
+  # 用法: curl_get [额外 curl 参数...] URL
+  local -a opts=(-fL --connect-timeout "${CURL_CONN}" --max-time "${CURL_MAX}" --retry 3 --retry-delay 2)
+  opts+=("$@")
+  curl "${opts[@]}"
+}
+
 install_base() {
+  step "安装系统依赖（apt）..."
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
   apt-get install -y ca-certificates curl tar gzip xz-utils build-essential python3
@@ -56,8 +96,50 @@ install_node() {
       return
     fi
   fi
-  yellow "安装 Node.js ${NODE_MAJOR}.x ..."
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+
+  if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
+    step "安装 Node.js ${NODE_MAJOR}.x（npmmirror 二进制，国内加速）..."
+    local arch uname_m node_arch ver tarball url
+    uname_m="$(uname -m)"
+    case "${uname_m}" in
+      x86_64|amd64) node_arch="x64" ;;
+      aarch64|arm64) node_arch="arm64" ;;
+      *)
+        red "暂不支持的架构: ${uname_m}，请先手动安装 Node.js ${NODE_MAJOR}+"
+        exit 1
+        ;;
+    esac
+    # 取该大版本最新 LTS 目录名
+    ver="$(curl_get -s "https://npmmirror.com/mirrors/node/index.json" | python3 -c "
+import json,sys
+maj=int('${NODE_MAJOR}')
+data=json.load(sys.stdin)
+for row in data:
+    v=(row.get('version') or '').lstrip('v')
+    parts=v.split('.')
+    if len(parts)>=1 and parts[0].isdigit() and int(parts[0])==maj:
+        print(row['version'].lstrip('v'))
+        break
+else:
+    raise SystemExit('node version not found')
+")"
+    tarball="node-v${ver}-linux-${node_arch}.tar.xz"
+    url="https://npmmirror.com/mirrors/node/v${ver}/${tarball}"
+    yellow "下载 ${url}"
+    local tmp
+    tmp="$(mktemp -d /tmp/node-install.XXXXXX)"
+    curl_get -o "${tmp}/${tarball}" "${url}"
+    tar -xJf "${tmp}/${tarball}" -C /usr/local --strip-components=1
+    rm -rf "${tmp}"
+    hash -r
+    green "Node.js $(node -v) / npm $(npm -v)"
+    npm config set registry https://registry.npmmirror.com
+    return
+  fi
+
+  step "安装 Node.js ${NODE_MAJOR}.x（NodeSource）..."
+  yellow "若长时间无输出，多半是访问 deb.nodesource.com 受阻，请改用：CN_MIRROR=1"
+  curl_get "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
   apt-get install -y nodejs
   green "Node.js $(node -v) / npm $(npm -v)"
 }
@@ -70,10 +152,13 @@ ensure_user() {
 
 github_api() {
   local url="$1"
+  local proxied
+  proxied="$(proxy_url "${url}")"
+  yellow "请求: ${proxied}"
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${url}"
+    curl_get -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${proxied}"
   else
-    curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${url}"
+    curl_get -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${proxied}"
   fi
 }
 
@@ -83,9 +168,12 @@ download_release() {
   if [[ -n "${TAG:-}" ]]; then
     api="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
   fi
-  yellow "获取发布包：${api}"
+  step "获取 GitHub Release 元数据..."
   local json meta asset_url asset_name
-  json="$(github_api "${api}")"
+  if ! json="$(github_api "${api}")"; then
+    red "无法访问 GitHub API。国内请加 CN_MIRROR=1，或检查网络/代理。"
+    exit 1
+  fi
   meta="$(printf '%s' "${json}" | python3 -c '
 import json,sys
 data=json.load(sys.stdin)
@@ -110,14 +198,17 @@ print((data.get("tag_name") or "latest").lstrip("v"))
   asset_url="$(printf '%s\n' "${meta}" | sed -n '1p')"
   asset_name="$(printf '%s\n' "${meta}" | sed -n '2p')"
   VERSION_RESOLVED="$(printf '%s\n' "${meta}" | sed -n '3p')"
-  yellow "下载 ${asset_name} (v${VERSION_RESOLVED}) ..."
+  asset_url="$(proxy_url "${asset_url}")"
+  step "下载发布包 ${asset_name} (v${VERSION_RESOLVED}) ..."
+  yellow "地址: ${asset_url}"
   ARCHIVE_PATH="${tmp}/${asset_name}"
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fL --retry 3 -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/octet-stream" \
+    curl_get -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/octet-stream" \
       -H "User-Agent: HalfThereClass-Installer" -o "${ARCHIVE_PATH}" "${asset_url}"
   else
-    curl -fL --retry 3 -H "User-Agent: HalfThereClass-Installer" -o "${ARCHIVE_PATH}" "${asset_url}"
+    curl_get -H "User-Agent: HalfThereClass-Installer" -o "${ARCHIVE_PATH}" "${asset_url}"
   fi
+  green "下载完成 ($(du -h "${ARCHIVE_PATH}" | awk '{print $1}'))"
 }
 
 preserve_runtime() {
@@ -151,6 +242,7 @@ restore_runtime() {
 
 extract_package() {
   local tmp="$1"
+  step "解压发布包..."
   mkdir -p "${tmp}/extract"
   tar -xzf "${ARCHIVE_PATH}" -C "${tmp}/extract"
   local pkg
@@ -171,6 +263,7 @@ extract_package() {
 }
 
 setup_app() {
+  step "安装 npm 依赖并初始化数据库..."
   cd "${INSTALL_DIR}/backend"
   if [[ ! -f .env ]]; then
     cp .env.example .env
@@ -193,6 +286,11 @@ setup_app() {
     fi
   fi
 
+  if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
+    npm config set registry https://registry.npmmirror.com
+    yellow "npm registry → https://registry.npmmirror.com"
+  fi
+
   npm ci --omit=dev
   npx prisma generate
   if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
@@ -205,7 +303,7 @@ setup_app() {
 }
 
 write_systemd() {
-  # Node 绝对路径，避免服务环境 PATH 不全
+  step "写入 systemd 并开机自启..."
   local node_bin
   node_bin="$(command -v node)"
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
@@ -237,11 +335,10 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 EOF
 
-  # 覆盖包内 start.sh，便于手动启动与一键更新后重启
   cat > "${INSTALL_DIR}/start.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "\$(dirname "\$0")" && pwd)"
+ROOT="\$(cd "\$(dirname "\$0")" && pwd)"
 cd "\$ROOT/backend"
 export NODE_ENV=production
 export PORT="\${PORT:-${PORT}}"
@@ -300,6 +397,11 @@ print_done() {
 main() {
   need_root
   yellow "系统: $(detect_os)"
+  if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
+    green "已启用国内镜像 CN_MIRROR=1（代理: ${GITHUB_PROXY}）"
+  else
+    yellow "未启用 CN_MIRROR。若长时间无输出，请 Ctrl+C 后用国内命令重试（见脚本头部注释）。"
+  fi
   install_base
   install_node
   ensure_user

@@ -6,22 +6,31 @@
 
 ## Ubuntu 22.04 远程一键安装（开机自启）
 
-在服务器上执行：
+### 国内服务器（推荐）
+
+直连 GitHub / NodeSource / npm 常会**长时间无输出**，请用镜像：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo CN_MIRROR=1 bash
+```
+
+备用拉脚本方式（jsDelivr）：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 bash
+```
+
+### 海外 / 能直连 GitHub
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo bash
 ```
 
-指定端口：
+指定端口 / 版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo PORT=8080 bash
-```
-
-指定版本：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo TAG=v1.0.1 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=8080 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 TAG=v1.0.1 bash
 ```
 
 安装完成后：
