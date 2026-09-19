@@ -134,18 +134,23 @@ echo "或安装 systemd: sudo cp $ROOT/systemd/halfthereclass.service /etc/syste
     join(outDir, 'systemd/halfthereclass.service'),
     `[Unit]
 Description=HalfThereClass API + Admin
-After=network.target
+Documentation=https://github.com/${repo}
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+User=halfthere
+Group=halfthere
 WorkingDirectory=/opt/HalfThereClass/backend
 Environment=NODE_ENV=production
 Environment=PORT=3000
-ExecStart=/usr/bin/env bash /opt/HalfThereClass/start.sh
-Restart=on-failure
-RestartSec=5
-User=www-data
-Group=www-data
+EnvironmentFile=-/opt/HalfThereClass/backend/.env
+ExecStart=/usr/bin/node --enable-source-maps /opt/HalfThereClass/backend/dist/src/main.js
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target
@@ -155,7 +160,15 @@ WantedBy=multi-user.target
     join(outDir, 'README-SERVER.md'),
     `# HalfThereClass ${version}（Ubuntu 22）
 
-## 部署
+## 推荐：远程一键安装
+
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/${repo}/main/scripts/remote-install.sh | sudo bash
+\`\`\`
+
+会自动安装依赖、配置 systemd，并开机自启。
+
+## 手动解压安装
 
 \`\`\`bash
 tar -xzf HalfThereClass-v${version}-ubuntu22.tar.gz

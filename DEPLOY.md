@@ -1,46 +1,85 @@
-# HalfThereClass 1.0.0（Ubuntu 22）
+# HalfThereClass 服务器部署（Ubuntu 22.04）
 
-## 一键打包并发布
+## 远程一键安装（推荐）
 
-在仓库根目录：
+在全新或已有的 Ubuntu 22.04 服务器上执行：
 
 ```bash
-# 只打本地 Ubuntu 包（不升版本、不推送）
+curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo bash
+```
+
+指定端口：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo PORT=8080 bash
+```
+
+指定版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo TAG=v1.0.1 bash
+```
+
+安装完成后会：
+
+- 自动安装 Node.js 20
+- 下载最新 Ubuntu 发布包到 `/opt/HalfThereClass`
+- 初始化数据库（首次用 `init.db`）
+- 注册 systemd 服务 `halfthereclass` 并**开机自启**
+- 立即启动，默认端口 `3000`
+
+访问：`http://服务器IP:3000/`
+
+## 常用命令
+
+```bash
+sudo systemctl status halfthereclass
+sudo systemctl restart halfthereclass
+sudo journalctl -u halfthereclass -f
+sudo nano /opt/HalfThereClass/backend/.env
+```
+
+或把运维脚本拷到服务器后：
+
+```bash
+sudo bash /opt/HalfThereClass/../  # 仓库内
+sudo bash scripts/server-ctl.sh status
+sudo bash scripts/server-ctl.sh restart
+sudo bash scripts/server-ctl.sh logs
+```
+
+## 本地打包发布
+
+```bash
+# 只打本地包
 npm run pack
 
-# 升 patch 版本 + 打包 + 推送 Git + 创建 GitHub Release
-# 需要环境变量 GITHUB_TOKEN（Contents 读写权限）
-set GITHUB_TOKEN=你的token
+# 升版本 + 推送 + GitHub Release
+export GITHUB_TOKEN=你的token
 npm run pack:publish
 ```
 
-产物在 `release/HalfThereClass-vX.Y.Z-ubuntu22.tar.gz`。
+产物：`release/HalfThereClass-vX.Y.Z-ubuntu22.tar.gz`
 
-## 服务器安装
+## 手动安装包
 
 ```bash
 tar -xzf HalfThereClass-vX.Y.Z-ubuntu22.tar.gz
 cd HalfThereClass-vX.Y.Z
 bash install.sh
-# 编辑 backend/.env
 bash start.sh
 ```
-
-访问 `http://服务器IP:3000/` 即管理后台，接口前缀 `/api`。
-
-可选 systemd：把 `systemd/halfthereclass.service` 里的路径改成实际目录后启用。
 
 ## 数据库
 
 - Git 只保留初始快照 `backend/prisma/init.db`
-- 服务器运行时的 `backend/prisma/dev.db` 不进 Git
-- 首次 `install.sh` 会在没有 `dev.db` 时从 `init.db` 复制一份
-- 管理后台「系统设置 → 数据同步」可导出 / 导入 `.db`，用于本地和线上对齐；导入前会自动备份
+- 服务器运行库 `backend/prisma/dev.db` 不进 Git
+- 一键安装会保留已有 `.env` / `dev.db` / `uploads`
+- 管理后台「系统设置 → 数据同步」可导出 / 导入，方便本地与线上对齐
 
-## 后台版本提示
+## 后台版本更新
 
-登录后台后，鼠标移到左上角「半堂课」Logo/标题，会弹出：
+登录后台后，鼠标移到左上角「半堂课」：
 
-- 当前版本
-- GitHub 上可更新的版本
-- 「下载更新」按钮（下载 Ubuntu 部署包）
+- 自动检测 GitHub Release
+- 一键更新并重启面板（保留数据库与 `.env`）
