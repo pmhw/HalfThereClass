@@ -680,6 +680,116 @@ export class AdminService implements OnModuleInit {
       current,
       repo: `https://github.com/${repo}`,
       releasesUrl: `https://github.com/${repo}/releases`,
+      cnMirror: this.cnMirrorEnabled(),
+    };
+  }
+
+  private cnMirrorEnabled() {
+    const v = String(process.env.CN_MIRROR || '').toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes' || Boolean(process.env.GITHUB_PROXY);
+  }
+
+  private githubProxyPrefix() {
+    const raw = process.env.GITHUB_PROXY
+      || (this.cnMirrorEnabled() ? 'https://ghfast.top/' : '');
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw : `${raw}/`;
+  }
+
+  private wrapGithubUrl(url: string) {
+    const prefix = this.githubProxyPrefix();
+    if (!prefix || !url || url.startsWith(prefix)) return url;
+    if (/^https?:\/\//i.test(url)) return `${prefix}${url}`;
+    return url;
+  }
+
+  private releaseDownloadCandidates(repo: string, tag: string, assetName: string) {
+    const ver = String(tag || '').replace(/^v/i, '');
+    const asset = assetName || `HalfThereClass-v${ver}-ubuntu22.tar.gz`;
+    const base = `https://github.com/${repo}/releases/download/v${ver}/${asset}`;
+    const proxies = [
+      this.githubProxyPrefix(),
+      'https://ghfast.top/',
+      'https://mirror.ghproxy.com/',
+      'https://ghproxy.net/',
+      'https://wget.la/',
+      'https://gitdl.cn/',
+    ].filter(Boolean);
+    const urls: string[] = [];
+    if (this.cnMirrorEnabled()) {
+      for (const p of proxies) {
+        const prefix = p.endsWith('/') ? p : `${p}/`;
+        urls.push(`${prefix}${base}`);
+      }
+    } else if (this.githubProxyPrefix()) {
+      urls.push(this.wrapGithubUrl(base));
+    }
+    urls.push(base);
+    return [...new Set(urls)];
+  }
+
+  private async fetchFirstOk(urls: string[], init?: RequestInit) {
+    let lastStatus = 0;
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, {
+          ...init,
+          signal: init?.signal || AbortSignal.timeout(60_000),
+        });
+        if (response.ok) return { response, url, lastStatus: response.status };
+        lastStatus = response.status;
+      } catch {
+        // try next
+      }
+    }
+    return { response: null as Response | null, url: '', lastStatus };
+  }
+
+  private async resolveRemoteVersion(repo: string) {
+    const urls = [
+      `https://cdn.jsdelivr.net/gh/${repo}@main/VERSION`,
+      `https://cdn.jsdelivr.net/gh/${repo}/VERSION`,
+      `https://raw.gitmirror.com/${repo}/main/VERSION`,
+      this.wrapGithubUrl(`https://raw.githubusercontent.com/${repo}/main/VERSION`),
+      `https://raw.githubusercontent.com/${repo}/main/VERSION`,
+    ];
+    for (const url of [...new Set(urls.filter(Boolean))]) {
+      try {
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'HalfThereClass-Admin' },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) continue;
+        const ver = (await response.text()).trim().replace(/^v/i, '').split(/\r?\n/)[0];
+        if (/^\d+\.\d+/.test(ver)) return ver;
+      } catch {
+        // next
+      }
+    }
+    return '';
+  }
+
+  private mapReleaseItem(item: any, current: string) {
+    const asset = (item.assets || []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
+      || (item.assets || []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''))
+      || null;
+    const tag = item.tag_name;
+    const assetName = asset?.name || '';
+    const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
+    const candidates = assetName
+      ? this.releaseDownloadCandidates(repo, tag, assetName)
+      : [asset?.browser_download_url || item.html_url].filter(Boolean);
+    return {
+      tag,
+      name: item.name || item.tag_name,
+      publishedAt: item.published_at,
+      notes: item.body || '',
+      htmlUrl: item.html_url,
+      downloadUrl: candidates[0] || asset?.browser_download_url || item.html_url,
+      downloadCandidates: candidates,
+      assetName,
+      size: asset?.size || 0,
+      newer: this.compareVersion(item.tag_name, current) > 0,
     };
   }
 
@@ -687,32 +797,45 @@ export class AdminService implements OnModuleInit {
     const current = this.getAppVersion();
     const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
     let releases: any[] = [];
+    let source = 'github-api';
+    const apiUrl = `https://api.github.com/repos/${repo}/releases?per_page=10`;
+    const apiCandidates = this.cnMirrorEnabled()
+      ? [this.wrapGithubUrl(apiUrl), apiUrl]
+      : [apiUrl, this.wrapGithubUrl(apiUrl)].filter((u, i, a) => u && a.indexOf(u) === i);
+
     try {
-      const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, {
-        headers: this.githubHeaders(),
-      });
-      if (response.ok) releases = await response.json();
+      const { response } = await this.fetchFirstOk(apiCandidates, { headers: this.githubHeaders() });
+      if (response) releases = await response.json();
     } catch {
       releases = [];
     }
-    const list = (Array.isArray(releases) ? releases : [])
+
+    let list = (Array.isArray(releases) ? releases : [])
       .filter((item) => !item.draft)
-      .map((item) => {
-        const asset = (item.assets || []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
-          || (item.assets || []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''))
-          || null;
-        return {
-          tag: item.tag_name,
-          name: item.name || item.tag_name,
-          publishedAt: item.published_at,
-          notes: item.body || '',
-          htmlUrl: item.html_url,
-          downloadUrl: asset?.browser_download_url || item.html_url,
-          assetName: asset?.name || '',
-          size: asset?.size || 0,
-          newer: this.compareVersion(item.tag_name, current) > 0,
-        };
-      });
+      .map((item) => this.mapReleaseItem(item, current));
+
+    if (!list.length) {
+      source = 'version-file';
+      const ver = await this.resolveRemoteVersion(repo);
+      if (ver) {
+        const tag = `v${ver}`;
+        const assetName = `HalfThereClass-v${ver}-ubuntu22.tar.gz`;
+        const candidates = this.releaseDownloadCandidates(repo, tag, assetName);
+        list = [{
+          tag,
+          name: tag,
+          publishedAt: null,
+          notes: '通过 VERSION 文件检测（未使用 GitHub API）',
+          htmlUrl: `https://github.com/${repo}/releases/tag/${tag}`,
+          downloadUrl: candidates[0],
+          downloadCandidates: candidates,
+          assetName,
+          size: 0,
+          newer: this.compareVersion(tag, current) > 0,
+        }];
+      }
+    }
+
     const updates = list.filter((item) => item.newer);
     const latest = updates[0] || list[0] || null;
     return {
@@ -723,6 +846,8 @@ export class AdminService implements OnModuleInit {
       releases: list,
       repo: `https://github.com/${repo}`,
       checkedAt: new Date().toISOString(),
+      source,
+      cnMirror: this.cnMirrorEnabled(),
     };
   }
 
@@ -747,13 +872,27 @@ export class AdminService implements OnModuleInit {
     return headers;
   }
 
+  private npmEnv() {
+    const env = { ...process.env };
+    if (this.cnMirrorEnabled()) {
+      env.npm_config_registry = env.npm_config_registry || 'https://registry.npmmirror.com';
+    }
+    return env;
+  }
+
   async applyUpdate(tag?: string) {
     if (this.updating) throw new BadRequestException('正在更新，请稍候');
     const info = await this.getSystemUpdates();
     const target = tag
       ? info.releases.find((item: any) => item.tag === tag || item.tag === `v${tag}`)
       : info.updates[0] || null;
-    if (!target) throw new BadRequestException('没有可更新的版本');
+    if (!target) {
+      throw new BadRequestException(
+        this.cnMirrorEnabled()
+          ? '没有可更新的版本（已启用国内镜像仍失败时，请检查 GITHUB_PROXY）'
+          : '没有可更新的版本。国内服务器请在 .env 设置 CN_MIRROR=1 后重启',
+      );
+    }
     if (!target.newer && !tag) throw new BadRequestException('已经是最新版本');
     if (!target.assetName || !/\.tar\.gz$/i.test(target.assetName)) {
       throw new BadRequestException('该版本没有 Ubuntu 部署包，无法自动更新');
@@ -767,15 +906,40 @@ export class AdminService implements OnModuleInit {
       const extractDir = join(work, `extract-${Date.now()}`);
       mkdirSync(extractDir, { recursive: true });
 
-      const download = await fetch(target.downloadUrl, {
-        headers: this.githubHeaders({ Accept: 'application/octet-stream' }),
-        redirect: 'follow',
-      });
-      if (!download.ok) {
-        throw new BadRequestException(`下载更新包失败（${download.status}）。私有仓库请配置 GITHUB_TOKEN`);
+      const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
+      const candidates = [
+        ...(target.downloadCandidates || []),
+        ...this.releaseDownloadCandidates(repo, target.tag, target.assetName),
+        target.downloadUrl,
+      ].filter(Boolean);
+      const uniqueUrls = [...new Set(candidates as string[])];
+
+      let downloaded = false;
+      let lastStatus = 0;
+      for (const url of uniqueUrls) {
+        try {
+          const download = await fetch(url, {
+            headers: this.githubHeaders({ Accept: 'application/octet-stream' }),
+            redirect: 'follow',
+            signal: AbortSignal.timeout(300_000),
+          });
+          lastStatus = download.status;
+          if (!download.ok) continue;
+          const bytes = Buffer.from(await download.arrayBuffer());
+          if (bytes.length < 100_000) continue;
+          if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) continue;
+          writeFileSync(archive, bytes);
+          downloaded = true;
+          break;
+        } catch {
+          // next mirror
+        }
       }
-      const bytes = Buffer.from(await download.arrayBuffer());
-      writeFileSync(archive, bytes);
+      if (!downloaded) {
+        throw new BadRequestException(
+          `下载更新包失败（HTTP ${lastStatus || '网络错误'}）。国内请配置 CN_MIRROR=1；私有仓库请配置 GITHUB_TOKEN`,
+        );
+      }
 
       await this.runCommand(`tar -xzf "${archive}" -C "${extractDir}"`, root);
       const entries = readdirSync(extractDir);
@@ -849,7 +1013,7 @@ export class AdminService implements OnModuleInit {
       const child = spawn(command, {
         cwd,
         shell: true,
-        env: process.env,
+        env: this.npmEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let err = '';

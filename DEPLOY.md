@@ -115,5 +115,14 @@ bash start.sh
 
 登录后台后，鼠标移到左上角「半堂课」：
 
-- 自动检测 GitHub Release
+- 自动检测 GitHub Release（国内 API 失败时回退读 `VERSION`）
 - 一键更新并重启面板（保留数据库与 `.env`）
+
+国内服务器请在 `backend/.env` 配置（一键安装 `CN_MIRROR=1` 时会自动写入）：
+
+```bash
+CN_MIRROR=1
+GITHUB_PROXY=https://ghfast.top/
+```
+
+然后 `sudo systemctl restart halfthereclass`。更新下载会走多个 GitHub 代理，`npm ci` 使用 npmmirror。

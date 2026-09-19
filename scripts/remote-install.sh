@@ -81,6 +81,49 @@ curl_get() {
   curl "${opts[@]}"
 }
 
+# Node 装到 /usr/local 后，部分环境找不到 npx；统一解析并兜底 npm exec
+NODE_BIN=""
+NPM_BIN=""
+NPX_BIN=""
+ensure_node_bins() {
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:${PATH:-}"
+  hash -r 2>/dev/null || true
+  NODE_BIN="$(command -v node || true)"
+  NPM_BIN="$(command -v npm || true)"
+  if [[ -z "${NODE_BIN}" || -z "${NPM_BIN}" ]]; then
+    red "未找到 node/npm，请确认 Node.js 已安装"
+    exit 1
+  fi
+  local npm_dir
+  npm_dir="$(dirname "${NPM_BIN}")"
+  if [[ -x "${npm_dir}/npx" ]]; then
+    NPX_BIN="${npm_dir}/npx"
+  elif command -v npx >/dev/null 2>&1; then
+    NPX_BIN="$(command -v npx)"
+  else
+    NPX_BIN=""
+  fi
+  green "Node: ${NODE_BIN} ($(node -v))  npm: ${NPM_BIN} ($(npm -v))  npx: ${NPX_BIN:-npm exec}"
+}
+
+run_npx() {
+  ensure_node_bins
+  if [[ -n "${NPX_BIN}" ]]; then
+    "${NPX_BIN}" "$@"
+  else
+    "${NPM_BIN}" exec -- "$@"
+  fi
+}
+
+ensure_env_kv() {
+  local file="$1" key="$2" val="$3"
+  if grep -q "^${key}=" "${file}" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "${file}"
+  else
+    echo "${key}=${val}" >> "${file}"
+  fi
+}
+
 install_base() {
   step "安装系统依赖（apt）..."
   export DEBIAN_FRONTEND=noninteractive
@@ -94,6 +137,7 @@ install_node() {
     major="$(node -v | sed 's/^v//' | cut -d. -f1)"
     if [[ "${major}" -ge 18 ]]; then
       green "已检测到 Node.js $(node -v)，跳过安装"
+      ensure_node_bins
       return
     fi
   fi
@@ -132,8 +176,7 @@ else:
     curl_get -o "${tmp}/${tarball}" "${url}"
     tar -xJf "${tmp}/${tarball}" -C /usr/local --strip-components=1
     rm -rf "${tmp}"
-    hash -r
-    green "Node.js $(node -v) / npm $(npm -v)"
+    ensure_node_bins
     npm config set registry https://registry.npmmirror.com
     return
   fi
@@ -142,7 +185,7 @@ else:
   yellow "若长时间无输出，多半是访问 deb.nodesource.com 受阻，请改用：CN_MIRROR=1"
   curl_get "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
   apt-get install -y nodejs
-  green "Node.js $(node -v) / npm $(npm -v)"
+  ensure_node_bins
 }
 
 ensure_user() {
@@ -333,48 +376,43 @@ extract_package() {
 
 setup_app() {
   step "安装 npm 依赖并初始化数据库..."
+  ensure_node_bins
   cd "${INSTALL_DIR}/backend"
   if [[ ! -f .env ]]; then
     cp .env.example .env
-    if grep -q '^PORT=' .env; then
-      sed -i "s/^PORT=.*/PORT=${PORT}/" .env
-    else
-      echo "PORT=${PORT}" >> .env
-    fi
-    if grep -q '^NODE_ENV=' .env; then
-      sed -i 's/^NODE_ENV=.*/NODE_ENV=production/' .env
-    else
-      echo "NODE_ENV=production" >> .env
-    fi
-    if ! grep -q '^GITHUB_REPO=' .env; then
-      echo "GITHUB_REPO=${REPO}" >> .env
-    fi
-  else
-    if grep -q '^PORT=' .env; then
-      sed -i "s/^PORT=.*/PORT=${PORT}/" .env
-    fi
   fi
-
+  ensure_env_kv .env PORT "${PORT}"
+  ensure_env_kv .env NODE_ENV production
+  ensure_env_kv .env GITHUB_REPO "${REPO}"
   if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
-    npm config set registry https://registry.npmmirror.com
-    yellow "npm registry → https://registry.npmmirror.com"
+    ensure_env_kv .env CN_MIRROR 1
+    ensure_env_kv .env GITHUB_PROXY "${GITHUB_PROXY}"
+    "${NPM_BIN}" config set registry https://registry.npmmirror.com
+    yellow "npm registry → https://registry.npmmirror.com（后台在线更新也将走国内加速）"
   fi
 
-  npm ci --omit=dev
-  npx prisma generate
+  "${NPM_BIN}" ci --omit=dev
+  run_npx prisma generate
   if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
     cp prisma/init.db prisma/dev.db
     green "已用 init.db 初始化运行库"
   fi
-  npx prisma migrate deploy || true
+  run_npx prisma migrate deploy || true
   chmod +x "${INSTALL_DIR}/start.sh" "${INSTALL_DIR}/install.sh" 2>/dev/null || true
   mkdir -p "${INSTALL_DIR}/backend/uploads/backups" "${INSTALL_DIR}/backend/uploads/updates" "${INSTALL_DIR}/backend/uploads/certs" "${INSTALL_DIR}/backend/uploads/signs" "${INSTALL_DIR}/backend/uploads/avatars"
 }
 
 write_systemd() {
   step "写入 systemd 并开机自启..."
-  local node_bin
-  node_bin="$(command -v node)"
+  ensure_node_bins
+  local node_bin npm_bin prisma_cmd
+  node_bin="${NODE_BIN}"
+  npm_bin="${NPM_BIN}"
+  if [[ -n "${NPX_BIN}" ]]; then
+    prisma_cmd="${NPX_BIN} prisma"
+  else
+    prisma_cmd="${npm_bin} exec -- prisma"
+  fi
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=HalfThereClass API + Admin
@@ -392,8 +430,8 @@ Environment=PORT=${PORT}
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 EnvironmentFile=-${INSTALL_DIR}/backend/.env
 ExecStart=${node_bin} --enable-source-maps ${INSTALL_DIR}/backend/dist/src/main.js
-ExecStartPre=/bin/bash -lc 'cd ${INSTALL_DIR}/backend && if [ ! -f prisma/dev.db ] && [ -f prisma/init.db ]; then cp prisma/init.db prisma/dev.db; fi'
-ExecStartPre=/bin/bash -lc 'cd ${INSTALL_DIR}/backend && npx prisma migrate deploy'
+ExecStartPre=/bin/bash -lc 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH; cd ${INSTALL_DIR}/backend && if [ ! -f prisma/dev.db ] && [ -f prisma/init.db ]; then cp prisma/init.db prisma/dev.db; fi'
+ExecStartPre=/bin/bash -lc 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH; cd ${INSTALL_DIR}/backend && ${prisma_cmd} migrate deploy'
 Restart=always
 RestartSec=3
 KillMode=mixed
@@ -407,6 +445,7 @@ EOF
   cat > "${INSTALL_DIR}/start.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH"
 ROOT="\$(cd "\$(dirname "\$0")" && pwd)"
 cd "\$ROOT/backend"
 export NODE_ENV=production
@@ -418,8 +457,8 @@ fi
 if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
   cp prisma/init.db prisma/dev.db
 fi
-npx prisma migrate deploy
-npx prisma generate
+${prisma_cmd} migrate deploy
+${prisma_cmd} generate
 exec ${node_bin} --enable-source-maps dist/src/main.js
 EOF
   chmod +x "${INSTALL_DIR}/start.sh"
