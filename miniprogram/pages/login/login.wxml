@@ -1,0 +1,1 @@
+<login-panel bind:success="done" />

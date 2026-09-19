@@ -1,0 +1,13 @@
+<view class="page">
+  <view class="search">
+    <input placeholder="搜索课程 / 学校 / 年级" value="{{keyword}}" bindinput="onInput" bindconfirm="onSearch" confirm-type="search" />
+  </view>
+  <scroll-view scroll-x class="tabs" enhanced show-scrollbar="{{false}}">
+    <view class="tab {{currentCategory === item.id ? 'on' : ''}}" wx:for="{{categories}}" wx:key="id" data-id="{{item.id}}" bindtap="onCategoryTap">{{item.name}}</view>
+  </scroll-view>
+  <view class="list">
+    <course-card course="{{item}}" wx:for="{{courseList}}" wx:key="id"></course-card>
+  </view>
+  <view class="tip" wx:if="{{loading}}">加载中...</view>
+  <view class="tip" wx:elif="{{!courseList.length}}">暂无课程</view>
+</view>

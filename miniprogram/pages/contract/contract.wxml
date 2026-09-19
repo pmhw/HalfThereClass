@@ -1,0 +1,40 @@
+<view class="page">
+  <view class="card done" wx:if="{{paper.signed}}">
+    <view class="h">合同已签订</view>
+    <view class="sub">现在可以抢课，后台也可以把课程安排给你</view>
+    <image wx:if="{{paper.sign}}" class="sign-img" src="{{origin}}{{paper.sign}}" mode="aspectFit"></image>
+  </view>
+
+  <view class="card wait" wx:elif="{{paper.status && paper.status !== 'approved' && loaded}}">
+    <view class="h">还不能签订</view>
+    <view class="sub">请先完成教师认证，审核通过后再签订合同</view>
+    <button class="btn btn-primary btn-block go" bindtap="goCert">去认证</button>
+  </view>
+
+  <block wx:elif="{{loaded}}">
+    <view class="card paper">
+      <view class="title">{{paper.title}}</view>
+      <scroll-view scroll-y class="body">
+        <rich-text nodes="{{html}}"></rich-text>
+      </scroll-view>
+    </view>
+
+    <view class="card sign-card">
+      <view class="label">手写签名<text class="req">*</text></view>
+      <view class="hint">请在框内签名，签名会随合同一起保存</view>
+      <view class="pad-wrap">
+        <canvas canvas-id="sign" class="pad" disable-scroll="{{true}}"
+          bindtouchstart="touchStart" bindtouchmove="touchMove" bindtouchend="touchEnd"></canvas>
+        <view class="placeholder" wx:if="{{!drew}}">在这里签名</view>
+      </view>
+      <view class="clear" bindtap="clearPad">重写</view>
+    </view>
+
+    <view class="agree" bindtap="toggle">
+      <view class="box {{agreed ? 'on' : ''}}"></view>
+      <text>我已阅读并同意《{{paper.title}}》</text>
+    </view>
+    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">确认签订</button>
+    <view class="foot">签订后才能抢课，后台也才能安排课程</view>
+  </block>
+</view>

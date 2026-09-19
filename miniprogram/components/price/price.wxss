@@ -1,0 +1,43 @@
+.price {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.price .free {
+  color: #07c160;
+  font-weight: bold;
+}
+
+.price .symbol {
+  color: #ff6b35;
+  font-weight: bold;
+}
+
+.price .current {
+  color: #ff6b35;
+  font-weight: bold;
+}
+
+.price .original {
+  color: #999;
+  text-decoration: line-through;
+  margin-left: 8rpx;
+}
+
+/* size: small */
+.price.size-small .free { font-size: 24rpx; }
+.price.size-small .symbol { font-size: 22rpx; }
+.price.size-small .current { font-size: 28rpx; }
+.price.size-small .original { font-size: 22rpx; }
+
+/* size: normal */
+.price.size-normal .free { font-size: 30rpx; }
+.price.size-normal .symbol { font-size: 26rpx; }
+.price.size-normal .current { font-size: 34rpx; }
+.price.size-normal .original { font-size: 24rpx; }
+
+/* size: large */
+.price.size-large .free { font-size: 40rpx; }
+.price.size-large .symbol { font-size: 32rpx; }
+.price.size-large .current { font-size: 44rpx; }
+.price.size-large .original { font-size: 26rpx; }

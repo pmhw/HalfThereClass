@@ -1,0 +1,8 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarTitleText": "授课",
+  "backgroundColor": "#f7f8fa",
+  "usingComponents": {
+    "login-panel": "/components/login-panel/login-panel"
+  }
+}

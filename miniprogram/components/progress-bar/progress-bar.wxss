@@ -1,0 +1,22 @@
+.progress-bar {
+  width: 100%;
+  border-radius: 4rpx;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-inner {
+  height: 100%;
+  border-radius: 4rpx;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 22rpx;
+  color: #fff;
+  padding: 0 8rpx;
+}

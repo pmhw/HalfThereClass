@@ -1,0 +1,79 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/course-list/course-list",
+    "pages/course-detail/course-detail",
+    "pages/schedule/schedule",
+    "pages/adjust/adjust",
+    "pages/checkin/checkin",
+    "pages/certify/certify",
+    "pages/contract/contract",
+    "pages/id-shot/id-shot",
+    "pages/teaching/teaching",
+    "pages/income/income",
+    "pages/study/study",
+    "pages/search/search",
+    "pages/my/my",
+    "pages/profile/profile",
+    "pages/order/order",
+    "pages/comment/comment",
+    "pages/login/login"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTitleText": "诺维思",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f8fa"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#999999",
+    "selectedColor": "#2563eb",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "images/tab-home.png",
+        "selectedIconPath": "images/tab-home-active.png"
+      },
+      {
+        "pagePath": "pages/schedule/schedule",
+        "text": "课表",
+        "iconPath": "images/tab-cal.png",
+        "selectedIconPath": "images/tab-cal-active.png"
+      },
+      {
+        "pagePath": "pages/teaching/teaching",
+        "text": "授课",
+        "iconPath": "images/tab-teach.png",
+        "selectedIconPath": "images/tab-teach-active.png"
+      },
+      {
+        "pagePath": "pages/my/my",
+        "text": "我的",
+        "iconPath": "images/tab-my.png",
+        "selectedIconPath": "images/tab-my-active.png"
+      }
+    ]
+  },
+  "usingComponents": {
+    "course-card": "/components/course-card/course-card",
+    "lesson-item": "/components/lesson-item/lesson-item",
+    "empty": "/components/empty/empty",
+    "loading": "/components/loading/loading",
+    "price": "/components/price/price",
+    "progress-bar": "/components/progress-bar/progress-bar"
+  },
+  "permission": {
+    "scope.camera": {
+      "desc": "用于对齐拍摄身份证人像面和国徽面"
+    }
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents",
+  "__usePrivacyCheck__": true
+}

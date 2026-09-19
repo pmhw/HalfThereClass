@@ -1,0 +1,15 @@
+{
+  "libVersion": "3.17.3",
+  "projectname": "诺维思 NOVIS",
+  "setting": {
+    "urlCheck": false,
+    "coverView": true,
+    "lazyloadPlaceholderEnable": false,
+    "skylineRenderEnable": false,
+    "preloadBackgroundData": false,
+    "autoAudits": false,
+    "showShadowRootInWxmlPanel": true,
+    "compileHotReLoad": true,
+    "bigPackageSizeSupport": false
+  }
+}

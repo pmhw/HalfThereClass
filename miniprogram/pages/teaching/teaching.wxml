@@ -1,0 +1,64 @@
+<view style="padding-top: {{padTop}}px;">
+  <login-panel wx:if="{{!loggedIn}}" slogan="登录后查看授课和课时费" bind:success="onAuthed" />
+  <view class="page" wx:else>
+    <view class="nav" style="height: {{titleH}}px; padding-right: {{side}}px;">
+      <text class="nav-title">授课</text>
+    </view>
+    <view class="subrow">
+      <text class="sub">今日授课安排</text>
+      <picker mode="date" value="{{date}}" bindchange="onDate">
+        <view class="chip">
+          <view class="cal"></view>
+          <text>{{dateLabel}}</text>
+          <text class="chev">⌄</text>
+        </view>
+      </picker>
+    </view>
+
+    <view wx:if="{{!certified}}" class="empty">认证通过后才能查看自己的课程和课时费</view>
+    <view wx:elif="{{!shown.length}}" class="empty">这一天还没有授课安排</view>
+    <view wx:else>
+      <view class="lesson" wx:for="{{shown}}" wx:key="id" data-id="{{item.id}}" bindtap="open">
+        <view class="top">
+          <view class="mark {{item.tone}}">{{item.initial}}</view>
+          <view class="info">
+            <view class="title">{{item.title}}</view>
+            <view class="meta">{{item.place}}</view>
+            <view class="place">
+              <view class="pin"></view>
+              <text>{{item.room}}</text>
+            </view>
+          </view>
+          <view class="tag {{item.showFee ? 'mine' : 'wait'}}">{{item.showFee ? '我的课' : '已排课'}}</view>
+        </view>
+        <view class="line"></view>
+        <view class="bottom">
+          <view class="cell">
+            <view class="ico clock"></view>
+            <view>
+              <view class="label">上课时间</view>
+              <view class="value">{{item.when}}</view>
+            </view>
+          </view>
+          <view class="vline"></view>
+          <view class="cell">
+            <view class="ico coin"></view>
+            <view>
+              <view class="label">课时费</view>
+              <view class="value fee" wx:if="{{item.showFee}}">¥{{item.teacherFee}} / 节</view>
+              <view class="value off" wx:else>课时费未开放</view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="foot">
+      <view class="art">
+        <view class="doc"></view>
+        <view class="glass"></view>
+      </view>
+      <text>认真授课，点亮更多孩子的未来</text>
+    </view>
+  </view>
+</view>

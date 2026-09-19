@@ -1,0 +1,99 @@
+.page {
+  background: #f7f8fa;
+}
+
+.video-container {
+  background: #000;
+  padding-bottom: 20rpx;
+}
+
+.video-placeholder {
+  width: 100%;
+  height: 420rpx;
+  background: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-btn {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-area {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 24rpx;
+  gap: 16rpx;
+}
+
+.time {
+  color: #fff;
+  font-size: 24rpx;
+  flex-shrink: 0;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6rpx;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3rpx;
+  overflow: hidden;
+}
+
+.progress-inner {
+  height: 100%;
+  background: #ff6b35;
+  border-radius: 3rpx;
+}
+
+.lesson-info {
+  margin: 20rpx 24rpx;
+}
+
+.lesson-title {
+  font-size: 34rpx;
+  font-weight: 500;
+  color: #333;
+}
+
+.course-name {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #999;
+}
+
+.lesson-desc {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  color: #666;
+  line-height: 1.8;
+}
+
+.status-card {
+  margin: 20rpx 24rpx;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8rpx 0;
+}
+
+.label {
+  color: #666;
+  font-size: 28rpx;
+}
+
+.value {
+  color: #ff6b35;
+  font-size: 28rpx;
+}

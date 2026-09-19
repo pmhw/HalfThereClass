@@ -1,0 +1,10 @@
+<view class="price size-{{size}}">
+  <block wx:if="{{isFree}}">
+    <text class="free">免费</text>
+  </block>
+  <block wx:else>
+    <text class="symbol">¥</text>
+    <text class="current">{{price}}</text>
+    <text wx:if="{{originalPrice && originalPrice > price}}" class="original">¥{{originalPrice}}</text>
+  </block>
+</view>

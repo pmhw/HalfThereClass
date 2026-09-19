@@ -1,0 +1,4 @@
+<view class="progress-bar" style="height: {{height}}rpx; background: {{bgColor}};">
+  <view class="progress-inner" style="width: {{percent}}%; background: {{color}};"></view>
+  <text wx:if="{{showText}}" class="progress-text">{{percent}}%</text>
+</view>

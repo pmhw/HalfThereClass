@@ -1,0 +1,16 @@
+<view class="page" wx:if="{{info}}">
+  <view class="title">{{info.course.title}}</view>
+  <view class="time">{{info.course.startTime}} - {{info.course.endTime}}</view>
+  <view class="meta">{{info.course.school}}</view>
+  <view class="meta">{{info.course.gradeLabel}} · {{info.course.classroom}}</view>
+
+  <view class="circle {{info.checkedIn ? 'done' : ''}}" bindtap="onCheckIn">
+    <view class="circle-text">{{info.checkedIn ? '已签到' : '立即签到'}}</view>
+  </view>
+
+  <view class="card status">
+    <view wx:if="{{info.checkedIn}}">签到时间已记录</view>
+    <view wx:else>尚未签到</view>
+    <view class="meta">地点：{{info.place || info.course.school || '未填写'}}</view>
+  </view>
+</view>

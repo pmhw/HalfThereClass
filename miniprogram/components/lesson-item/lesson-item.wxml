@@ -1,0 +1,15 @@
+<view class="lesson-item status-{{status}}" bindtap="onTap">
+  <view class="lesson-icon">
+    <block wx:if="{{status === 'completed'}}">✓</block>
+    <block wx:elif="{{status === 'locked'}}">🔒</block>
+    <block wx:else>▶</block>
+  </view>
+  <view class="lesson-info">
+    <view class="lesson-title ellipsis">{{lesson.title}}</view>
+    <view class="lesson-meta">
+      <text wx:if="{{status === 'free'}}" class="free-tag">试看</text>
+      <text wx:if="{{lesson.duration}}">{{lesson.duration}}分钟</text>
+    </view>
+  </view>
+  <view class="lesson-arrow">›</view>
+</view>

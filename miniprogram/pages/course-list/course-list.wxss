@@ -1,0 +1,21 @@
+.page { padding: 16rpx 24rpx 40rpx; }
+.search input {
+  height: 80rpx;
+  background: #fff;
+  border: 1rpx solid #e7edf5;
+  border-radius: 24rpx;
+  padding: 0 24rpx;
+}
+.tabs { white-space: nowrap; margin: 20rpx 0; }
+.tab {
+  display: inline-block;
+  margin-right: 12rpx;
+  padding: 12rpx 24rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  color: #667085;
+  font-size: 26rpx;
+}
+.tab.on { background: #eef4ff; color: #2563eb; font-weight: 600; }
+.list { display: flex; flex-direction: column; gap: 16rpx; }
+.tip { text-align: center; color: #98a2b3; padding: 40rpx 0; }

@@ -1,0 +1,6 @@
+.page { padding: 32rpx 24rpx 48rpx; }
+.title { font-size: 40rpx; font-weight: 700; }
+.sub { margin: 12rpx 0 24rpx; color: #6b7280; font-size: 26rpx; line-height: 1.6; }
+.field, .tip { padding: 28rpx; margin-bottom: 16rpx; }
+.label { font-size: 24rpx; color: #6b7280; margin-bottom: 8rpx; }
+.submit { margin-top: 24rpx; }

@@ -1,0 +1,176 @@
+/* app.wxss - 全局样式 */
+
+/* 主题色变量 */
+page {
+  --primary-color: #2563eb;
+  --primary-light: #eef4ff;
+  --text-color: #333333;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --bg-color: #f7f8fa;
+  --border-color: #eeeeee;
+  --success-color: #07c160;
+  --warning-color: #ff976a;
+  --danger-color: #ee0a24;
+
+  background-color: var(--bg-color);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 28rpx;
+  color: var(--text-color);
+  line-height: 1.5;
+}
+
+/* 通用容器 */
+.container {
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+/* Flex 布局 */
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+/* 文字截断 */
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ellipsis-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 文字颜色 */
+.text-primary {
+  color: var(--primary-color);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+.text-success {
+  color: var(--success-color);
+}
+
+/* 字体大小 */
+.text-xs {
+  font-size: 20rpx;
+}
+
+.text-sm {
+  font-size: 24rpx;
+}
+
+.text-base {
+  font-size: 28rpx;
+}
+
+.text-lg {
+  font-size: 32rpx;
+}
+
+.text-xl {
+  font-size: 36rpx;
+}
+
+.font-bold {
+  font-weight: bold;
+}
+
+/* 间距 */
+.mt-8 { margin-top: 8rpx; }
+.mt-16 { margin-top: 16rpx; }
+.mt-24 { margin-top: 24rpx; }
+.mt-32 { margin-top: 32rpx; }
+
+.mb-8 { margin-bottom: 8rpx; }
+.mb-16 { margin-bottom: 16rpx; }
+.mb-24 { margin-bottom: 24rpx; }
+.mb-32 { margin-bottom: 32rpx; }
+
+.p-16 { padding: 16rpx; }
+.p-24 { padding: 24rpx; }
+
+/* 卡片 */
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 32rpx;
+  height: 80rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+}
+
+.btn-primary::after {
+  border: none;
+}
+
+.btn-outline {
+  background: #fff;
+  color: var(--primary-color);
+  border: 2rpx solid var(--primary-color);
+}
+
+.btn-outline::after {
+  border: none;
+}
+
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+/* 分割线 */
+.divider {
+  height: 1rpx;
+  background: var(--border-color);
+  margin: 24rpx 0;
+}
+
+/* 安全底部 */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

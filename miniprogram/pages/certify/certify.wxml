@@ -1,0 +1,125 @@
+<view class="page">
+  <view class="steps">
+    <view class="step {{step >= 1 ? 'on' : ''}}">
+      <view class="n">1</view>
+      <text>基本信息</text>
+    </view>
+    <view class="bar {{step >= 2 ? 'on' : ''}}"></view>
+    <view class="step {{step >= 2 ? 'on' : ''}}">
+      <view class="n">2</view>
+      <text>证明材料</text>
+    </view>
+    <view class="bar {{step >= 3 ? 'on' : ''}}"></view>
+    <view class="step {{step >= 3 ? 'on' : ''}}">
+      <view class="n">3</view>
+      <text>认证完成</text>
+    </view>
+  </view>
+  <view class="hint">请填写真实信息并上传相关证明材料</view>
+
+  <view class="card done" wx:if="{{step === 3}}">
+    <view class="h">认证完成</view>
+    <view class="sub">{{cert.realName}} · {{cert.teacherNo}}</view>
+    <view class="sub" wx:if="{{cert.contractSigned}}">合同已签订，可以抢课，后台也可以安排课程</view>
+    <block wx:else>
+      <view class="sub">请签订教师服务合同。签订前不能抢课，后台也不能安排课程</view>
+      <button class="btn btn-primary btn-block sign" bindtap="goContract">去签订合同</button>
+    </block>
+  </view>
+
+  <view class="card wait" wx:elif="{{cert.status === 'pending' || cert.clearancePending}}">
+    <view class="h">审核中</view>
+    <view class="sub" wx:if="{{cert.clearancePending}}">本学期无犯罪证明已提交，请等待后台审核</view>
+    <view class="sub" wx:else>资料已提交，请等待后台审核。通过后即可授课</view>
+  </view>
+
+  <block wx:elif="{{cert.status !== 'approved' || cert.clearanceDue}}">
+    <view class="card form" wx:if="{{cert.rejectReason && cert.status === 'rejected'}}">
+      <view class="warn">上次未通过：{{cert.rejectReason}}</view>
+    </view>
+    <view class="card form" wx:if="{{cert.clearanceStatus === 'rejected'}}">
+      <view class="warn">无犯罪证明未通过：{{cert.rejectReason || '请重新上传'}}</view>
+    </view>
+
+    <view class="card form">
+      <block wx:if="{{cert.status !== 'approved'}}">
+        <view class="label">真实姓名<text class="req">*</text></view>
+        <view class="input">
+          <view class="person"></view>
+          <input placeholder="请输入姓名" placeholder-class="ph" value="{{realName}}" bindinput="onName" />
+        </view>
+        <view class="label gap">上传证明材料<text class="req">*</text></view>
+        <view class="desc">请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式</view>
+
+        <view class="row id-row">
+          <view class="badge id">
+            <view class="id-card"><view class="id-face"></view></view>
+          </view>
+          <view class="txt">
+            <view>身份证<text class="req">*</text></view>
+            <view class="sub">请上传身份证正反面</view>
+          </view>
+        </view>
+        <view class="slots">
+          <view class="slot" data-key="idCard" bindtap="choose">
+            <image wx:if="{{files.idCard}}" src="{{origin}}{{files.idCard}}" mode="aspectFill"></image>
+            <view wx:if="{{files.idCard}}" class="slot-tag">人像面 · 点击重拍</view>
+            <block wx:else>
+              <view class="mark tl"></view><view class="mark tr"></view>
+              <view class="mark bl"></view><view class="mark br"></view>
+              <view class="slot-name">人像面</view>
+              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '对齐拍摄'}}</view>
+            </block>
+          </view>
+          <view class="slot" data-key="idCardBack" bindtap="choose">
+            <image wx:if="{{files.idCardBack}}" src="{{origin}}{{files.idCardBack}}" mode="aspectFill"></image>
+            <view wx:if="{{files.idCardBack}}" class="slot-tag">国徽面 · 点击重拍</view>
+            <block wx:else>
+              <view class="mark tl"></view><view class="mark tr"></view>
+              <view class="mark bl"></view><view class="mark br"></view>
+              <view class="slot-name">国徽面</view>
+              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '对齐拍摄'}}</view>
+            </block>
+          </view>
+        </view>
+
+        <view class="row">
+          <view class="badge edu">
+            <view class="cap"></view>
+            <view class="tassel"></view>
+          </view>
+          <view class="txt">
+            <view>学历证明<text class="req">*</text></view>
+            <view class="sub">请上传毕业证书或学历证明</view>
+          </view>
+          <view class="plus {{files.diploma ? 'done' : ''}}" data-key="diploma" bindtap="choose">{{uploading === 'diploma' ? '…' : (files.diploma ? '✓' : '+')}}</view>
+        </view>
+
+        <view class="row">
+          <view class="badge cert">
+            <view class="sheet"><view class="seal"></view></view>
+          </view>
+          <view class="txt">
+            <view>教师资格证</view>
+            <view class="sub">选填，有则上传</view>
+          </view>
+          <view class="plus {{files.certificate ? 'done' : ''}}" data-key="certificate" bindtap="choose">{{files.certificate ? '✓' : '+'}}</view>
+        </view>
+      </block>
+
+      <view class="row">
+        <view class="badge law">
+          <view class="doc"></view>
+        </view>
+        <view class="txt">
+          <view>无犯罪证明<text class="req">*</text></view>
+          <view class="sub">每学期更新一次{{cert.semesterName ? ' · ' + cert.semesterName : ''}}</view>
+        </view>
+        <view class="plus {{files.clearance ? 'done' : ''}}" data-key="clearance" bindtap="choose">{{uploading === 'clearance' ? '…' : (files.clearance ? '✓' : '+')}}</view>
+      </view>
+    </view>
+
+    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{cert.clearanceDue ? '提交本学期证明' : '提交认证'}}</button>
+    <view class="foot">提交后将进入审核流程，请耐心等待审核结果</view>
+  </block>
+</view>

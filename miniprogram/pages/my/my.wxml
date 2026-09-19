@@ -1,0 +1,90 @@
+<view style="padding-top: {{padTop}}px;">
+  <login-panel wx:if="{{!isLogin}}" slogan="登录后管理认证、收入和调课" bind:success="onShow" />
+  <view class="page" wx:else>
+    <view class="nav" style="height: {{titleH}}px; padding-right: {{side}}px;">
+      <text class="nav-title">我的</text>
+    </view>
+
+    <view class="profile" bindtap="goCert">
+      <view class="who">
+        <view class="avatar">
+          <image wx:if="{{userInfo.avatar}}" src="{{userInfo.avatar}}" mode="aspectFill"></image>
+          <text wx:else>{{avatarText}}</text>
+        </view>
+        <view class="info">
+          <view class="name">{{userInfo.nickname || '老师'}}</view>
+          <view class="badge on" wx:if="{{cert.status === 'approved' && cert.contractSigned}}">
+            <view class="tick"></view>
+            <text>认证教师 · {{cert.teacherNo}}</text>
+          </view>
+          <view class="badge" wx:elif="{{cert.status === 'approved'}}">认证已通过 · 待签合同</view>
+          <view class="badge" wx:elif="{{cert.status === 'pending'}}">认证审核中</view>
+          <view class="badge" wx:elif="{{cert.status === 'rejected'}}">认证未通过，可重新提交</view>
+          <view class="badge" wx:else>未认证</view>
+          <view class="slogan">用教育点亮更多孩子的未来</view>
+        </view>
+        <text class="chev">›</text>
+      </view>
+      <view class="stats">
+        <view class="stat">
+          <text class="num">{{summary.total}}</text>
+          <text>累计授课(节)</text>
+        </view>
+        <view class="vline"></view>
+        <view class="stat">
+          <text class="num">{{summary.month}}</text>
+          <text>本月授课(节)</text>
+        </view>
+        <view class="vline"></view>
+        <view class="stat">
+          <text class="num">{{summary.ratingText}}</text>
+          <text>学生评分</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="menu">
+      <view class="item" bindtap="goTeaching">
+        <view class="ico book"></view>
+        <text>我的授课</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" bindtap="goSchedule">
+        <view class="ico cal"></view>
+        <text>课程时刻表</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" bindtap="goCourses">
+        <view class="ico cap"></view>
+        <text>课程大厅</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" bindtap="goIncome">
+        <view class="ico wallet"></view>
+        <text>我的收入</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" bindtap="goAdjust">
+        <view class="ico swap"></view>
+        <text>登记调课</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" bindtap="goCert">
+        <view class="ico shield"></view>
+        <text>认证资料</text>
+        <text class="chev">›</text>
+      </view>
+      <view class="item" wx:if="{{cert.status === 'approved' && !cert.contractSigned}}" bindtap="goContract">
+        <view class="ico shield"></view>
+        <text>签订合同</text>
+        <text class="need">未签订</text>
+        <text class="chev">›</text>
+      </view>
+    </view>
+
+    <view class="logout" bindtap="logout">
+      <view class="door"></view>
+      <text>退出登录</text>
+    </view>
+  </view>
+</view>

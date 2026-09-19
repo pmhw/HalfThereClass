@@ -1,0 +1,42 @@
+<view class="page">
+  <camera wx:if="{{phase === 'cam'}}" class="cam" device-position="back" flash="{{flash}}" resolution="high" binderror="onCamError">
+    <cover-view class="dim" style="left:0;top:0;width:{{winW}}px;height:{{frame.top}}px;"></cover-view>
+    <cover-view class="dim" style="left:0;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
+    <cover-view class="dim" style="left:{{frame.left + frame.w}}px;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
+    <cover-view class="dim rest" style="left:0;top:{{frame.top + frame.h}}px;width:{{winW}}px;height:{{winH - frame.top - frame.h}}px;"></cover-view>
+
+    <cover-view class="corner" style="left:{{frame.left}}px;top:{{frame.top}}px;border-left-width:4px;border-top-width:4px;"></cover-view>
+    <cover-view class="corner" style="left:{{frame.left + frame.w - 28}}px;top:{{frame.top}}px;border-right-width:4px;border-top-width:4px;"></cover-view>
+    <cover-view class="corner" style="left:{{frame.left}}px;top:{{frame.top + frame.h - 28}}px;border-left-width:4px;border-bottom-width:4px;"></cover-view>
+    <cover-view class="corner" style="left:{{frame.left + frame.w - 28}}px;top:{{frame.top + frame.h - 28}}px;border-right-width:4px;border-bottom-width:4px;"></cover-view>
+
+    <cover-view wx:if="{{side === 'portrait'}}" class="guide photo" style="left:{{frame.left + frame.w - 92}}px;top:{{frame.top + 28}}px;"></cover-view>
+    <cover-view wx:if="{{side === 'emblem'}}" class="guide emblem" style="left:{{frame.left + 22}}px;top:{{frame.top + 18}}px;"></cover-view>
+
+    <cover-view class="nav-back" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;" bindtap="back">返回</cover-view>
+    <cover-view class="nav-title" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;">{{side === 'emblem' ? '拍摄国徽面' : '拍摄人像面'}}</cover-view>
+    <cover-view class="tip" style="top:{{frame.top + frame.h + 18}}px;width:{{winW}}px;">请将身份证{{side === 'emblem' ? '国徽面' : '人像面'}}与框对齐，避免反光</cover-view>
+
+    <cover-view class="tool" style="left:28px;bottom:{{dock}}px;" bindtap="pickAlbum">相册</cover-view>
+    <cover-view class="shutter" style="left:{{shutterLeft}}px;bottom:{{dock}}px;" bindtap="shoot">
+      <cover-view class="shutter-in"></cover-view>
+    </cover-view>
+    <cover-view class="tool right" style="right:28px;bottom:{{dock}}px;" bindtap="toggleFlash">{{flash === 'torch' ? '闪光开' : '闪光'}}</cover-view>
+  </camera>
+
+  <view wx:else class="preview">
+    <view class="nav" style="padding-top: {{padTop}}px;">
+      <view class="back" style="height: {{navH}}px;" bindtap="back">返回</view>
+      <view class="title" style="height: {{navH}}px;">确认{{side === 'emblem' ? '国徽面' : '人像面'}}</view>
+    </view>
+    <view class="sheet">
+      <image class="shot" src="{{preview}}" mode="aspectFit"></image>
+    </view>
+    <view class="actions">
+      <view class="ghost" bindtap="retake">重拍</view>
+      <view class="use" bindtap="usePhoto">使用照片</view>
+    </view>
+  </view>
+
+  <canvas type="2d" id="crop" class="crop"></canvas>
+</view>

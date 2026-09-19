@@ -1,0 +1,176 @@
+<view class="page">
+  <view class="orb orb-a"></view>
+  <view class="orb orb-b"></view>
+
+  <view class="hello">
+    <view class="hello-main">
+      <view class="hello-title">{{greet}}，{{name}}</view>
+      <view class="hello-sub">今天的课、签到和可抢课程</view>
+    </view>
+    <view class="hello-side">
+      <view class="slogan">好的教育<text>从每一堂课开始</text></view>
+      <view class="bell" bindtap="onBell">
+        <view class="bell-body"></view>
+        <view class="bell-clapper"></view>
+      </view>
+    </view>
+  </view>
+
+  <view class="stage">
+    <view class="spark s1"></view>
+    <view class="spark s2"></view>
+    <view class="spark s3"></view>
+    <view class="prop cube-prop">
+      <view class="cube-scene">
+        <view class="cube">
+          <view class="face front">语</view>
+          <view class="face back">数</view>
+          <view class="face right">英</view>
+          <view class="face left">科</view>
+          <view class="face top">史</view>
+          <view class="face bottom">地</view>
+        </view>
+      </view>
+      <view class="shade"></view>
+    </view>
+    <view class="prop pencil-prop">
+      <view class="pencil">
+        <view class="eraser"></view>
+        <view class="ferrule"></view>
+        <view class="pen-body"></view>
+        <view class="wood"></view>
+        <view class="lead"></view>
+      </view>
+      <view class="shade thin"></view>
+    </view>
+    <view class="prop cap-prop">
+      <view class="cap">
+        <view class="mortar"></view>
+        <view class="board"></view>
+        <view class="tassel"></view>
+      </view>
+      <view class="shade wide"></view>
+    </view>
+    <view class="prop card-prop">
+      <view class="formula">
+        <text class="eq">a² + b² = c²</text>
+        <text class="eq soft">E = mc²</text>
+      </view>
+      <view class="shade wide"></view>
+    </view>
+  </view>
+
+  <view class="hero" wx:if="{{today.next}}">
+    <view class="sheen"></view>
+    <view class="hero-top">
+      <view class="hero-main">
+        <view class="hero-label">今日课程 · {{today.total}} 节</view>
+        <view class="hero-row">
+          <view class="hero-time">{{today.next.startTime}}</view>
+          <view class="hero-info">
+            <view class="hero-title">{{today.next.title}}</view>
+            <view class="hero-meta" wx:if="{{today.next.gradeLabel || today.next.school}}">{{today.next.gradeLabel}}<text wx:if="{{today.next.school}}"> · {{today.next.school}}</text></view>
+            <view class="hero-meta" wx:if="{{today.next.classroom}}">{{today.next.classroom}}</view>
+          </view>
+        </view>
+      </view>
+      <template is="eduBook" />
+    </view>
+    <view class="hero-foot">
+      <view class="remain-line">
+        <view class="clock"></view>
+        <text>{{remain}}</text>
+      </view>
+      <view wx:if="{{today.next.isMine}}" class="go" bindtap="goCheckin">{{today.checkedIn ? '已签到' : '去签到'}} ›</view>
+      <view wx:else class="go" bindtap="goNext">查看课程 ›</view>
+    </view>
+  </view>
+  <view class="hero empty-hero" wx:else>
+    <view class="sheen"></view>
+    <view class="hero-top">
+      <view class="hero-main">
+        <view class="hero-label">今日课程</view>
+        <view class="hero-title">今天没有安排</view>
+        <view class="hero-meta">未安排老师的课，可以去课程大厅抢课</view>
+      </view>
+      <template is="eduBook" />
+    </view>
+  </view>
+
+  <view class="section" wx:if="{{today.courses && today.courses.length}}">
+    <view class="section-head">
+      <view class="section-title">今日安排</view>
+      <text class="link-muted" bindtap="goSchedule">查看全部 ›</text>
+    </view>
+    <view class="timeline">
+      <view class="rail"></view>
+      <view class="time-item" wx:for="{{today.courses}}" wx:key="id">
+        <view class="dot {{item.isMine ? 'mine' : ''}}"></view>
+        <view class="time">{{item.startTime}}</view>
+        <view class="body">
+          <view class="name">{{item.title}}</view>
+          <view class="sub">{{item.school || '学校待定'}}<text wx:if="{{item.classroom}}"> · {{item.classroom}}</text></view>
+        </view>
+        <view class="tag mine" wx:if="{{item.isMine}}">我的课</view>
+        <view class="tag wait" wx:elif="{{item.teacherId}}">已排课</view>
+        <view class="tag open" wx:else>可抢课</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">快捷功能</view>
+    <view class="quick">
+      <view class="quick-item" bindtap="goSchedule" hover-class="q-press" hover-stay-time="80">
+        <view class="qicon cal"><view class="pin"></view><view class="pin b"></view><view class="bar"></view></view>
+        <text>课表</text>
+      </view>
+      <view class="quick-item" bindtap="goTeach" hover-class="q-press" hover-stay-time="80">
+        <view class="qicon teach"><view class="head"></view><view class="cap"></view><view class="shoulder"></view></view>
+        <text>授课</text>
+      </view>
+      <view class="quick-item" bindtap="goCheckin" hover-class="q-press" hover-stay-time="80">
+        <view class="qicon check"><view class="tick"></view></view>
+        <text>签到</text>
+      </view>
+      <view class="quick-item" bindtap="goCert" hover-class="q-press" hover-stay-time="80">
+        <view class="qicon badge"><view class="seal"></view></view>
+        <text>认证</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <view class="section-title">可抢课程</view>
+      <text class="more" bindtap="goCourse">课程大厅 ›</text>
+    </view>
+    <scroll-view wx:if="{{recommend.length}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="grab" wx:for="{{recommend}}" wx:key="id" data-id="{{item.id}}" bindtap="openCourse" hover-class="grab-press" hover-stay-time="80">
+        <view class="mark {{item.tone}}">{{item.initial}}</view>
+        <view class="grab-body">
+          <view class="grab-title">{{item.title}}</view>
+          <view class="grab-meta">{{item.gradeLabel || '不限'}}<text wx:if="{{item.school}}"> · {{item.school}}</text></view>
+          <view class="grab-time" wx:if="{{item.when}}">{{item.when}}</view>
+          <view class="grab-tag">可抢课</view>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="empty-line" wx:else>暂时没有未安排老师的课</view>
+  </view>
+</view>
+
+<template name="eduBook">
+  <view class="book">
+    <view class="book3">
+      <view class="cover-l"></view>
+      <view class="pages">
+        <view class="pline"></view>
+        <view class="pline"></view>
+        <view class="pline short"></view>
+      </view>
+      <view class="cover-r"></view>
+    </view>
+    <view class="book-shadow"></view>
+  </view>
+</template>

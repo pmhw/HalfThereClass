@@ -1,0 +1,20 @@
+<view class="course-card" bindtap="onTap">
+  <view class="cover" wx:if="{{course.cover}}">
+    <image src="{{course.cover}}" mode="aspectFill"></image>
+  </view>
+  <view class="cover placeholder" wx:else>{{initial}}</view>
+  <view class="info">
+    <view class="title ellipsis-2">{{course.title}}</view>
+    <view class="meta">{{course.gradeLabel || '不限年级'}}<text wx:if="{{course.classroom}}"> · {{course.classroom}}</text></view>
+    <view class="meta" wx:if="{{course.school}}">{{course.school}}<text wx:if="{{course.classroom}}"> · {{course.classroom}}</text></view>
+    <view class="tags">
+      <text class="tag" wx:if="{{course.category.name}}">{{course.category.name}}</text>
+      <text class="tag blue" wx:if="{{!course.teacherId}}">可抢课</text>
+      <text class="tag" wx:else>已排课</text>
+    </view>
+    <view class="bottom">
+      <text class="time" wx:if="{{course.startTime}}">{{week}} {{course.startTime}}</text>
+      <text class="grab" wx:if="{{course.canGrab}}">去抢课</text>
+    </view>
+  </view>
+</view>

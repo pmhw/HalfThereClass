@@ -1,0 +1,17 @@
+<view class="page">
+  <view class="sum card" wx:if="{{list.length}}">
+    <view class="label">已显示课时费</view>
+    <view class="amount" wx:if="{{total}}">¥{{total}}</view>
+    <view class="amount muted" wx:else>暂未开放</view>
+    <view class="hint">{{count}} 条记录 · 金额以后台结算为准</view>
+  </view>
+  <view wx:if="{{!list.length}}" class="empty">还没有收入记录</view>
+  <view class="card row" wx:for="{{list}}" wx:key="id">
+    <view class="main">
+      <view class="title">{{item.title}}</view>
+      <view class="meta">{{item.date}} · {{item.status === 'unconfigured' ? '未配置费用' : '待结算'}}</view>
+    </view>
+    <view class="fee" wx:if="{{item.showFee}}">¥{{item.teacherFee}}</view>
+    <view class="fee muted" wx:else>未开放</view>
+  </view>
+</view>

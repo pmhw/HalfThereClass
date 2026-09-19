@@ -1,0 +1,12 @@
+.page { padding: 24rpx; }
+.sum { margin-bottom: 20rpx; }
+.label { color: #6b7280; font-size: 24rpx; }
+.amount { margin-top: 8rpx; font-size: 48rpx; font-weight: 700; color: #111827; }
+.amount.muted, .fee.muted { color: #98a2b3; font-weight: 400; }
+.hint { margin-top: 8rpx; color: #98a2b3; font-size: 22rpx; }
+.empty { text-align: center; color: #98a2b3; padding: 80rpx 0; }
+.row { display: flex; align-items: center; gap: 16rpx; margin-bottom: 16rpx; }
+.main { flex: 1; min-width: 0; }
+.title { font-size: 30rpx; font-weight: 600; }
+.meta { margin-top: 6rpx; color: #6b7280; font-size: 24rpx; }
+.fee { color: #2563eb; font-size: 30rpx; font-weight: 650; }

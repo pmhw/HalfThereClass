@@ -1,0 +1,39 @@
+<login-panel wx:if="{{!loggedIn}}" slogan="登录后查看课程时刻表" bind:success="onAuthed" />
+<view class="page" wx:else>
+  <view class="head">
+    <view class="title">课表</view>
+    <view class="month-row">
+      <text class="nav" bindtap="prev">‹</text>
+      <text class="month">{{title}}</text>
+      <text class="nav" bindtap="next">›</text>
+    </view>
+  </view>
+  <view class="week-head">
+    <text wx:for="{{weekLabels}}" wx:key="*this">{{item}}</text>
+  </view>
+  <view class="grid">
+    <view class="cell {{item.empty ? 'empty' : ''}} {{item.on ? 'on' : ''}} {{item.rest ? 'rest' : ''}} {{item.work ? 'work' : ''}}" wx:for="{{cells}}" wx:key="key" data-date="{{item.date}}" bindtap="onDay">
+      <text class="flag" wx:if="{{item.rest}}">休</text>
+      <text class="flag ban" wx:elif="{{item.work}}">班</text>
+      <text class="num" wx:if="{{!item.empty}}">{{item.day}}</text>
+      <text class="fest" wx:if="{{item.holiday}}">{{item.holiday}}</text>
+      <view class="dot {{item.off ? 'off' : ''}}" wx:elif="{{item.count}}"></view>
+    </view>
+  </view>
+  <view class="list">
+    <view class="day-note" wx:if="{{selectedMark}}">{{selectedMark}}</view>
+    <view class="item card" wx:for="{{visible}}" wx:key="id" data-id="{{item.courseId}}" bindtap="open">
+      <view class="time">
+        <view>{{item.startTime}}</view>
+        <view class="hours" wx:if="{{item.hours}}">{{item.hours}}</view>
+      </view>
+      <view class="body">
+        <view class="name">{{item.title}}</view>
+        <view class="sub">{{item.school}} · {{item.gradeLabel}}</view>
+        <view class="sub">{{item.classroom}}<text wx:if="{{item.note}}"> · {{item.note}}</text></view>
+      </view>
+      <view class="tag {{item.isMine ? 'mine' : ''}}">{{item.label}}</view>
+    </view>
+    <view class="tip" wx:if="{{!visible.length}}">这天没有课</view>
+  </view>
+</view>

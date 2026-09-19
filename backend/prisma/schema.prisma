@@ -1,0 +1,429 @@
+// 半堂课 - 数据库模型
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id           Int        @id @default(autoincrement())
+  openid       String     @unique @map("openid")
+  nickname     String?    @map("nickname")
+  avatar       String?    @map("avatar")
+  phone        String?    @unique @map("phone")
+  gender       String?    @map("gender")
+  unionid      String?    @unique @map("unionid")
+  role         String     @default("user") @map("role") // user, teacher, admin
+  status       Int        @default(1) @map("status") // 1:正常 0:冻结
+  organizationId Int?     @map("organization_id")
+  parentId     Int?       @map("parent_id")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  orders       Order[]
+  comments     Comment[]
+  userCourses  UserCourse[]
+  lessonProgress LessonProgress[]
+  teacherCert  TeacherCert?
+  teachingCourses Course[] @relation("TeachingCourses")
+  checkIns     CheckIn[]
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  parent       User?      @relation("TeacherSuperior", fields: [parentId], references: [id], onDelete: SetNull)
+  subordinates User[]     @relation("TeacherSuperior")
+  grants       TeacherCourseGrant[]
+  incomes      SessionIncome[]
+
+  @@map("users")
+}
+
+// 课程分类表
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @map("name")
+  icon        String?   @map("icon")
+  sort        Int       @default(0) @map("sort")
+  status      Int       @default(1) @map("status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  courses     Course[]
+
+  @@map("categories")
+}
+
+// 课程表
+model Course {
+  id          Int       @id @default(autoincrement())
+  title       String    @map("title")
+  description String?   @map("description")
+  cover       String?   @map("cover")
+  price       Float     @default(0) @map("price")
+  originalPrice Float?  @map("original_price")
+  categoryId  Int       @map("category_id")
+  teacherId   Int?      @map("teacher_id")
+  school      String?   @map("school")
+  schoolId    Int?      @map("school_id")
+  province    String?   @map("province")
+  city        String?   @map("city")
+  classroom   String?   @map("classroom")
+  gradeLabel  String?   @map("grade_label")
+  weekday     Int?      @map("weekday")
+  startTime   String?   @map("start_time")
+  endTime     String?   @map("end_time")
+  seats       Int       @default(1) @map("seats")
+  level       String?   @default("beginner") @map("level") // beginner, intermediate, advanced
+  studentCount Int      @default(0) @map("student_count")
+  lessonCount  Int      @default(0) @map("lesson_count")
+  duration     Int      @default(0) @map("duration") // 总时长（分钟）
+  rating      Float     @default(0) @map("rating")
+  reviewCount Int       @default(0) @map("review_count")
+  isFree      Boolean   @default(false) @map("is_free")
+  isRecommend Boolean   @default(false) @map("is_recommend")
+  isHot       Boolean   @default(false) @map("is_hot")
+  sessionFee  Float?    @map("session_fee")
+  status      Int       @default(1) @map("status") // 1:上架 0:下架
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  category    Category  @relation(fields: [categoryId], references: [id])
+  teacher     User?     @relation("TeachingCourses", fields: [teacherId], references: [id])
+  campus      School?   @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  lessons     Lesson[]
+  orders      Order[]
+  comments    Comment[]
+  userCourses UserCourse[]
+  checkIns    CheckIn[]
+  sessions    CourseSession[]
+  grants      TeacherCourseGrant[]
+  incomes     SessionIncome[]
+
+  @@index([categoryId])
+  @@index([teacherId])
+  @@map("courses")
+}
+
+// 课时表
+model Lesson {
+  id          Int       @id @default(autoincrement())
+  courseId    Int       @map("course_id")
+  title       String    @map("title")
+  description String?   @map("description")
+  videoUrl    String?   @map("video_url")
+  duration    Int       @default(0) @map("duration") // 时长（秒）
+  sort        Int       @default(0) @map("sort")
+  isFree      Boolean   @default(false) @map("is_free")
+  status      Int       @default(1) @map("status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress    LessonProgress[]
+
+  @@index([courseId])
+  @@map("lessons")
+}
+
+// 用户课程表（购买记录）
+model UserCourse {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  courseId    Int       @map("course_id")
+  orderId     Int?      @map("order_id")
+  progress    Int       @default(0) @map("progress") // 学习进度百分比
+  lastLessonId Int?     @map("last_lesson_id")
+  lastLearnAt DateTime? @map("last_learn_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  course      Course    @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId])
+  @@map("user_courses")
+}
+
+// 课时学习进度表
+model LessonProgress {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  lessonId    Int       @map("lesson_id")
+  progress    Int       @default(0) @map("progress") // 观看进度（秒）
+  isCompleted Boolean   @default(false) @map("is_completed")
+  lastWatchAt DateTime  @default(now()) @map("last_watch_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+// 订单表
+model Order {
+  id          Int       @id @default(autoincrement())
+  orderNo     String    @unique @map("order_no")
+  userId      Int       @map("user_id")
+  courseId    Int       @map("course_id")
+  amount      Float     @map("amount")
+  payAmount   Float?    @map("pay_amount")
+  status      String    @default("pending") @map("status") // pending, paid, cancelled, refunded
+  payType     String?   @map("pay_type") // wechat
+  payTime     DateTime? @map("pay_time")
+  transactionId String? @map("transaction_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  course      Course    @relation(fields: [courseId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+// 评论表
+model Comment {
+  id          Int       @id @default(autoincrement())
+  courseId    Int       @map("course_id")
+  userId      Int       @map("user_id")
+  rating      Int       @map("rating") // 1-5
+  content     String?   @map("content")
+  images      String?   @map("images") // JSON 数组
+  isAnonymous Boolean   @default(false) @map("is_anonymous")
+  status      Int       @default(1) @map("status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@map("comments")
+}
+
+// 轮播图表
+model Banner {
+  id          Int       @id @default(autoincrement())
+  title       String?   @map("title")
+  image       String    @map("image")
+  linkUrl     String?   @map("link_url")
+  sort        Int       @default(0) @map("sort")
+  status      Int       @default(1) @map("status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("banners")
+}
+
+// 教师认证
+model TeacherCert {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique @map("user_id")
+  realName    String   @map("real_name")
+  gender      String?  @map("gender")
+  teacherNo   String?  @unique @map("teacher_no")
+  status      String   @default("pending") @map("status") // pending, approved, rejected, frozen
+  idCard      String?  @map("id_card")
+  idCardBack  String?  @map("id_card_back")
+  diploma     String?  @map("diploma")
+  clearance   String?  @map("clearance")
+  clearanceStatus String @default("none") @map("clearance_status") // none, pending, approved, rejected
+  clearanceSemesterId Int? @map("clearance_semester_id")
+  certificate String?  @map("certificate")
+  contractStatus String @default("none") @map("contract_status") // none, signed
+  contractSignedAt DateTime? @map("contract_signed_at")
+  contractSign String? @map("contract_sign")
+  bio         String?  @map("bio")
+  skills      String?  @map("skills")
+  rejectReason String? @map("reject_reason")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("teacher_certs")
+}
+
+// 上课签到
+model CheckIn {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  courseId  Int      @map("course_id")
+  date      String   @map("date")
+  place     String?  @map("place")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId, date])
+  @@map("check_ins")
+}
+
+// 学期：春季截止到放暑假前，秋季截止到放寒假前
+model Semester {
+  id        Int       @id @default(autoincrement())
+  name      String    @map("name")
+  year      Int       @map("year")
+  season    String    @map("season") // spring, autumn
+  startDate String    @map("start_date")
+  endDate   String    @map("end_date")
+  status    Int       @default(1) @map("status")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  holidays  Holiday[]
+  sessions  CourseSession[]
+
+  @@map("semesters")
+}
+
+model Holiday {
+  id         Int      @id @default(autoincrement())
+  semesterId Int      @map("semester_id")
+  date       String   @map("date")
+  name       String   @map("name")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+
+  @@unique([semesterId, date])
+  @@map("holidays")
+}
+
+// 具体上课日。循环生成的记录可被节假日和老师登记覆盖
+model CourseSession {
+  id         Int      @id @default(autoincrement())
+  courseId   Int      @map("course_id")
+  semesterId Int      @map("semester_id")
+  date       String   @map("date")
+  startTime  String   @map("start_time")
+  endTime    String?  @map("end_time")
+  weekday    Int      @map("weekday")
+  kind       String   @default("normal") @map("kind") // normal, extra, makeup
+  status     String   @default("scheduled") @map("status") // scheduled, holiday, cancelled, rescheduled, observe
+  source     String   @default("generated") @map("source") // generated, teacher
+  locked     Boolean  @default(false) @map("locked")
+  note       String?  @map("note")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, date])
+  @@index([semesterId, date])
+  @@map("course_sessions")
+}
+
+// 后台管理员。权限按功能分配，和学生账号分开
+model AdminAccount {
+  id          Int       @id @default(autoincrement())
+  username    String    @unique @map("username")
+  password    String    @map("password")
+  name        String    @default("管理员") @map("name")
+  permissions String    @default("[]") @map("permissions")
+  isSuper     Boolean   @default(false) @map("is_super")
+  status      Int       @default(1) @map("status")
+  failCount   Int       @default(0) @map("fail_count")
+  lockedUntil DateTime? @map("locked_until")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("admin_accounts")
+}
+
+// 管理机构。和教师上级是两套关系，教师可以不绑定机构
+model Organization {
+  id               Int      @id @default(autoincrement())
+  name             String   @map("name")
+  logo             String?  @map("logo")
+  contactName      String?  @map("contact_name")
+  phone            String?  @map("phone")
+  address          String?  @map("address")
+  intro            String?  @map("intro")
+  status           Int      @default(1) @map("status")
+  feeVisibility    String   @default("final") @map("fee_visibility") // full, final, hidden
+  commissionMode   String   @default("percent") @map("commission_mode") // percent, fixed
+  commissionValue  Float    @default(0) @map("commission_value")
+  corpName         String?  @map("corp_name")
+  taxNo            String?  @map("tax_no")
+  bankName         String?  @map("bank_name")
+  bankAccount      String?  @map("bank_account")
+  corpAddress      String?  @map("corp_address")
+  corpPhone        String?  @map("corp_phone")
+  corpRaw          String?  @map("corp_raw")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  teachers         User[]
+
+  @@map("organizations")
+}
+
+model School {
+  id        Int      @id @default(autoincrement())
+  name      String   @map("name")
+  address   String?  @map("address")
+  province  String?  @map("province")
+  city      String?  @map("city")
+  lng       Float?   @map("lng")
+  lat       Float?   @map("lat")
+  status    Int      @default(1) @map("status")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  courses   Course[]
+
+  @@map("schools")
+}
+
+// 教师被授权的课程，以及该教师在这门课上的特殊费用规则
+model TeacherCourseGrant {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  courseId   Int      @map("course_id")
+  baseFee    Float?   @map("base_fee")
+  mode       String?  @map("mode") // percent, fixed；空则继承机构默认
+  value      Float?   @map("value")
+  visibility String?  @map("visibility") // full, final, hidden；空则继承机构
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("teacher_course_grants")
+}
+
+// 一节课结算后的收入。金额只在服务端写入
+model SessionIncome {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  courseId       Int      @map("course_id")
+  organizationId Int?     @map("organization_id")
+  date           String   @map("date")
+  baseFee        Float?   @map("base_fee")
+  commission     Float?   @map("commission")
+  teacherFee     Float?   @map("teacher_fee")
+  visibility     String   @default("final") @map("visibility")
+  status         String   @default("pending") @map("status") // pending, settled, unconfigured
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId, date])
+  @@map("session_incomes")
+}
+
+// 后台可改的配置。高德 Key 存在这里，不写进代码
+model AppSetting {
+  key       String   @id
+  value     String   @default("")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}

@@ -1,0 +1,81 @@
+<view class="page {{step === 'profile' ? 'is-profile' : ''}}">
+  <view class="brand">
+    <view class="mark">N</view>
+    <view class="app-name">诺维思</view>
+    <view class="brand-en">NOVIS</view>
+    <view class="slogan">{{slogan}}</view>
+  </view>
+
+  <block wx:if="{{step === 'login'}}">
+    <view class="hint">勾选协议后进行微信授权登录。登录成功后再获取头像和昵称。</view>
+    <view class="agree">
+      <view class="box {{agreed ? 'on' : ''}}" bindtap="toggleAgree"></view>
+      <view class="agree-text">
+        <text bindtap="toggleAgree">我已阅读并同意</text>
+        <text class="link" catchtap="openAgreement">《{{agreementTitle}}》</text>
+        <text bindtap="toggleAgree">和</text>
+        <text class="link" catchtap="openPrivacy">{{privacyName}}</text>
+      </view>
+    </view>
+    <button wx:if="{{!agreed}}" class="login-btn ghost" hover-class="none" bindtap="needAgree">微信授权登录</button>
+    <button
+      wx:else
+      class="login-btn"
+      hover-class="login-btn-hover"
+      bindtap="onWxAuth"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+    >微信授权登录</button>
+  </block>
+
+  <view wx:else class="form">
+    <view class="step-title">登录成功</view>
+    <view class="hint">点头像使用微信头像。昵称不用手打，点输入框后在键盘上方选择。</view>
+    <view class="avatar-slot">
+      <button class="avatar-btn" hover-class="none" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image wx:if="{{avatar}}" src="{{avatar}}" mode="aspectFill"></image>
+        <text wx:else>头像</text>
+      </button>
+    </view>
+    <view class="field-tip" wx:if="{{needAvatar}}">请先点头像，使用微信头像</view>
+    <view class="nick-wrap {{needNick ? 'warn' : ''}}">
+      <text class="nick-label">昵称</text>
+      <input
+        class="nick"
+        type="nickname"
+        name="nickname"
+        placeholder="使用微信昵称"
+        placeholder-class="nick-placeholder"
+        maxlength="30"
+        focus="{{nickFocus}}"
+        bindfocus="onNickFocus"
+        bindinput="onNick"
+        bindblur="onNick"
+        bindnicknamereview="onNickReview"
+      />
+    </view>
+    <view class="field-tip" wx:if="{{needNick}}">键盘上方会显示你的微信昵称，点一下即可</view>
+    <button class="login-btn" hover-class="login-btn-hover" bindtap="onProfile" loading="{{loading}}" disabled="{{loading}}">进入诺维思</button>
+  </view>
+
+  <view class="mask" wx:if="{{showPrivacy}}" catchtap="noop">
+    <view class="privacy" catchtap="noop">
+      <view class="step-title">隐私授权</view>
+      <view class="hint">使用头像和昵称前，需要先同意{{privacyName}}。</view>
+      <button class="login-btn ghost" hover-class="none" bindtap="openPrivacy">查看隐私保护指引</button>
+      <button class="login-btn" hover-class="login-btn-hover" open-type="agreePrivacyAuthorization" bindagreeprivacyauthorization="onPrivacyOk">同意并继续</button>
+    </view>
+  </view>
+
+  <view class="mask" wx:if="{{showAgreement}}">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-head">
+        <text>{{agreementTitle}}</text>
+        <text class="close" catchtap="closeAgreement">×</text>
+      </view>
+      <scroll-view scroll-y class="sheet-body">
+        <text class="sheet-text">{{agreementContent}}</text>
+      </scroll-view>
+    </view>
+  </view>
+</view>

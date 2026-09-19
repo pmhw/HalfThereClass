@@ -1,0 +1,40 @@
+.course-card {
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx;
+  background: #fff;
+  border: 1rpx solid #e7edf5;
+  border-radius: 32rpx;
+}
+.cover, .cover image {
+  width: 168rpx;
+  height: 168rpx;
+  border-radius: 24rpx;
+  flex-shrink: 0;
+}
+.placeholder {
+  background: #eef4ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48rpx;
+  font-weight: 600;
+}
+.info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.title { font-size: 30rpx; font-weight: 600; color: #111827; line-height: 1.4; }
+.meta { margin-top: 6rpx; font-size: 24rpx; color: #6b7280; }
+.tags { display: flex; gap: 8rpx; margin-top: 12rpx; }
+.tag {
+  height: 36rpx;
+  line-height: 36rpx;
+  padding: 0 12rpx;
+  border-radius: 999rpx;
+  background: #f3f5f8;
+  color: #475467;
+  font-size: 20rpx;
+}
+.tag.blue { background: #eef4ff; color: #2563eb; }
+.bottom { margin-top: auto; display: flex; justify-content: space-between; align-items: center; padding-top: 12rpx; }
+.time { font-size: 24rpx; color: #111827; }
+.grab { font-size: 24rpx; color: #2563eb; font-weight: 600; }

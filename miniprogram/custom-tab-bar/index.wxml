@@ -1,0 +1,21 @@
+<view class="bar">
+  <view class="shell">
+    <view class="shine"></view>
+    <view class="pill" style="left: {{pillLeft}}; width: {{pillWidth}};"></view>
+    <view
+      class="item {{index === selected ? 'on' : ''}}"
+      wx:for="{{list}}"
+      wx:key="text"
+      data-index="{{index}}"
+      bindtap="onTap"
+      hover-class="item-hover"
+      hover-stay-time="70"
+    >
+      <image class="icon" src="{{index === selected ? item.iconActive : item.icon}}" mode="aspectFit"></image>
+      <view class="label-box">
+        <text class="label reflect">{{item.text}}</text>
+        <text class="label">{{item.text}}</text>
+      </view>
+    </view>
+  </view>
+</view>

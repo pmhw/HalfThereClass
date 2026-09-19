@@ -1,0 +1,31 @@
+<view class="page">
+  <!-- Tab -->
+  <view class="tab-bar">
+    <view class="tab-item {{currentTab === item.key ? 'active' : ''}}" wx:for="{{tabs}}" wx:key="key" data-key="{{item.key}}" bindtap="onTabTap">{{item.label}}</view>
+  </view>
+
+  <!-- 订单列表 -->
+  <view class="order-list">
+    <view class="order-item card" wx:for="{{orderList}}" wx:key="id">
+      <view class="order-header">
+        <text class="order-no">订单号：{{item.orderNo}}</text>
+        <text class="order-status {{item.status}}">
+          {{item.status === 'pending' ? '待支付' : item.status === 'paid' ? '已支付' : item.status === 'cancelled' ? '已取消' : '已退款'}}
+        </text>
+      </view>
+      <view class="order-body" data-id="{{item.courseId}}" bindtap="goCourseDetail">
+        <image class="course-cover" src="{{item.course.cover}}" mode="aspectFill"></image>
+        <view class="course-info">
+          <view class="course-title ellipsis-2">{{item.course.title}}</view>
+        </view>
+      </view>
+      <view class="order-footer">
+        <text class="amount">实付：<text class="price">¥{{item.payAmount || item.amount}}</text></text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty" wx:if="{{!loading && orderList.length === 0}}">
+    <text>暂无订单</text>
+  </view>
+</view>

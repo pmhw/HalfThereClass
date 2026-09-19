@@ -1,0 +1,27 @@
+<view class="page" wx:if="{{course}}">
+  <view class="banner">{{initial}}</view>
+  <view class="main card">
+    <view class="title">{{course.title}}</view>
+    <view class="rate">★ {{course.rating || '暂无评分'}}</view>
+    <view class="line">适合 {{course.gradeLabel || '不限'}}</view>
+    <view class="line" wx:if="{{course.startTime}}">{{week}} {{course.startTime}}-{{course.endTime}}</view>
+    <view class="line">{{course.school || '学校待定'}} {{course.classroom || ''}}</view>
+    <view class="line">教师：{{course.teacherName || '待安排'}}</view>
+  </view>
+
+  <view class="card block">
+    <view class="h">课程介绍</view>
+    <view class="p">{{course.description || '暂无介绍'}}</view>
+  </view>
+
+  <view class="bar safe-bottom">
+    <button wx:if="{{course.canGrab}}" class="btn btn-primary btn-block" bindtap="onGrab">立即抢课</button>
+    <view wx:elif="{{course.isMine}}" class="bar-row">
+      <button class="btn btn-block" bindtap="goAdjust">登记调课</button>
+      <button class="btn btn-primary btn-block" bindtap="goCheckin">去签到</button>
+    </view>
+    <button wx:elif="{{course.teacherId}}" class="btn btn-block" disabled>已安排老师</button>
+    <button wx:elif="{{course.certified && !course.contractSigned}}" class="btn btn-primary btn-block" bindtap="goContract">签订合同后抢课</button>
+    <button wx:else class="btn btn-primary btn-block" bindtap="onGrab">认证后抢课</button>
+  </view>
+</view>

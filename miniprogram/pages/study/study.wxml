@@ -1,0 +1,36 @@
+<view class="page" wx:if="{{lesson}}">
+  <!-- 视频播放区域 -->
+  <view class="video-container">
+    <view class="video-placeholder">
+      <view class="play-btn" bindtap="{{isPlaying ? 'onPause' : 'onPlay'}}">
+        {{isPlaying ? '⏸' : '▶'}}
+      </view>
+    </view>
+
+    <!-- 进度条 -->
+    <view class="progress-area">
+      <text class="time">{{currentTime}}s</text>
+      <view class="progress-bar">
+        <view class="progress-inner" style="width: {{duration > 0 ? (currentTime / duration * 100) : 0}}%"></view>
+      </view>
+      <text class="time">{{duration}}s</text>
+    </view>
+  </view>
+
+  <!-- 课时信息 -->
+  <view class="lesson-info card">
+    <view class="lesson-title">{{lesson.title}}</view>
+    <view class="course-name">{{courseTitle}}</view>
+    <view class="lesson-desc" wx:if="{{lesson.description}}">
+      {{lesson.description}}
+    </view>
+  </view>
+
+  <!-- 学习状态 -->
+  <view class="status-card card">
+    <view class="status-item">
+      <text class="label">学习进度</text>
+      <text class="value">{{lesson.isCompleted ? '已完成' : '学习中'}}</text>
+    </view>
+  </view>
+</view>
