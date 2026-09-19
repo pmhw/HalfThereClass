@@ -34,11 +34,17 @@ curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-i
 curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo bash
 ```
 
-指定端口 / 版本：
+指定端口 / 版本（`TAG` 可跳过版本探测；安装脚本**不再依赖** `api.github.com`，避免国内代理 403）：
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=8080 bash
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 TAG=v1.0.1 bash
+```
+
+若镜像仍失败，可浏览器下载 Release 包后放到可访问 URL，再：
+
+```bash
+sudo CN_MIRROR=1 RELEASE_URL='https://你的地址/HalfThereClass-v1.0.1-ubuntu22.tar.gz' bash remote-install.sh
 ```
 
 自定义 GitHub 代理前缀（可选）：

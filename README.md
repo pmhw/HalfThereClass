@@ -26,7 +26,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-i
 curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/remote-install.sh | sudo bash
 ```
 
-指定端口 / 版本：
+指定端口 / 版本（推荐带 `TAG`，不走 GitHub API，避免国内 403）：
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=8080 bash

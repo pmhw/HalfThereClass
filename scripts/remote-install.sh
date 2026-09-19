@@ -13,7 +13,8 @@
 #   PORT=3000
 #   INSTALL_DIR=/opt/HalfThereClass
 #   GITHUB_TOKEN=xxx   # 私有仓库下载 Release 时需要
-#   TAG=v1.0.1         # 指定版本，默认最新
+#   TAG=v1.0.1         # 指定版本（推荐；不走 API）
+#   RELEASE_URL=...    # 直接指定包 URL 或本地路径式 http 地址
 #   APP_USER=halfthere
 #   CN_MIRROR=1        # 启用国内镜像（GitHub 代理 + npm 淘宝源）
 #   GITHUB_PROXY=https://ghfast.top/   # 自定义 GitHub 代理前缀
@@ -150,63 +151,131 @@ ensure_user() {
   fi
 }
 
-github_api() {
-  local url="$1"
-  local proxied
-  proxied="$(proxy_url "${url}")"
-  yellow "请求: ${proxied}"
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_get -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${proxied}"
-  else
-    curl_get -H "Accept: application/vnd.github+json" -H "User-Agent: HalfThereClass-Installer" "${proxied}"
+# 不依赖 api.github.com（国内代理常对 API 返回 403）
+resolve_version() {
+  if [[ -n "${TAG:-}" ]]; then
+    printf '%s' "${TAG#v}"
+    return
   fi
+  local ver="" url
+  local -a version_urls=(
+    "https://cdn.jsdelivr.net/gh/${REPO}@main/VERSION"
+    "https://cdn.jsdelivr.net/gh/${REPO}/VERSION"
+    "https://raw.gitmirror.com/${REPO}/main/VERSION"
+    "https://ghfast.top/https://raw.githubusercontent.com/${REPO}/main/VERSION"
+    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/${REPO}/main/VERSION"
+    "https://raw.githubusercontent.com/${REPO}/main/VERSION"
+  )
+  for url in "${version_urls[@]}"; do
+    yellow "读取版本: ${url}"
+    if ver="$(curl_get -sS "${url}" 2>/dev/null | tr -d '\r\n' | head -1)"; then
+      ver="${ver#v}"
+      if [[ "${ver}" =~ ^[0-9]+\.[0-9]+ ]]; then
+        printf '%s' "${ver}"
+        return
+      fi
+    fi
+  done
+  return 1
+}
+
+# 生成候选下载地址（直连 + 多个国内代理）
+release_download_urls() {
+  local ver="$1"
+  local asset="HalfThereClass-v${ver}-ubuntu22.tar.gz"
+  local base="https://github.com/${REPO}/releases/download/v${ver}/${asset}"
+  local p
+  # 用户自定义代理优先
+  if [[ -n "${GITHUB_PROXY:-}" ]]; then
+    p="${GITHUB_PROXY}"
+    [[ "${p}" == */ ]] || p="${p}/"
+    echo "${p}${base}"
+  fi
+  echo "https://ghfast.top/${base}"
+  echo "https://mirror.ghproxy.com/${base}"
+  echo "https://ghproxy.net/${base}"
+  echo "https://wget.la/${base}"
+  echo "https://gitdl.cn/${base}"
+  echo "${base}"
+}
+
+try_download() {
+  local out="$1"
+  shift
+  local url
+  for url in "$@"; do
+    [[ -n "${url}" ]] || continue
+    yellow "尝试下载: ${url}"
+    rm -f "${out}"
+    if curl_get -H "User-Agent: HalfThereClass-Installer" -o "${out}" "${url}"; then
+      # 拒绝明显失败的小文件（403 HTML / 代理错误页）
+      local size
+      size="$(wc -c < "${out}" | tr -d ' ')"
+      if [[ "${size}" -lt 100000 ]]; then
+        yellow "文件过小 (${size} bytes)，视为失败，换源..."
+        rm -f "${out}"
+        continue
+      fi
+      # tar.gz 应为 gzip；代理常返回 403 HTML
+      if ! python3 -c '
+import sys
+with open(sys.argv[1],"rb") as f: b=f.read(2)
+sys.exit(0 if b==b"\x1f\x8b" else 1)
+' "${out}" 2>/dev/null; then
+        yellow "内容不是 gzip 包，换源..."
+        rm -f "${out}"
+        continue
+      fi
+      green "下载成功: ${url}"
+      return 0
+    fi
+    yellow "失败，换下一个镜像..."
+  done
+  return 1
 }
 
 download_release() {
   local tmp="$1"
-  local api="https://api.github.com/repos/${REPO}/releases/latest"
-  if [[ -n "${TAG:-}" ]]; then
-    api="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
+
+  # 手动指定完整包 URL / 本地路径时跳过探测
+  if [[ -n "${RELEASE_URL:-}" ]]; then
+    step "使用 RELEASE_URL 下载..."
+    local name
+    name="$(basename "${RELEASE_URL%%\?*}")"
+    ARCHIVE_PATH="${tmp}/${name}"
+    if [[ -f "${RELEASE_URL}" ]]; then
+      cp -a "${RELEASE_URL}" "${ARCHIVE_PATH}"
+      green "已使用本地文件: ${RELEASE_URL}"
+    elif ! try_download "${ARCHIVE_PATH}" "${RELEASE_URL}" "$(proxy_url "${RELEASE_URL}")"; then
+      red "RELEASE_URL 下载失败"
+      exit 1
+    fi
+    VERSION_RESOLVED="$(printf '%s' "${name}" | sed -n 's/.*-v\([0-9.]*\)-ubuntu22.*/\1/p')"
+    VERSION_RESOLVED="${VERSION_RESOLVED:-unknown}"
+    green "下载完成 ($(du -h "${ARCHIVE_PATH}" | awk '{print $1}'))"
+    return
   fi
-  step "获取 GitHub Release 元数据..."
-  local json meta asset_url asset_name
-  if ! json="$(github_api "${api}")"; then
-    red "无法访问 GitHub API。国内请加 CN_MIRROR=1，或检查网络/代理。"
+
+  step "解析发布版本（不走 GitHub API，避免国内 403）..."
+  local ver
+  if ! ver="$(resolve_version)"; then
+    red "无法读取版本号。可手动指定：TAG=v1.0.1 或 RELEASE_URL=包地址"
     exit 1
   fi
-  meta="$(printf '%s' "${json}" | python3 -c '
-import json,sys
-data=json.load(sys.stdin)
-assets=data.get("assets") or []
-pick=None
-for a in assets:
-    name=a.get("name") or ""
-    if "ubuntu22" in name and name.endswith(".tar.gz"):
-        pick=a
-        break
-if not pick:
-    for a in assets:
-        if (a.get("name") or "").endswith(".tar.gz"):
-            pick=a
-            break
-if not pick:
-    raise SystemExit("release asset not found")
-print(pick["browser_download_url"])
-print(pick["name"])
-print((data.get("tag_name") or "latest").lstrip("v"))
-')"
-  asset_url="$(printf '%s\n' "${meta}" | sed -n '1p')"
-  asset_name="$(printf '%s\n' "${meta}" | sed -n '2p')"
-  VERSION_RESOLVED="$(printf '%s\n' "${meta}" | sed -n '3p')"
-  asset_url="$(proxy_url "${asset_url}")"
-  step "下载发布包 ${asset_name} (v${VERSION_RESOLVED}) ..."
-  yellow "地址: ${asset_url}"
+  VERSION_RESOLVED="${ver}"
+  local asset_name="HalfThereClass-v${ver}-ubuntu22.tar.gz"
   ARCHIVE_PATH="${tmp}/${asset_name}"
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_get -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/octet-stream" \
-      -H "User-Agent: HalfThereClass-Installer" -o "${ARCHIVE_PATH}" "${asset_url}"
-  else
-    curl_get -H "User-Agent: HalfThereClass-Installer" -o "${ARCHIVE_PATH}" "${asset_url}"
+
+  step "下载发布包 ${asset_name} ..."
+  # shellcheck disable=SC2207
+  local -a urls
+  mapfile -t urls < <(release_download_urls "${ver}" | awk 'NF && !seen[$0]++')
+  if ! try_download "${ARCHIVE_PATH}" "${urls[@]}"; then
+    red "所有镜像均下载失败。"
+    echo "可手动下载后上传到服务器，再执行："
+    echo "  sudo RELEASE_URL=/path/or/https://.../HalfThereClass-v${ver}-ubuntu22.tar.gz bash remote-install.sh"
+    echo "或指定版本重试： sudo CN_MIRROR=1 TAG=v${ver} bash ..."
+    exit 1
   fi
   green "下载完成 ($(du -h "${ARCHIVE_PATH}" | awk '{print $1}'))"
 }
