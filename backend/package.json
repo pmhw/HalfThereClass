@@ -1,6 +1,6 @@
 {
   "name": "half-there-class-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "半堂课 - 课程平台后端接口",
   "private": true,
   "scripts": {
