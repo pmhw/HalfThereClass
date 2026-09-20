@@ -1,4 +1,9 @@
 {
+  "navigationStyle": "custom",
   "navigationBarTitleText": "教师认证",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#f4f7fb",
+  "backgroundColorTop": "#f4f7fb",
+  "backgroundColorBottom": "#f4f7fb",
   "usingComponents": {}
 }

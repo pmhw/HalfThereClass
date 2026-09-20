@@ -65,7 +65,8 @@
     "empty": "/components/empty/empty",
     "loading": "/components/loading/loading",
     "price": "/components/price/price",
-    "progress-bar": "/components/progress-bar/progress-bar"
+    "progress-bar": "/components/progress-bar/progress-bar",
+    "privacy-popup": "/components/privacy-popup/privacy-popup"
   },
   "permission": {
     "scope.camera": {

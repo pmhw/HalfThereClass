@@ -1,0 +1,18 @@
+.mask {
+  position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 80;
+  background: rgba(17, 24, 39, .45);
+  display: flex; align-items: flex-end;
+}
+.card {
+  width: 100%; background: #fff; border-radius: 32rpx 32rpx 0 0;
+  padding: 40rpx 40rpx calc(32rpx + env(safe-area-inset-bottom)); box-sizing: border-box;
+}
+.title { font-size: 34rpx; font-weight: 700; color: #111827; text-align: center; }
+.desc { margin-top: 16rpx; color: #667085; font-size: 26rpx; line-height: 1.6; }
+.link { margin-top: 8rpx; background: transparent; color: #2563eb; font-size: 26rpx; }
+.link::after, .ok::after, .no::after { border: 0; }
+.ok {
+  margin-top: 28rpx; height: 88rpx; line-height: 88rpx; border-radius: 44rpx;
+  background: #2563eb; color: #fff; font-size: 30rpx; font-weight: 650;
+}
+.no { margin-top: 8rpx; background: transparent; color: #98a2b3; font-size: 26rpx; }

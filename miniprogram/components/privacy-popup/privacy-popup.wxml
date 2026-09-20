@@ -1,0 +1,9 @@
+<view class="mask" wx:if="{{show}}" catchtap="noop">
+  <view class="card" catchtap="noop">
+    <view class="title">隐私保护指引</view>
+    <view class="desc">使用头像、摄像头或选择文件前，请先阅读并同意{{name}}。同意后微信会继续刚才的操作，不会再弹这一层。</view>
+    <button class="link" hover-class="none" bindtap="openContract">查看{{name}}</button>
+    <button id="privacy-agree-btn" class="ok" hover-class="none" open-type="agreePrivacyAuthorization" bindagreeprivacyauthorization="onAgree">同意</button>
+    <button class="no" hover-class="none" bindtap="onRefuse">暂不同意</button>
+  </view>
+</view>

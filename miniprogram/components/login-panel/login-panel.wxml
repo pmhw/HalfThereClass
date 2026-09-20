@@ -30,7 +30,7 @@
 
   <view wx:else class="form">
     <view class="step-title">完善资料</view>
-    <view class="hint">头像请点圆圈，在弹窗里选「用微信头像」。昵称请点输入框，再点键盘上方的微信昵称。</view>
+    <view class="hint">点头像后，若还没同意隐私保护指引，微信只弹一次。同意后再选「用微信头像」。昵称请点输入框，再点键盘上方的微信昵称。</view>
     <form bindsubmit="onProfile">
       <view class="avatar-slot">
         <button class="avatar-btn" hover-class="none" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
@@ -62,14 +62,7 @@
     </form>
   </view>
 
-  <view class="mask" wx:if="{{showPrivacy}}" catchtap="noop">
-    <view class="privacy" catchtap="noop">
-      <view class="step-title">隐私授权</view>
-      <view class="hint">使用头像和昵称前，需要先同意{{privacyName}}。</view>
-      <button class="login-btn ghost" hover-class="none" bindtap="openPrivacy">查看隐私保护指引</button>
-      <button class="login-btn" hover-class="login-btn-hover" open-type="agreePrivacyAuthorization" bindagreeprivacyauthorization="onPrivacyOk">同意并继续</button>
-    </view>
-  </view>
+  <privacy-popup />
 
   <view class="mask" wx:if="{{showAgreement}}">
     <view class="sheet" catchtap="noop">

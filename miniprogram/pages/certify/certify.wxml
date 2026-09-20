@@ -1,4 +1,9 @@
 <view class="page">
+  <view style="height: {{padTop}}px;"></view>
+  <view class="nav" style="height: {{titleH}}px; padding-right: {{side}}px;">
+    <view class="back" bindtap="back"></view>
+    <text class="nav-title">教师认证</text>
+  </view>
   <view class="steps">
     <view class="step {{step >= 1 ? 'on' : ''}}">
       <view class="n">1</view>
@@ -122,4 +127,6 @@
     <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{cert.clearanceDue ? '提交本学期证明' : '提交认证'}}</button>
     <view class="foot">提交后将进入审核流程，请耐心等待审核结果</view>
   </block>
+
+  <privacy-popup />
 </view>

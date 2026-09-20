@@ -27,7 +27,6 @@ Component({
     agreementContent: '',
     privacyName: '《用户隐私保护指引》',
     showAgreement: false,
-    showPrivacy: false,
   },
   lifetimes: {
     attached() {
@@ -121,30 +120,10 @@ Component({
       wx.showToast({ title: '登录成功', icon: 'success' });
       this.triggerEvent('success', { user: next });
     },
-    onPrivacyOk() {
-      this.setData({ showPrivacy: false });
-      this.doLogin();
-    },
     async onWxAuth() {
       if (this._logging) return;
       if (!this.data.agreed) {
         this.needAgree();
-        return;
-      }
-      if (wx.getPrivacySetting) {
-        wx.getPrivacySetting({
-          success: (res) => {
-            if (res && res.needAuthorization) {
-              this.setData({
-                showPrivacy: true,
-                privacyName: res.privacyContractName || this.data.privacyName,
-              });
-              return;
-            }
-            this.doLogin();
-          },
-          fail: () => this.doLogin(),
-        });
         return;
       }
       this.doLogin();

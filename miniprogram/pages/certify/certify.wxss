@@ -1,4 +1,11 @@
-.page { padding: 24rpx 28rpx 48rpx; background: #f4f7fb; min-height: 100vh; box-sizing: border-box; }
+.page { padding: 0 28rpx 48rpx; background: #f4f7fb; min-height: 100vh; box-sizing: border-box; }
+.nav { display: flex; align-items: center; }
+.back { width: 48rpx; height: 48rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.back::before {
+  content: ''; width: 16rpx; height: 16rpx; margin-left: 6rpx;
+  border-left: 4rpx solid #111827; border-bottom: 4rpx solid #111827; transform: rotate(45deg);
+}
+.nav-title { margin-left: 4rpx; font-size: 34rpx; font-weight: 650; color: #111827; line-height: 1; }
 .steps { display: flex; align-items: flex-start; justify-content: space-between; padding: 12rpx 4rpx 0; }
 .step { display: flex; flex-direction: column; align-items: center; gap: 10rpx; color: #98a2b3; font-size: 22rpx; width: 140rpx; }
 .step .n {

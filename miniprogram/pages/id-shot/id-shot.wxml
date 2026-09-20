@@ -1,7 +1,9 @@
+<privacy-popup />
 <view class="page">
-  <view wx:if="{{phase === 'wait'}}" class="wait">
+  <view wx:if="{{phase === 'need' || phase === 'wait'}}" class="wait">
     <view class="nav-back wait-back" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;" bindtap="back">返回</view>
-    <view class="wait-text">正在打开摄像头…</view>
+    <view class="wait-text">拍摄身份证需要使用摄像头</view>
+    <button class="grant" bindtap="grantCamera">允许使用摄像头</button>
   </view>
   <camera wx:if="{{phase === 'cam'}}" class="cam" device-position="back" flash="{{flash}}" resolution="high" binderror="onCamError">
     <cover-view class="dim" style="left:0;top:0;width:{{winW}}px;height:{{frame.top}}px;"></cover-view>

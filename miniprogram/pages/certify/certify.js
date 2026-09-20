@@ -1,6 +1,7 @@
 const userService = require('../../services/user.js');
 const config = require('../../config/index.js');
 const util = require('../../utils/util.js');
+const privacy = require('../../utils/privacy.js');
 
 function isPdf(path) {
   return /\.pdf$/i.test(path || '');
@@ -15,6 +16,25 @@ Page({
     step: 1,
     uploading: '',
     saving: false,
+    padTop: 48,
+    titleH: 32,
+    side: 96,
+  },
+
+  onLoad() {
+    const sys = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const menu = wx.getMenuButtonBoundingClientRect();
+    this.setData({
+      padTop: menu.top || sys.statusBarHeight || 24,
+      titleH: menu.height || 32,
+      side: Math.max(24, (sys.windowWidth || 375) - menu.left + 12),
+    });
+  },
+
+  back() {
+    const pages = getCurrentPages();
+    if (pages.length > 1) wx.navigateBack();
+    else wx.switchTab({ url: '/pages/my/my' });
   },
 
   onShow() {
@@ -62,55 +82,58 @@ Page({
         ? ['打开摄像头拍摄', '从相册选择', '选择文件']
         : ['拍照', '从相册选择', '选择文件'],
       success: (res) => {
-        if (res.tapIndex === 0) {
-          if (isId) this.openIdCamera(key);
-          else this.pickImage(key, ['camera']);
+        if (res.tapIndex === 0) this.useCamera(key, isId);
+        else if (res.tapIndex === 1) this.pickImage(key, ['album']);
+        else this.pickFile(key);
+      },
+    });
+  },
+
+  useCamera(key, isId) {
+    const open = () => {
+      if (isId) this.openIdCamera(key);
+      else this.pickImage(key, ['camera']);
+    };
+    wx.authorize({
+      scope: 'scope.camera',
+      success: open,
+      fail: (err) => {
+        if (privacy.cancelled(err)) return;
+        if (privacy.undeclared(err)) {
+          privacy.explainUndeclared();
           return;
         }
-        if (res.tapIndex === 1) {
-          this.pickImage(key, ['album']);
-          return;
-        }
-        this.pickFile(key);
+        if (privacy.denied(err)) this.askOpenSetting(key, isId);
+      },
+    });
+  },
+
+  askOpenSetting(authKey, authIsId) {
+    wx.showModal({
+      title: '摄像头已被拒绝',
+      content: '这是你之前拒绝了系统的摄像头允许框。请到设置里打开后再拍摄。',
+      confirmText: '去设置',
+      success: (res) => {
+        if (!res.confirm) return;
+        wx.openSetting({
+          success: (setting) => {
+            if (setting.authSetting && setting.authSetting['scope.camera']) {
+              if (authIsId) this.openIdCamera(authKey);
+              else this.pickImage(authKey, ['camera']);
+            }
+          },
+        });
       },
     });
   },
 
   openIdCamera(key) {
     const side = key === 'idCardBack' ? 'emblem' : 'portrait';
-    const go = () => {
-      wx.navigateTo({
-        url: `/pages/id-shot/id-shot?side=${side}`,
-        events: { done: (data) => data && data.path && this.upload(key, data.path) },
-        fail: () => wx.showToast({ title: '无法打开拍摄页', icon: 'none' }),
-      });
-    };
-    const auth = () => {
-      wx.authorize({
-        scope: 'scope.camera',
-        success: go,
-        fail: () => {
-          wx.showModal({
-            title: '需要打开摄像头',
-            content: '拍摄身份证需要使用摄像头。请在设置里允许后重试。',
-            confirmText: '去设置',
-            success: (res) => {
-              if (!res.confirm) return;
-              wx.openSetting({
-                success: (setting) => {
-                  if (setting.authSetting['scope.camera']) go();
-                },
-              });
-            },
-          });
-        },
-      });
-    };
-    if (wx.requirePrivacyAuthorize) {
-      wx.requirePrivacyAuthorize({ success: auth, fail: auth });
-      return;
-    }
-    auth();
+    wx.navigateTo({
+      url: `/pages/id-shot/id-shot?side=${side}`,
+      events: { done: (data) => data && data.path && this.upload(key, data.path) },
+      fail: () => wx.showToast({ title: '无法打开拍摄页', icon: 'none' }),
+    });
   },
 
   pickImage(key, sourceType) {
@@ -124,7 +147,11 @@ Page({
         if (file && file.tempFilePath) this.upload(key, file.tempFilePath);
       },
       fail: (err) => {
-        if (err && /cancel/i.test(err.errMsg || '')) return;
+        if (privacy.cancelled(err)) return;
+        if (privacy.undeclared(err)) {
+          privacy.explainUndeclared();
+          return;
+        }
         wx.showToast({
           title: sourceType.indexOf('camera') >= 0 ? '无法打开摄像头' : '无法打开相册',
           icon: 'none',
@@ -143,7 +170,11 @@ Page({
         if (file && file.path) this.upload(key, file.path);
       },
       fail: (err) => {
-        if (err && /cancel/i.test(err.errMsg || '')) return;
+        if (privacy.cancelled(err)) return;
+        if (privacy.undeclared(err)) {
+          privacy.explainUndeclared();
+          return;
+        }
         wx.showToast({ title: '无法打开文件', icon: 'none' });
       },
     });

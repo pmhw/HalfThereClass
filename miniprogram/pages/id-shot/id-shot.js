@@ -1,4 +1,5 @@
 const RATIO = 856 / 540;
+const privacy = require('../../utils/privacy.js');
 
 Page({
   data: {
@@ -39,27 +40,40 @@ Page({
   },
 
   askCamera() {
-    const open = () => this.setData({ phase: 'cam' });
-    const auth = () => {
-      wx.authorize({
-        scope: 'scope.camera',
-        success: open,
-        fail: () => this.onCamError(),
-      });
-    };
-    if (wx.requirePrivacyAuthorize) {
-      wx.requirePrivacyAuthorize({ success: auth, fail: () => this.onCamError() });
-      return;
-    }
-    auth();
+    wx.getSetting({
+      success: (res) => {
+        if (res.authSetting && res.authSetting['scope.camera']) this.setData({ phase: 'cam' });
+        else this.setData({ phase: 'need' });
+      },
+      fail: () => this.setData({ phase: 'need' }),
+    });
+  },
+
+  grantCamera() {
+    wx.authorize({
+      scope: 'scope.camera',
+      success: () => this.setData({ phase: 'cam' }),
+      fail: (err) => {
+        if (privacy.undeclared(err)) {
+          privacy.explainUndeclared();
+          return;
+        }
+        if (privacy.denied(err)) this.askSetting();
+      },
+    });
+  },
+
+  onCamError(e) {
+    const err = (e && e.detail) || {};
+    if (privacy.undeclared(err)) privacy.explainUndeclared();
   },
 
   back() { wx.navigateBack(); },
 
-  onCamError() {
+  askSetting() {
     wx.showModal({
-      title: '无法打开相机',
-      content: '请允许使用摄像头后，再对齐拍摄身份证',
+      title: '摄像头已被拒绝',
+      content: '这是你之前拒绝了系统的摄像头允许框。请到设置里打开后再拍摄。',
       confirmText: '去设置',
       success: (res) => {
         if (res.confirm) wx.openSetting();
@@ -87,7 +101,11 @@ Page({
         this.setData({ phase: 'preview', preview: file.path });
       },
       fail: (err) => {
-        if (err && /cancel/i.test(err.errMsg || '')) return;
+        if (privacy.cancelled(err)) return;
+        if (privacy.undeclared(err)) {
+          privacy.explainUndeclared();
+          return;
+        }
         wx.showToast({ title: '无法打开文件', icon: 'none' });
       },
     });
@@ -102,6 +120,10 @@ Page({
       success: (res) => {
         const file = res.tempFiles && res.tempFiles[0];
         if (file) this.setData({ phase: 'preview', preview: file.tempFilePath });
+      },
+      fail: (err) => {
+        if (privacy.cancelled(err)) return;
+        if (privacy.undeclared(err)) privacy.explainUndeclared();
       },
     });
   },
