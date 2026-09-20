@@ -1,6 +1,6 @@
 {
   "name": "half-there-class",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "半堂课 / 诺维思 发布与打包",
   "scripts": {
