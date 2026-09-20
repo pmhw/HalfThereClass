@@ -64,6 +64,7 @@ const LANDING = [
 
 export function landingPath(profile) {
   if (!profile) return '/login';
+  if (profile.role === 'school') return '/courses';
   if (profile.isSuper) return '/';
   return LANDING.find(([key]) => allow(profile, key))?.[1] || null;
 }

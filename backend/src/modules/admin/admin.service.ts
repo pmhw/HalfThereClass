@@ -186,8 +186,9 @@ export class AdminService implements OnModuleInit {
     const password = String(data.password || '');
     if (!id && password.length < 6) throw new BadRequestException('密码至少 6 位');
     if (password && password.length < 6) throw new BadRequestException('密码至少 6 位');
-    const isSuper = actor?.isSuper ? !!data.isSuper : !!current?.isSuper;
-    const permissions = isSuper ? [] : parsePermissions(JSON.stringify(data.permissions || []));
+    const role = data.role === 'school' || (data.role == null && current?.role === 'school') ? 'school' : 'admin';
+    const isSuper = role === 'school' ? false : (actor?.isSuper ? !!data.isSuper : !!current?.isSuper);
+    const permissions = isSuper ? [] : (role === 'school' ? ['course'] : parsePermissions(JSON.stringify(data.permissions || [])));
     if (!isSuper && !permissions.length) throw new BadRequestException('请至少分配一项权限');
     const duplicated = await this.prisma.adminAccount.findFirst({
       where: id ? { username, NOT: { id } } : { username },
@@ -197,6 +198,7 @@ export class AdminService implements OnModuleInit {
       username,
       name: String(data.name || '管理员').trim() || '管理员',
       permissions: JSON.stringify(permissions),
+      role: isSuper ? 'admin' : role,
       isSuper,
       status: Number(data.status ?? current?.status ?? 1) === 0 ? 0 : 1,
       failCount: 0,
@@ -219,6 +221,7 @@ export class AdminService implements OnModuleInit {
       const supers = await this.prisma.adminAccount.count({ where: { isSuper: true } });
       if (!actor?.isSuper || supers <= 1) throw new BadRequestException('至少保留一个超级管理员');
     }
+    await this.prisma.course.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.adminAccount.delete({ where: { id } });
     return { id };
   }
@@ -250,6 +253,7 @@ export class AdminService implements OnModuleInit {
       username: admin.username,
       name: admin.name,
       isSuper: admin.isSuper,
+      role: admin.role === 'school' ? 'school' : 'admin',
       status: admin.status,
       permissions: admin.isSuper ? ADMIN_PERMISSIONS.map((item) => item.key) : parsePermissions(admin.permissions),
       failCount: admin.failCount,
@@ -428,6 +432,40 @@ export class AdminService implements OnModuleInit {
     return buildPaginationResult(list, total, pagination.page, pagination.pageSize);
   }
 
+  async courseOptions() {
+    return this.prisma.course.findMany({
+      orderBy: { id: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        ownerId: true,
+        owner: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async schoolAccounts() {
+    return this.prisma.adminAccount.findMany({
+      where: { role: 'school', status: 1 },
+      orderBy: { id: 'asc' },
+      select: { id: true, name: true, username: true },
+    });
+  }
+
+  async assignCourses(id: number, courseIds: number[]) {
+    const admin = await this.prisma.adminAccount.findUnique({ where: { id } });
+    if (!admin || admin.role !== 'school') throw new BadRequestException('只能给校企业账号分配课程');
+    const ids = [...new Set((courseIds || []).map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))];
+    await this.prisma.course.updateMany({
+      where: { ownerId: id, ...(ids.length ? { id: { notIn: ids } } : {}) },
+      data: { ownerId: null },
+    });
+    if (ids.length) {
+      await this.prisma.course.updateMany({ where: { id: { in: ids } }, data: { ownerId: id } });
+    }
+    return { id, count: ids.length };
+  }
+
   async getCourses(
     page?: number,
     pageSize?: number,
@@ -435,14 +473,17 @@ export class AdminService implements OnModuleInit {
     status?: string,
     isFree?: string,
     categoryId?: string,
+    actor?: any,
   ) {
     const pagination = getPaginationParams({ page, pageSize });
     const where: any = {};
+    if (this.isSchool(actor)) where.ownerId = actor.id;
     if (keyword) where.title = { contains: keyword };
     if (status === '0' || status === '1') where.status = Number(status);
     if (isFree === '1') where.isFree = true;
     if (isFree === '0') where.isFree = false;
     if (categoryId) where.categoryId = Number(categoryId);
+    const scope = this.isSchool(actor) ? { ownerId: actor.id } : {};
 
     const [list, total, all, published, free] = await Promise.all([
       this.prisma.course.findMany({
@@ -453,17 +494,19 @@ export class AdminService implements OnModuleInit {
         include: {
           category: { select: { id: true, name: true } },
           teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
+          owner: { select: { id: true, name: true } },
           _count: { select: { orders: true, userCourses: true, sessions: true } },
         },
       }),
       this.prisma.course.count({ where }),
-      this.prisma.course.count(),
-      this.prisma.course.count({ where: { status: 1 } }),
-      this.prisma.course.count({ where: { isFree: true } }),
+      this.prisma.course.count({ where: scope }),
+      this.prisma.course.count({ where: { ...scope, status: 1 } }),
+      this.prisma.course.count({ where: { ...scope, isFree: true } }),
     ]);
+    const rows = this.isSchool(actor) ? list.map((item) => ({ ...item, sessionFee: null })) : list;
 
     return {
-      ...buildPaginationResult(list, total, pagination.page, pagination.pageSize),
+      ...buildPaginationResult(rows, total, pagination.page, pagination.pageSize),
       stats: {
         all,
         published,
@@ -474,17 +517,20 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  async getCourse(id: number) {
+  async getCourse(id: number, actor?: any) {
     const course = await this.prisma.course.findUnique({
       where: { id },
       include: {
         category: true,
         teacher: { select: { id: true, nickname: true } },
+        owner: { select: { id: true, name: true } },
         lessons: { orderBy: { sort: 'asc' } },
         _count: { select: { comments: true, orders: true, userCourses: true } },
       },
     });
     if (!course) throw new NotFoundException('课程不存在');
+    this.assertOwnCourse(actor, course);
+    if (this.isSchool(actor)) return { ...course, sessionFee: null };
     return course;
   }
 
@@ -1287,37 +1333,45 @@ export class AdminService implements OnModuleInit {
     }));
   }
 
-  async createCourse(data: any) {
+  async createCourse(data: any, actor?: any) {
     if (!data.title?.trim()) throw new BadRequestException('请填写课程名称');
     if (!data.categoryId) throw new BadRequestException('请选择分类');
+    if (this.isSchool(actor) && (data.price === '' || data.price == null)) throw new BadRequestException('请填写校方价格');
     await this.ensureCategory(Number(data.categoryId));
     const teacherId = await this.normalizeTeacher(data.teacherId, null);
     const place = await this.schoolSnapshot(data);
+    const ownerId = this.isSchool(actor) ? actor.id : await this.normalizeSchoolOwner(data.ownerId);
     return this.prisma.course.create({
-      data: { ...this.courseData(data, teacherId), ...place },
+      data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
     });
   }
 
-  async updateCourse(id: number, data: any) {
+  async updateCourse(id: number, data: any, actor?: any) {
     const course = await this.prisma.course.findUnique({ where: { id } });
     if (!course) throw new NotFoundException('课程不存在');
+    this.assertOwnCourse(actor, course);
     if (data.categoryId) await this.ensureCategory(Number(data.categoryId));
+    if (this.isSchool(actor) && (data.price === '' || data.price == null)) throw new BadRequestException('请填写校方价格');
     const teacherId = data.teacherId === undefined ? course.teacherId : await this.normalizeTeacher(data.teacherId, course.teacherId);
     const place = data.schoolId === undefined && data.school === undefined
       ? {}
       : await this.schoolSnapshot(data);
+    const ownerId = this.isSchool(actor)
+      ? course.ownerId
+      : (data.ownerId === undefined ? course.ownerId : await this.normalizeSchoolOwner(data.ownerId));
     return this.prisma.course.update({
       where: { id },
-      data: { ...this.courseData(data, teacherId), ...place },
+      data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
     });
   }
 
-  async deleteCourse(id: number) {
+  async deleteCourse(id: number, actor?: any) {
     const course = await this.prisma.course.findUnique({
       where: { id },
       include: { _count: { select: { orders: true, userCourses: true } } },
     });
     if (!course) throw new NotFoundException('课程不存在');
+    this.assertOwnCourse(actor, course);
     if (course.teacherId) {
       throw new BadRequestException('已安排老师的课程不能删除，请先取消排课');
     }
@@ -1329,7 +1383,7 @@ export class AdminService implements OnModuleInit {
     return { id };
   }
 
-  async deleteCourses(ids: number[]) {
+  async deleteCourses(ids: number[], actor?: any) {
     const list = await this.prisma.course.findMany({
       where: { id: { in: this.normalizeIds(ids) } },
       include: { _count: { select: { orders: true, userCourses: true } } },
@@ -1337,7 +1391,8 @@ export class AdminService implements OnModuleInit {
     const blocked = [];
     const deletable = [];
     for (const course of list) {
-      if (course.teacherId) blocked.push({ id: course.id, title: course.title, reason: '已安排老师' });
+      if (this.isSchool(actor) && course.ownerId !== actor.id) blocked.push({ id: course.id, title: course.title, reason: '不属于当前校企业' });
+      else if (course.teacherId) blocked.push({ id: course.id, title: course.title, reason: '已安排老师' });
       else if (course._count.orders || course._count.userCourses) blocked.push({ id: course.id, title: course.title, reason: '已有订单或学习记录' });
       else deletable.push(course);
     }
@@ -1404,9 +1459,9 @@ export class AdminService implements OnModuleInit {
     return blocked.map((item) => `${item.title}（${item.reason}）`).join('、') + '，不能删除';
   }
 
-  private courseData(data: any, teacherId: number | null) {
+  private courseData(data: any, teacherId: number | null, actor?: any) {
     const price = Number(data.price || 0);
-    return {
+    const row: any = {
       title: String(data.title || '').trim(),
       description: data.description || '',
       cover: data.cover || null,
@@ -1420,10 +1475,30 @@ export class AdminService implements OnModuleInit {
       status: Number(data.status ?? 1),
       classroom: data.classroom || null,
       gradeLabel: data.gradeLabel || null,
-      sessionFee: data.sessionFee === '' || data.sessionFee == null ? null : Number(data.sessionFee),
       teacherId,
       seats: teacherId || data.allowEnroll === false ? 0 : 1,
     };
+    if (!this.isSchool(actor)) {
+      row.sessionFee = data.sessionFee === '' || data.sessionFee == null ? null : Number(data.sessionFee);
+    }
+    return row;
+  }
+
+  private isSchool(actor?: any) {
+    return actor?.role === 'school';
+  }
+
+  private assertOwnCourse(actor: any, course: { ownerId?: number | null }) {
+    if (this.isSchool(actor) && course.ownerId !== actor.id) {
+      throw new ForbiddenException('只能管理分配给自己的课程');
+    }
+  }
+
+  private async normalizeSchoolOwner(ownerId: any) {
+    if (ownerId === null || ownerId === undefined || ownerId === '' || Number(ownerId) === 0) return null;
+    const owner = await this.prisma.adminAccount.findUnique({ where: { id: Number(ownerId) } });
+    if (!owner || owner.role !== 'school' || owner.status !== 1) throw new BadRequestException('请选择有效的校企业账号');
+    return owner.id;
   }
 
   private async schoolSnapshot(data: any) {

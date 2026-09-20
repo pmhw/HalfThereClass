@@ -112,9 +112,9 @@ export class CourseService {
   async getRecommendCourses(limit = 6, userId?: number) {
     const gate = await this.teacherGate(userId);
     const list = await this.prisma.course.findMany({
-      where: { status: 1, isRecommend: true },
+      where: { status: 1, teacherId: null, seats: { gt: 0 } },
       take: limit,
-      orderBy: { id: 'desc' },
+      orderBy: [{ isRecommend: 'desc' }, { id: 'desc' }],
       select: courseCardSelect,
     });
     return list.map((item) => this.present(item, gate.certified, userId, gate.contracted));
@@ -287,6 +287,7 @@ export class CourseService {
       certified,
       contractSigned: contracted,
       canGrab: contracted && !course.teacherId && course.seats > 0,
+      openGrab: !course.teacherId && course.seats > 0,
       isMine: !!userId && course.teacherId === userId,
       teacherName: course.teacher?.nickname || '',
     };

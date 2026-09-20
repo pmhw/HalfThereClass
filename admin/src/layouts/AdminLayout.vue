@@ -116,7 +116,7 @@
           <small>{{ route.meta.crumb }}</small>
           <strong>{{ route.meta.title }}</strong>
         </div>
-        <div class="search">
+        <div v-if="profile?.role !== 'school'" class="search">
           <span class="search-icon"><Icon name="search" /></span>
           <input v-model="keyword" placeholder="搜索课程、用户、订单号" @input="onSearch" @focus="open = true" />
           <div v-if="open && keyword" class="search-panel" @mousedown.prevent>
@@ -133,7 +133,7 @@
           </div>
         </div>
         <div class="header-actions">
-          <router-link class="icon-btn" to="/orders?status=pending" title="待支付订单">
+          <router-link v-if="profile?.role !== 'school'" class="icon-btn" to="/orders?status=pending" title="待支付订单">
             <Icon name="bell" />
             <i v-if="pendingCount" class="dot"></i>
           </router-link>
@@ -251,13 +251,18 @@ const menuSource = [
     ],
   },
 ];
-const menus = computed(() => menuSource
+const menus = computed(() => {
+  if (profile.value?.role === 'school') {
+    return [{ key: 'course', label: '课程管理', icon: 'book', to: '/courses' }];
+  }
+  return menuSource
   .map((group) => {
     if (!group.children) return allow(profile.value, group.perm) ? group : null;
     const children = group.children.filter((item) => allow(profile.value, item.perm));
     return children.length ? { ...group, children } : null;
   })
-  .filter(Boolean));
+  .filter(Boolean);
+});
 
 const hasResult = computed(() => result.value.courses.length || result.value.users.length || result.value.orders.length);
 

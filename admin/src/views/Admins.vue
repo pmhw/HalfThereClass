@@ -19,7 +19,7 @@
           <tr v-for="item in result.list" :key="item.id">
             <td>{{ item.name }}</td>
             <td>{{ item.username }}</td>
-            <td>{{ item.isSuper ? '超级管理员' : permissionText(item.permissions) }}</td>
+            <td>{{ item.isSuper ? '超级管理员' : (item.role === 'school' ? '校企业账号' : permissionText(item.permissions)) }}</td>
             <td>
               <span :class="['tag', item.status === 1 && !frozen(item) ? 'green' : 'red']">{{ frozen(item) ? '已冻结' : (item.status === 1 ? '正常' : '停用') }}</span>
             </td>
@@ -51,6 +51,29 @@
           <div class="perm-panel">
             <div class="perm-head">
               <div>
+                <strong>角色</strong>
+                <p>校企业账号是默认角色，只能发布课程并填写校方价格</p>
+              </div>
+            </div>
+            <label class="course-field" style="display:block;margin-bottom:16px;">
+              <select v-model="form.role" @change="onRole">
+                <option value="admin">管理员</option>
+                <option value="school">校企业账号</option>
+              </select>
+            </label>
+            <template v-if="form.role === 'school'">
+              <p>这个账号登录后只有课程管理。可以发布课程、设置校方价格，不能填写课时费。下面可以把已有课程分给它。</p>
+              <div class="course-assign">
+                <label v-for="item in courseOptions" :key="item.id" class="check-line">
+                  <input type="checkbox" :checked="form.courseIds.includes(item.id)" @change="toggleCourse(item.id)" />
+                  <span>{{ item.title }}<small v-if="item.owner && item.owner.id !== form.id"> · 当前属于 {{ item.owner.name }}</small></span>
+                </label>
+                <p v-if="!courseOptions.length" class="empty">还没有可分配的课程</p>
+              </div>
+            </template>
+            <template v-else>
+            <div class="perm-head">
+              <div>
                 <strong>权限设置</strong>
                 <p>按侧边栏菜单分配，勾选后才能进入对应页面</p>
               </div>
@@ -77,6 +100,7 @@
                 </button>
               </div>
             </section>
+            </template>
           </div>
           <label v-if="form.id" class="check-line"><input v-model="form.enabled" type="checkbox" />允许登录</label>
           <p v-if="formError" class="error">{{ formError }}</p>
@@ -90,6 +114,19 @@
     <Confirm :open="!!pending" :message="pending ? `确定删除管理员「${pending.name}」？` : ''" @cancel="pending = null" @ok="remove" />
   </section>
 </template>
+
+<style scoped>
+.course-assign {
+  max-height: 240px;
+  overflow: auto;
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid #e7edf5;
+  border-radius: 12px;
+}
+.course-assign .check-line { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+.course-assign small { color: #98a2b3; }
+</style>
 
 <script setup>
 import { onMounted, ref } from 'vue';
@@ -105,6 +142,7 @@ const error = ref('');
 const form = ref(null);
 const formError = ref('');
 const pending = ref(null);
+const courseOptions = ref([]);
 const me = getProfile() || {};
 const groups = PERMISSION_GROUPS;
 
@@ -140,23 +178,40 @@ function changePage(next) { page.value = next; load(); }
 function openForm(item) {
   formError.value = '';
   form.value = item
-    ? { id: item.id, name: item.name, username: item.username, password: '', isSuper: item.isSuper, permissions: [...(item.permissions || [])], enabled: item.status === 1 }
-    : { id: null, name: '', username: '', password: '', isSuper: false, permissions: ['overview'], enabled: true };
+    ? { id: item.id, name: item.name, username: item.username, password: '', isSuper: item.isSuper, role: item.role === 'school' ? 'school' : 'admin', permissions: [...(item.permissions || [])], courseIds: [], enabled: item.status === 1 }
+    : { id: null, name: '', username: '', password: '', isSuper: false, role: 'admin', permissions: ['overview'], courseIds: [], enabled: true };
+  if (form.value.role === 'school') onRole();
+}
+async function onRole() {
+  if (!form.value || form.value.role !== 'school') return;
+  form.value.isSuper = false;
+  if (!courseOptions.value.length) courseOptions.value = await api.adminCourseOptions();
+  form.value.courseIds = courseOptions.value.filter((item) => item.ownerId === form.value.id).map((item) => item.id);
+}
+function toggleCourse(id) {
+  if (!form.value) return;
+  const list = form.value.courseIds;
+  const index = list.indexOf(id);
+  if (index >= 0) list.splice(index, 1);
+  else list.push(id);
 }
 async function save() {
   formError.value = '';
+  const school = form.value.role === 'school';
   const body = {
     name: form.value.name,
     username: form.value.username,
     password: form.value.password,
-    isSuper: form.value.isSuper,
-    permissions: form.value.permissions,
+    isSuper: school ? false : form.value.isSuper,
+    role: school ? 'school' : 'admin',
+    permissions: school ? ['course'] : form.value.permissions,
     status: form.value.enabled ? 1 : 0,
   };
   try {
-    if (form.value.id) await api.updateAdmin(form.value.id, body);
-    else await api.createAdmin(body);
+    const saved = form.value.id ? await api.updateAdmin(form.value.id, body) : await api.createAdmin(body);
+    if (school) await api.assignAdminCourses(saved.id, form.value.courseIds);
     form.value = null;
+    courseOptions.value = [];
     await load();
   } catch (err) {
     formError.value = err.message;

@@ -25,7 +25,7 @@ function remainText(startTime) {
 function decorate(list) {
   const weeks = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const tones = ['blue', 'purple', 'cyan'];
-  return (list || []).filter((item) => item.canGrab).map((item, index) => {
+  return (list || []).filter((item) => item.openGrab || (!item.teacherId && Number(item.seats) > 0)).map((item, index) => {
     const span = [item.startTime, item.endTime].filter(Boolean).join(' - ');
     const when = [weeks[item.weekday] || '', span].filter(Boolean).join(' ');
     return {
@@ -44,6 +44,8 @@ Page({
     today: null,
     remain: '',
     recommend: [],
+    loading: true,
+    skel: [1, 2, 3],
   },
 
   onShow() {
@@ -57,15 +59,17 @@ Page({
     try {
       const [today, recommend] = await Promise.all([
         courseService.getToday(),
-        courseService.getRecommendCourses(6),
+        courseService.getRecommendCourses(12),
       ]);
       this.setData({
         today,
         remain: today.next ? remainText(today.next.startTime) : '',
         recommend: decorate(recommend),
+        loading: false,
       });
     } catch (err) {
       console.error(err);
+      this.setData({ loading: false });
     }
   },
 

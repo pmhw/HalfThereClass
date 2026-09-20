@@ -16,11 +16,23 @@ export class AdminPermissionGuard implements CanActivate {
       throw new ForbiddenException('账号已冻结，请稍后再试');
     }
     request.admin = admin;
+    if (admin.role === 'school') return this.allowSchool(request);
     if (admin.isSuper) return true;
     const need = permissionFor(request.originalUrl || request.url);
     if (!need || !parsePermissions(admin.permissions).includes(need)) {
       throw new ForbiddenException('没有该功能权限');
     }
     return true;
+  }
+
+  private allowSchool(request: any) {
+    const path = String(request.originalUrl || request.url || '').split('?')[0];
+    const method = String(request.method || 'GET').toUpperCase();
+    if (/\/courses\/\d+\/(plan|sessions|generate)(?:\/|$)/.test(path)) {
+      throw new ForbiddenException('校企业账号不能排课');
+    }
+    if (/\/courses(?:\/|$)/.test(path)) return true;
+    if (method === 'GET' && /\/(categories|schools|teachers)(?:\/|$)/.test(path)) return true;
+    throw new ForbiddenException('校企业账号只能管理课程');
   }
 }

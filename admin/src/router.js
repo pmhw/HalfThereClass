@@ -63,6 +63,7 @@ router.beforeEach((to) => {
     return !next || next === to.path ? true : next;
   }
   const perm = to.meta.perm;
+  if (profile?.role === 'school' && to.path !== '/courses') return '/courses';
   if (perm && !allow(profile, perm)) {
     const next = landingPath(profile);
     return !next || next === to.path ? true : next;

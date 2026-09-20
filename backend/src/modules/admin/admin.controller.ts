@@ -57,6 +57,18 @@ export class AdminController {
     return this.adminService.listAdmins(Number(page), Number(pageSize), keyword);
   }
 
+  @Get('admins/course-options')
+  @ApiOperation({ summary: '可分配给校企业的课程' })
+  courseOptions() {
+    return this.adminService.courseOptions();
+  }
+
+  @Put('admins/:id/courses')
+  @ApiOperation({ summary: '把已有课程分配给校企业' })
+  assignCourses(@Param('id') id: string, @Body() body: { courseIds?: number[] }) {
+    return this.adminService.assignCourses(Number(id), body?.courseIds || []);
+  }
+
   @Get('admins/permissions')
   @ApiOperation({ summary: '可分配权限' })
   adminPermissions() {
@@ -194,9 +206,16 @@ export class AdminController {
     return this.adminService.getUsers(Number(page), Number(pageSize), keyword);
   }
 
+  @Get('courses/school-accounts')
+  @ApiOperation({ summary: '可选校企业账号' })
+  schoolAccounts() {
+    return this.adminService.schoolAccounts();
+  }
+
   @Get('courses')
   @ApiOperation({ summary: '课程列表' })
   getCourses(
+    @Req() req: any,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('keyword') keyword?: string,
@@ -204,7 +223,7 @@ export class AdminController {
     @Query('isFree') isFree?: string,
     @Query('categoryId') categoryId?: string,
   ) {
-    return this.adminService.getCourses(Number(page), Number(pageSize), keyword, status, isFree, categoryId);
+    return this.adminService.getCourses(Number(page), Number(pageSize), keyword, status, isFree, categoryId, req.admin);
   }
 
   @Get('courses/:id/plan')
@@ -239,32 +258,32 @@ export class AdminController {
 
   @Get('courses/:id')
   @ApiOperation({ summary: '课程详情' })
-  getCourse(@Param('id') id: string) {
-    return this.adminService.getCourse(Number(id));
+  getCourse(@Req() req: any, @Param('id') id: string) {
+    return this.adminService.getCourse(Number(id), req.admin);
   }
 
   @Post('courses')
   @ApiOperation({ summary: '新增课程' })
-  createCourse(@Body() body: any) {
-    return this.adminService.createCourse(body);
+  createCourse(@Req() req: any, @Body() body: any) {
+    return this.adminService.createCourse(body, req.admin);
   }
 
   @Put('courses/:id')
   @ApiOperation({ summary: '修改课程' })
-  updateCourse(@Param('id') id: string, @Body() body: any) {
-    return this.adminService.updateCourse(Number(id), body);
+  updateCourse(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateCourse(Number(id), body, req.admin);
   }
 
   @Delete('courses/:id')
   @ApiOperation({ summary: '删除课程' })
-  deleteCourse(@Param('id') id: string) {
-    return this.adminService.deleteCourse(Number(id));
+  deleteCourse(@Req() req: any, @Param('id') id: string) {
+    return this.adminService.deleteCourse(Number(id), req.admin);
   }
 
   @Post('courses/batch-delete')
   @ApiOperation({ summary: '批量删除课程' })
-  deleteCourses(@Body() body: { ids?: number[] }) {
-    return this.adminService.deleteCourses(body?.ids || []);
+  deleteCourses(@Req() req: any, @Body() body: { ids?: number[] }) {
+    return this.adminService.deleteCourses(body?.ids || [], req.admin);
   }
 
   @Get('teachers')

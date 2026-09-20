@@ -7,7 +7,7 @@
         <p>新增、修改课程，已安排老师的课程不能删除</p>
       </div>
       <div class="actions">
-        <router-link class="btn" to="/categories"><Icon name="folder" />课程分类</router-link>
+        <router-link v-if="!schoolAccount" class="btn" to="/categories"><Icon name="folder" />课程分类</router-link>
         <button class="btn primary" @click="openForm()">+ 新增课程</button>
       </div>
     </div>
@@ -56,7 +56,7 @@
     <article class="card">
       <table>
         <thead>
-          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>分类</th><th>老师</th><th>校方价格</th><th>课时费</th><th>状态</th><th></th></tr>
+          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>分类</th><th>老师</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
@@ -66,20 +66,21 @@
             </td>
             <td>{{ item.category?.name || '—' }}</td>
             <td>{{ item.teacher?.teacherCert?.realName || item.teacher?.nickname || '未安排' }}</td>
+            <td v-if="!schoolAccount">{{ item.owner?.name || '—' }}</td>
             <td>{{ item.isFree ? '免费' : money(item.price) }}</td>
-            <td>{{ item.sessionFee == null ? '—' : money(item.sessionFee) }}</td>
+            <td v-if="!schoolAccount">{{ item.sessionFee == null ? '—' : money(item.sessionFee) }}</td>
             <td><span :class="['tag', item.status === 1 ? 'green' : '']">{{ item.status === 1 ? '上架' : '下架' }}</span></td>
             <td>
               <div class="row-actions">
-                <button v-if="item._count?.sessions" class="link plan" type="button" @click="openPlan(item)">已排课</button>
-                <button v-else class="link wait" type="button" @click="goSchedule(item)">未排课</button>
+                <button v-if="!schoolAccount && item._count?.sessions" class="link plan" type="button" @click="openPlan(item)">已排课</button>
+                <button v-else-if="!schoolAccount" class="link wait" type="button" @click="goSchedule(item)">未排课</button>
                 <button class="link" @click="openForm(item)">编辑</button>
                 <button class="link danger" :disabled="!!item.teacherId" :title="item.teacherId ? '已安排老师，不能删除' : ''" @click="askRemove(item)">删除</button>
               </div>
             </td>
           </tr>
           <tr v-if="!result.list.length">
-            <td colspan="8">
+            <td :colspan="schoolAccount ? 7 : 9">
               <div class="course-empty">
                 <Icon name="search" />
                 <strong>暂无课程</strong>
@@ -146,7 +147,7 @@
                 <em class="unit">元/课时</em>
               </div>
             </label>
-            <label class="course-field">
+            <label v-if="!schoolAccount" class="course-field">
               <span>课时费<em>*</em></span>
               <div class="course-control">
                 <b class="yen">¥</b>
@@ -194,6 +195,17 @@
               <div class="course-control">
                 <Icon name="users" />
                 <input v-model="form.gradeLabel" placeholder="请输入班级名称（可选）" />
+              </div>
+            </label>
+            <label v-if="!schoolAccount" class="course-field">
+              <span>所属校企业</span>
+              <div class="course-control">
+                <Icon name="building" />
+                <select v-model="form.ownerId">
+                  <option value="">不分配</option>
+                  <option v-for="item in schoolAccounts" :key="item.id" :value="String(item.id)">{{ item.name }} · {{ item.username }}</option>
+                </select>
+                <Icon name="chevron" />
               </div>
             </label>
             <label class="course-field">
@@ -387,13 +399,15 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '../api';
+import { api, getProfile } from '../api';
 import { money } from '../format';
 import Pager from '../components/Pager.vue';
 import Confirm from '../components/Confirm.vue';
 import Icon from '../components/Icon.vue';
 
 const router = useRouter();
+const schoolAccount = getProfile()?.role === 'school';
+const schoolAccounts = ref([]);
 const weekNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 const keyword = ref('');
@@ -533,6 +547,7 @@ function blank() {
     classroom: '',
     gradeLabel: '',
     teacherId: '',
+    ownerId: '',
     description: '',
     isFree: false,
     isRecommend: false,
@@ -614,6 +629,7 @@ function openForm(item) {
         classroom: item.classroom || '',
         gradeLabel: item.gradeLabel || '',
         teacherId: item.teacherId ? String(item.teacherId) : '',
+        ownerId: item.ownerId ? String(item.ownerId) : '',
         description: item.description || '',
         isFree: item.isFree,
         isRecommend: item.isRecommend,
@@ -633,7 +649,9 @@ async function save() {
     status: form.value.published ? 1 : 0,
     teacherId: form.value.teacherId ? Number(form.value.teacherId) : null,
     originalPrice: form.value.originalPrice === '' ? null : form.value.originalPrice,
+    ownerId: schoolAccount ? undefined : (form.value.ownerId ? Number(form.value.ownerId) : null),
   };
+  if (schoolAccount) delete body.sessionFee;
   try {
     if (form.value.id) await api.updateCourse(form.value.id, body);
     else await api.createCourse(body);
@@ -889,10 +907,13 @@ onMounted(async () => {
   document.addEventListener('mousedown', onTeacherPointer);
   window.addEventListener('resize', placeTeacherMenu);
   window.addEventListener('scroll', placeTeacherMenu, true);
-  const [categoryList, teacherList, schoolList] = await Promise.all([api.categories(), api.teachers(), api.schools()]);
+  const jobs = [api.categories(), api.teachers(), api.schools()];
+  if (!schoolAccount) jobs.push(api.schoolAccounts());
+  const [categoryList, teacherList, schoolList, accountList] = await Promise.all(jobs);
   categories.value = categoryList;
   teachers.value = Array.isArray(teacherList) ? teacherList : [];
   schools.value = Array.isArray(schoolList) ? schoolList.filter((item) => item.status !== 0) : [];
+  schoolAccounts.value = Array.isArray(accountList) ? accountList : [];
   await load();
 });
 onBeforeUnmount(() => {

@@ -85,6 +85,7 @@ model Course {
   isRecommend Boolean   @default(false) @map("is_recommend")
   isHot       Boolean   @default(false) @map("is_hot")
   sessionFee  Float?    @map("session_fee")
+  ownerId     Int?      @map("owner_id")
   status      Int       @default(1) @map("status") // 1:上架 0:下架
   publishedAt DateTime? @map("published_at")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -93,6 +94,7 @@ model Course {
   category    Category  @relation(fields: [categoryId], references: [id])
   teacher     User?     @relation("TeachingCourses", fields: [teacherId], references: [id])
   campus      School?   @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  owner       AdminAccount? @relation("SchoolCourses", fields: [ownerId], references: [id], onDelete: SetNull)
   lessons     Lesson[]
   orders      Order[]
   comments    Comment[]
@@ -104,6 +106,7 @@ model Course {
 
   @@index([categoryId])
   @@index([teacherId])
+  @@index([ownerId])
   @@map("courses")
 }
 
@@ -327,12 +330,15 @@ model AdminAccount {
   password    String    @map("password")
   name        String    @default("管理员") @map("name")
   permissions String    @default("[]") @map("permissions")
+  role        String    @default("admin") @map("role")
   isSuper     Boolean   @default(false) @map("is_super")
   status      Int       @default(1) @map("status")
   failCount   Int       @default(0) @map("fail_count")
   lockedUntil DateTime? @map("locked_until")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  ownedCourses Course[] @relation("SchoolCourses")
 
   @@map("admin_accounts")
 }

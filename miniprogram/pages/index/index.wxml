@@ -60,7 +60,13 @@
     </view>
   </view>
 
-  <view class="hero" wx:if="{{today.next}}">
+  <view class="hero skel-hero" wx:if="{{loading}}">
+    <view class="sk sk-label"></view>
+    <view class="sk sk-time"></view>
+    <view class="sk sk-title"></view>
+    <view class="sk sk-line"></view>
+  </view>
+  <view class="hero" wx:elif="{{today.next}}">
     <view class="sheen"></view>
     <view class="hero-top">
       <view class="hero-main">
@@ -145,7 +151,17 @@
       <view class="section-title">可抢课程</view>
       <text class="more" bindtap="goCourse">课程大厅 ›</text>
     </view>
-    <scroll-view wx:if="{{recommend.length}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
+    <scroll-view wx:if="{{loading}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="grab skel-card" wx:for="{{skel}}" wx:key="*this">
+        <view class="sk sk-mark"></view>
+        <view class="grab-body">
+          <view class="sk sk-title"></view>
+          <view class="sk sk-line"></view>
+          <view class="sk sk-tag"></view>
+        </view>
+      </view>
+    </scroll-view>
+    <scroll-view wx:elif="{{recommend.length}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
       <view class="grab" wx:for="{{recommend}}" wx:key="id" data-id="{{item.id}}" bindtap="openCourse" hover-class="grab-press" hover-stay-time="80">
         <view class="mark {{item.tone}}">{{item.initial}}</view>
         <view class="grab-body">
