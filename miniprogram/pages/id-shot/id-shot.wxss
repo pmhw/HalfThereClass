@@ -10,6 +10,10 @@
 .nav-title { left: 72px; right: 72px; font-size: 17px; font-weight: 600; }
 .tip { font-size: 14px; color: #fff; }
 .tool { width: 52px; height: 36px; line-height: 36px; font-size: 15px; color: #fff; }
+.tool.file { width: 52px; }
+.wait { min-height: 100vh; background: #000; }
+.wait-back { position: absolute; left: 16px; color: #fff; font-size: 16px; }
+.wait-text { color: #fff; text-align: center; padding-top: 46vh; font-size: 15px; }
 .shutter {
   position: absolute; width: 74px; height: 74px; border-radius: 37px;
   border: 4px solid #fff; box-sizing: border-box;

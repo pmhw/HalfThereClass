@@ -3,7 +3,7 @@ const RATIO = 856 / 540;
 Page({
   data: {
     side: 'portrait',
-    phase: 'cam',
+    phase: 'wait',
     preview: '',
     flash: 'off',
     padTop: 24,
@@ -35,6 +35,23 @@ Page({
       shutterLeft: Math.round((winW - 74) / 2),
       frame: { left, top, w: frameW, h: frameH },
     });
+    this.askCamera();
+  },
+
+  askCamera() {
+    const open = () => this.setData({ phase: 'cam' });
+    const auth = () => {
+      wx.authorize({
+        scope: 'scope.camera',
+        success: open,
+        fail: () => this.onCamError(),
+      });
+    };
+    if (wx.requirePrivacyAuthorize) {
+      wx.requirePrivacyAuthorize({ success: auth, fail: () => this.onCamError() });
+      return;
+    }
+    auth();
   },
 
   back() { wx.navigateBack(); },
@@ -52,6 +69,28 @@ Page({
 
   toggleFlash() {
     this.setData({ flash: this.data.flash === 'torch' ? 'off' : 'torch' });
+  },
+
+  pickFile() {
+    wx.chooseMessageFile({
+      count: 1,
+      type: 'file',
+      extension: ['pdf', 'jpg', 'jpeg', 'png'],
+      success: (res) => {
+        const file = res.tempFiles && res.tempFiles[0];
+        if (!file) return;
+        if (/\.pdf$/i.test(file.name || file.path || '')) {
+          if (this.channel && this.channel.emit) this.channel.emit('done', { path: file.path });
+          wx.navigateBack();
+          return;
+        }
+        this.setData({ phase: 'preview', preview: file.path });
+      },
+      fail: (err) => {
+        if (err && /cancel/i.test(err.errMsg || '')) return;
+        wx.showToast({ title: '无法打开文件', icon: 'none' });
+      },
+    });
   },
 
   pickAlbum() {

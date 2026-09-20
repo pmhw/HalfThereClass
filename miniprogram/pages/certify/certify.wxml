@@ -57,7 +57,7 @@
           </view>
           <view class="txt">
             <view>身份证<text class="req">*</text></view>
-            <view class="sub">请上传身份证正反面</view>
+            <view class="sub">拍摄、相册或文件，正反面都要上传</view>
           </view>
         </view>
         <view class="slots">
@@ -68,7 +68,7 @@
               <view class="mark tl"></view><view class="mark tr"></view>
               <view class="mark bl"></view><view class="mark br"></view>
               <view class="slot-name">人像面</view>
-              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '对齐拍摄'}}</view>
+              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '拍摄或上传'}}</view>
             </block>
           </view>
           <view class="slot" data-key="idCardBack" bindtap="choose">
@@ -78,7 +78,7 @@
               <view class="mark tl"></view><view class="mark tr"></view>
               <view class="mark bl"></view><view class="mark br"></view>
               <view class="slot-name">国徽面</view>
-              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '对齐拍摄'}}</view>
+              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '拍摄或上传'}}</view>
             </block>
           </view>
         </view>

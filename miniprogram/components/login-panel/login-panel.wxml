@@ -29,33 +29,37 @@
   </block>
 
   <view wx:else class="form">
-    <view class="step-title">登录成功</view>
-    <view class="hint">点头像使用微信头像。昵称不用手打，点输入框后在键盘上方选择。</view>
-    <view class="avatar-slot">
-      <button class="avatar-btn" hover-class="none" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
-        <image wx:if="{{avatar}}" src="{{avatar}}" mode="aspectFill"></image>
-        <text wx:else>头像</text>
-      </button>
-    </view>
-    <view class="field-tip" wx:if="{{needAvatar}}">请先点头像，使用微信头像</view>
-    <view class="nick-wrap {{needNick ? 'warn' : ''}}">
-      <text class="nick-label">昵称</text>
-      <input
-        class="nick"
-        type="nickname"
-        name="nickname"
-        placeholder="使用微信昵称"
-        placeholder-class="nick-placeholder"
-        maxlength="30"
-        focus="{{nickFocus}}"
-        bindfocus="onNickFocus"
-        bindinput="onNick"
-        bindblur="onNick"
-        bindnicknamereview="onNickReview"
-      />
-    </view>
-    <view class="field-tip" wx:if="{{needNick}}">键盘上方会显示你的微信昵称，点一下即可</view>
-    <button class="login-btn" hover-class="login-btn-hover" bindtap="onProfile" loading="{{loading}}" disabled="{{loading}}">进入诺维思</button>
+    <view class="step-title">完善资料</view>
+    <view class="hint">头像请点圆圈，在弹窗里选「用微信头像」。昵称请点输入框，再点键盘上方的微信昵称。</view>
+    <form bindsubmit="onProfile">
+      <view class="avatar-slot">
+        <button class="avatar-btn" hover-class="none" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+          <image wx:if="{{avatar}}" src="{{avatar}}" mode="aspectFill"></image>
+          <text wx:else>头像</text>
+        </button>
+      </view>
+      <view class="field-tip" wx:if="{{needAvatar}}">请先点头像，并选择「用微信头像」</view>
+      <view class="nick-wrap {{needNick ? 'warn' : ''}}" bindtap="focusNick">
+        <text class="nick-label">昵称</text>
+        <input
+          class="nick"
+          type="nickname"
+          name="nickname"
+          placeholder="点这里，选微信昵称"
+          placeholder-class="nick-placeholder"
+          maxlength="30"
+          focus="{{nickFocus}}"
+          value="{{nickname}}"
+          bindfocus="onNickFocus"
+          bindinput="onNick"
+          bindchange="onNick"
+          bindblur="onNick"
+          bindnicknamereview="onNickReview"
+        />
+      </view>
+      <view class="field-tip" wx:if="{{needNick}}">键盘上方会显示你的微信昵称，点一下即可填入</view>
+      <button class="login-btn" form-type="submit" hover-class="login-btn-hover" loading="{{loading}}" disabled="{{loading}}">进入诺维思</button>
+    </form>
   </view>
 
   <view class="mask" wx:if="{{showPrivacy}}" catchtap="noop">

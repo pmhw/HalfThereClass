@@ -1,13 +1,12 @@
-// pages/profile/profile.js
 const userService = require('../../services/user.js');
+const authService = require('../../services/auth.js');
 const store = require('../../store/index.js');
-const uploadService = require('../../services/upload.js');
 
 Page({
   data: {
     nickname: '',
     avatar: '',
-    phone: '',
+    avatarLocal: false,
     loading: false,
   },
 
@@ -19,47 +18,54 @@ Page({
     const userInfo = wx.getStorageSync('userInfo') || {};
     this.setData({
       nickname: userInfo.nickname || '',
-      avatar: userInfo.avatar || '',
+      avatar: authService.assetUrl(userInfo.avatar),
+      avatarLocal: false,
     });
   },
 
   onNicknameInput(e) {
-    this.setData({ nickname: e.detail.value });
+    const nickname = ((e.detail && e.detail.value) || '').trim();
+    this.setData({ nickname });
   },
 
-  // 更换头像
-  onChangeAvatar() {
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ['image'],
-      sourceType: ['album', 'camera'],
-      success: async (res) => {
-        try {
-          wx.showLoading({ title: '上传中...' });
-          const filePath = res.tempFiles[0].tempFilePath;
-          const uploadResult = await uploadService.uploadImage(filePath, 'avatar');
-          this.setData({ avatar: uploadResult.url });
-          wx.hideLoading();
-        } catch (err) {
-          wx.hideLoading();
-          wx.showToast({ title: '上传失败', icon: 'none' });
-        }
-      },
-    });
+  onChooseAvatar(e) {
+    const avatar = e.detail && e.detail.avatarUrl;
+    if (!avatar) {
+      wx.showToast({ title: '请在弹窗里点「用微信头像」', icon: 'none' });
+      return;
+    }
+    this.setData({ avatar, avatarLocal: true });
   },
 
-  // 保存
-  async onSave() {
-    const { nickname, avatar } = this.data;
-    if (!nickname.trim()) {
-      wx.showToast({ title: '昵称不能为空', icon: 'none' });
+  async onSave(e) {
+    const formNick = e && e.detail && e.detail.value ? e.detail.value.nickname : '';
+    const nickname = String(formNick || this.data.nickname || '').trim();
+    if (!nickname || nickname === '微信用户') {
+      wx.showToast({ title: '请点昵称框，再点键盘上方的微信昵称', icon: 'none' });
+      return;
+    }
+    if (!this.data.avatar) {
+      wx.showToast({ title: '请先选择微信头像', icon: 'none' });
       return;
     }
 
-    this.setData({ loading: true });
+    this.setData({ loading: true, nickname });
     try {
-      const result = await userService.updateUserProfile({ nickname, avatar });
-      store.commit('SET_USER_INFO', result);
+      let avatar = this.data.avatar;
+      if (this.data.avatarLocal) {
+        const uploaded = await authService.uploadAvatar(avatar);
+        avatar = authService.assetUrl(uploaded.avatar);
+      }
+      const result = await userService.updateUserProfile({
+        nickname,
+        avatar: String(avatar).replace(/^https?:\/\/[^/]+/, ''),
+      });
+      store.commit('SET_USER_INFO', {
+        ...(wx.getStorageSync('userInfo') || {}),
+        ...result,
+        nickname,
+        avatar,
+      });
       wx.showToast({ title: '保存成功', icon: 'success' });
       setTimeout(() => wx.navigateBack(), 1000);
     } catch (err) {

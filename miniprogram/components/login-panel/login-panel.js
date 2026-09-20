@@ -89,7 +89,10 @@ Component({
     },
     onChooseAvatar(e) {
       const avatar = e.detail && e.detail.avatarUrl;
-      if (!avatar) return;
+      if (!avatar) {
+        wx.showToast({ title: '请在弹窗里点「用微信头像」', icon: 'none' });
+        return;
+      }
       this.setData({ avatar, avatarLocal: true, needAvatar: false });
     },
     onNickFocus() {
@@ -177,18 +180,22 @@ Component({
         this.setData({ loading: false });
       }
     },
-    async onProfile() {
+    async onProfile(e) {
       if (this.data.loading) return;
       if (!this.data.avatar) {
         this.setData({ needAvatar: true });
+        wx.showToast({ title: '请先点头像并选择用微信头像', icon: 'none' });
         return;
       }
-      const nickname = String(this._nick || this.data.nickname || '').trim();
-      if (!nickname) {
+      const formNick = e && e.detail && e.detail.value ? e.detail.value.nickname : '';
+      const nickname = String(formNick || this._nick || this.data.nickname || '').trim();
+      if (!nickname || nickname === '微信用户') {
         this.focusNick();
+        wx.showToast({ title: '请点昵称框，再点键盘上方的微信昵称', icon: 'none' });
         return;
       }
-      this.setData({ loading: true });
+      this._nick = nickname;
+      this.setData({ loading: true, nickname });
       try {
         let avatar = this.data.avatar;
         if (this.data.avatarLocal) {

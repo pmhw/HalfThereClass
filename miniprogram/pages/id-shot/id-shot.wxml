@@ -1,4 +1,8 @@
 <view class="page">
+  <view wx:if="{{phase === 'wait'}}" class="wait">
+    <view class="nav-back wait-back" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;" bindtap="back">返回</view>
+    <view class="wait-text">正在打开摄像头…</view>
+  </view>
   <camera wx:if="{{phase === 'cam'}}" class="cam" device-position="back" flash="{{flash}}" resolution="high" binderror="onCamError">
     <cover-view class="dim" style="left:0;top:0;width:{{winW}}px;height:{{frame.top}}px;"></cover-view>
     <cover-view class="dim" style="left:0;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
@@ -18,6 +22,7 @@
     <cover-view class="tip" style="top:{{frame.top + frame.h + 18}}px;width:{{winW}}px;">请将身份证{{side === 'emblem' ? '国徽面' : '人像面'}}与框对齐，避免反光</cover-view>
 
     <cover-view class="tool" style="left:28px;bottom:{{dock}}px;" bindtap="pickAlbum">相册</cover-view>
+    <cover-view class="tool file" style="left:88px;bottom:{{dock}}px;" bindtap="pickFile">文件</cover-view>
     <cover-view class="shutter" style="left:{{shutterLeft}}px;bottom:{{dock}}px;" bindtap="shoot">
       <cover-view class="shutter-in"></cover-view>
     </cover-view>
