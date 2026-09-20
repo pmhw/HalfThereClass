@@ -33,7 +33,11 @@ curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-i
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 TAG=v1.0.1 bash
 ```
 
-安装时如果机器上有签名过期的第三方 apt 源（常见是 MySQL `EXPKEYSIG`），脚本会临时跳过 `/etc/apt/sources.list.d`，装完依赖后自动恢复，不会改你原来的源。
+安装时如果机器上有签名过期的第三方 apt 源（常见是 MySQL `EXPKEYSIG`），脚本会在 `apt update` 之前临时移开 `/etc/apt/sources.list.d`，装完依赖后自动恢复。若日志里没有「已临时移开」，说明镜像缓存了旧脚本，请改用 jsDelivr 并加时间戳：
+
+```bash
+curl -fsSL "https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh?$(date +%s)" | sudo CN_MIRROR=1 PORT=10920 bash
+```
 
 安装完成后：
 

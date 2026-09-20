@@ -45,11 +45,16 @@ curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-i
 
 **MySQL 源密钥过期**（`EXPKEYSIG` / `The repository is not signed`）
 
-这是服务器上已有的 MySQL apt 源，不是本项目依赖。脚本会临时移开 `/etc/apt/sources.list.d`，用系统源装完 `curl` 等依赖后再恢复，不会改你的源配置。看到这段提示后继续等待即可：
+这是服务器上已有的 MySQL apt 源，不是本项目依赖。脚本会在 `apt update` **之前**临时移开 `/etc/apt/sources.list.d`，用系统源装完依赖后再恢复，不会改你的源配置。新脚本应先打印：
 
 ```text
-apt update 失败。常见原因是第三方源签名过期（例如 MySQL EXPKEYSIG）。
-临时跳过 /etc/apt/sources.list.d 后继续，安装结束会恢复原配置。
+已临时移开 N 个第三方 apt 源（含可能过期的 MySQL 源），装完依赖会恢复。
+```
+
+若仍然直接停在 MySQL 的 `EXPKEYSIG`、且没有上面这句，说明拉到了旧脚本（镜像缓存）。请改用：
+
+```bash
+curl -fsSL "https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh?$(date +%s)" | sudo CN_MIRROR=1 PORT=10920 bash
 ```
 
 **国内下载 Release 返回 403**

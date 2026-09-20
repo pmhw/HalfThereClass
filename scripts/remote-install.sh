@@ -145,32 +145,30 @@ install_base() {
   export DEBIAN_FRONTEND=noninteractive
   APT_ASIDE=""
   APT_LIST_BAK=""
-  if ! apt-get update -y; then
-    yellow "apt update 失败。常见原因是第三方源签名过期（例如 MySQL EXPKEYSIG）。"
-    yellow "临时跳过 /etc/apt/sources.list.d 后继续，安装结束会恢复原配置。"
+  # 先挪开第三方源。MySQL 等过期密钥会让 apt update 直接以非 0 退出，
+  # 且 curl | bash 时 apt 还可能读走剩余脚本。这里在第一次 update 之前处理。
+  shopt -s nullglob
+  local f third=()
+  for f in /etc/apt/sources.list.d/*; do
+    third+=("${f}")
+  done
+  shopt -u nullglob
+  if [[ ${#third[@]} -gt 0 ]]; then
     APT_ASIDE="$(mktemp -d /tmp/apt-aside.XXXXXX)"
-    shopt -s nullglob
-    local f
-    for f in /etc/apt/sources.list.d/*; do
+    for f in "${third[@]}"; do
       mv "${f}" "${APT_ASIDE}/"
     done
-    shopt -u nullglob
+    yellow "已临时移开 ${#third[@]} 个第三方 apt 源（含可能过期的 MySQL 源），装完依赖会恢复。"
     trap restore_apt_sources EXIT
-    if ! apt-get update -y; then
-      if [[ -f /etc/apt/sources.list ]] && grep -q 'repo.mysql.com' /etc/apt/sources.list; then
-        APT_LIST_BAK="$(mktemp /tmp/sources.list.XXXXXX)"
-        cp -a /etc/apt/sources.list "${APT_LIST_BAK}"
-        sed -i '/repo.mysql.com/s/^/# halfthere-disabled /' /etc/apt/sources.list
-        apt-get update -y
-      else
-        restore_apt_sources
-        trap - EXIT
-        red "跳过第三方源后 apt update 仍失败，请检查 /etc/apt/sources.list"
-        exit 1
-      fi
-    fi
   fi
-  apt-get install -y ca-certificates curl tar gzip xz-utils build-essential python3
+  if [[ -f /etc/apt/sources.list ]] && grep -q 'repo.mysql.com' /etc/apt/sources.list; then
+    APT_LIST_BAK="$(mktemp /tmp/sources.list.XXXXXX)"
+    cp -a /etc/apt/sources.list "${APT_LIST_BAK}"
+    sed -i '/repo.mysql.com/s/^/# halfthere-disabled /' /etc/apt/sources.list
+    yellow "已临时注释 sources.list 中的 repo.mysql.com。"
+  fi
+  apt-get update -y < /dev/null
+  apt-get install -y ca-certificates curl tar gzip xz-utils build-essential python3 < /dev/null
   restore_apt_sources
   trap - EXIT
 }
