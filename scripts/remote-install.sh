@@ -124,11 +124,55 @@ ensure_env_kv() {
   fi
 }
 
+restore_apt_sources() {
+  if [[ -n "${APT_LIST_BAK:-}" && -f "${APT_LIST_BAK}" ]]; then
+    cp -a "${APT_LIST_BAK}" /etc/apt/sources.list
+    rm -f "${APT_LIST_BAK}"
+    APT_LIST_BAK=""
+  fi
+  if [[ -n "${APT_ASIDE:-}" && -d "${APT_ASIDE}" ]]; then
+    mkdir -p /etc/apt/sources.list.d
+    shopt -s nullglob
+    mv "${APT_ASIDE}"/* /etc/apt/sources.list.d/ 2>/dev/null || true
+    shopt -u nullglob
+    rm -rf "${APT_ASIDE}"
+    APT_ASIDE=""
+  fi
+}
+
 install_base() {
   step "安装系统依赖（apt）..."
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
+  APT_ASIDE=""
+  APT_LIST_BAK=""
+  if ! apt-get update -y; then
+    yellow "apt update 失败。常见原因是第三方源签名过期（例如 MySQL EXPKEYSIG）。"
+    yellow "临时跳过 /etc/apt/sources.list.d 后继续，安装结束会恢复原配置。"
+    APT_ASIDE="$(mktemp -d /tmp/apt-aside.XXXXXX)"
+    shopt -s nullglob
+    local f
+    for f in /etc/apt/sources.list.d/*; do
+      mv "${f}" "${APT_ASIDE}/"
+    done
+    shopt -u nullglob
+    trap restore_apt_sources EXIT
+    if ! apt-get update -y; then
+      if [[ -f /etc/apt/sources.list ]] && grep -q 'repo.mysql.com' /etc/apt/sources.list; then
+        APT_LIST_BAK="$(mktemp /tmp/sources.list.XXXXXX)"
+        cp -a /etc/apt/sources.list "${APT_LIST_BAK}"
+        sed -i '/repo.mysql.com/s/^/# halfthere-disabled /' /etc/apt/sources.list
+        apt-get update -y
+      else
+        restore_apt_sources
+        trap - EXIT
+        red "跳过第三方源后 apt update 仍失败，请检查 /etc/apt/sources.list"
+        exit 1
+      fi
+    fi
+  fi
   apt-get install -y ca-certificates curl tar gzip xz-utils build-essential python3
+  restore_apt_sources
+  trap - EXIT
 }
 
 install_node() {
