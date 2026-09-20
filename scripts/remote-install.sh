@@ -33,10 +33,10 @@ GITHUB_PROXY="${GITHUB_PROXY:-https://ghfast.top/}"
 CURL_CONN="${CURL_CONNECT_TIMEOUT:-15}"
 CURL_MAX="${CURL_MAX_TIME:-300}"
 
-red() { printf '\033[31m%s\033[0m\n' "$*"; }
-green() { printf '\033[32m%s\033[0m\n' "$*"; }
-yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
-step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
+red() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
+green() { printf '\033[32m%s\033[0m\n' "$*" >&2; }
+yellow() { printf '\033[33m%s\033[0m\n' "$*" >&2; }
+step() { printf '\n\033[36m==> %s\033[0m\n' "$*" >&2; }
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -253,9 +253,10 @@ resolve_version() {
   )
   for url in "${version_urls[@]}"; do
     yellow "读取版本: ${url}"
-    if ver="$(curl_get -sS "${url}" 2>/dev/null | tr -d '\r\n' | head -1)"; then
+    if ver="$(curl_get -sS "${url}" 2>/dev/null | tr -d '\r' | awk 'NF{line=$0} END{print line}')"; then
       ver="${ver#v}"
-      if [[ "${ver}" =~ ^[0-9]+\.[0-9]+ ]]; then
+      ver="${ver%%$'\n'*}"
+      if [[ "${ver}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         printf '%s' "${ver}"
         return
       fi
@@ -345,6 +346,11 @@ download_release() {
   local ver
   if ! ver="$(resolve_version)"; then
     red "无法读取版本号。可手动指定：TAG=v1.0.1 或 RELEASE_URL=包地址"
+    exit 1
+  fi
+  if [[ ! "${ver}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    red "解析到的版本号无效：${ver}"
+    red "请改用：sudo CN_MIRROR=1 TAG=v1.0.1 bash ..."
     exit 1
   fi
   VERSION_RESOLVED="${ver}"
