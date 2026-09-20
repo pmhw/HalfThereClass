@@ -2,42 +2,46 @@
   <section>
     <div class="page-head">
       <div>
-        <p class="crumb">系统设置</p>
+        <p class="crumb">系统 / 设置</p>
         <h1>系统设置</h1>
         <p>点某一项，在弹窗里配置。空白处不会关闭，点 × 才关闭。</p>
       </div>
     </div>
     <p v-if="error" class="error">{{ error }}</p>
-    <article class="card settings-list">
-      <button type="button" class="settings-row" @click="openAmap">
-        <span>
+    <div class="settings-grid">
+      <button type="button" class="settings-card" @click="openAmap">
+        <span class="settings-icon map"><Icon name="pin" /></span>
+        <span class="settings-copy">
           <strong>高德地图</strong>
           <small>学校地图搜索和选点使用的密钥</small>
         </span>
-        <em>{{ form.key ? '已配置' : '未配置' }}</em>
+        <em :class="form.key ? 'ok' : 'wait'">{{ form.key ? '已配置' : '未配置' }}</em>
       </button>
-      <button type="button" class="settings-row" @click="openAgreement">
-        <span>
+      <button type="button" class="settings-card" @click="openAgreement">
+        <span class="settings-icon doc"><Icon name="book" /></span>
+        <span class="settings-copy">
           <strong>用户协议</strong>
           <small>教师登录前阅读并勾选，支持 Markdown 排版</small>
         </span>
-        <em>{{ agreement.title || '未配置' }}</em>
+        <em :class="agreement.title ? 'ok' : 'wait'">{{ agreement.title || '未配置' }}</em>
       </button>
-      <button type="button" class="settings-row" @click="openContract">
-        <span>
+      <button type="button" class="settings-card" @click="openContract">
+        <span class="settings-icon file"><Icon name="receipt" /></span>
+        <span class="settings-copy">
           <strong>教师服务合同</strong>
           <small>认证通过后签订。未签订不能安排课程，也不能抢课</small>
         </span>
-        <em>{{ contract.title || '未配置' }}</em>
+        <em :class="contract.title ? 'ok' : 'wait'">{{ contract.title || '未配置' }}</em>
       </button>
-      <button type="button" class="settings-row" @click="openDatabase">
-        <span>
+      <button type="button" class="settings-card" @click="openDatabase">
+        <span class="settings-icon db"><Icon name="layers" /></span>
+        <span class="settings-copy">
           <strong>数据同步</strong>
           <small>导出 / 导入 SQLite，方便本地和线上对齐</small>
         </span>
-        <em>{{ dbLabel }}</em>
+        <em :class="database.exists ? 'ok' : 'wait'">{{ dbLabel }}</em>
       </button>
-    </article>
+    </div>
 
     <div v-if="dialog === 'amap'" class="modal-mask">
       <div class="modal narrow" role="dialog">
@@ -116,6 +120,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
+import Icon from '../components/Icon.vue';
 import MarkdownField from '../components/MarkdownField.vue';
 
 const form = ref({ key: '', security: '' });
@@ -280,6 +285,73 @@ onMounted(load);
 </script>
 
 <style scoped>
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+.settings-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 92px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  color: inherit;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.settings-card:hover {
+  border-color: #c9d7f2;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+.settings-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.settings-icon.map { background: #eef4ff; color: #2563eb; }
+.settings-icon.doc { background: #ecfdf3; color: #059669; }
+.settings-icon.file { background: #fff7ed; color: #c2410c; }
+.settings-icon.db { background: #f5f3ff; color: #7c3aed; }
+.settings-copy { min-width: 0; flex: 1; }
+.settings-copy strong { display: block; font-size: 15px; font-weight: 650; }
+.settings-copy small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.settings-card em {
+  flex: none;
+  max-width: 140px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.settings-card em.ok { background: #ecfdf3; color: #047857; }
+.settings-card em.wait { background: #f2f4f7; color: #667085; }
+@media (max-width: 860px) {
+  .settings-grid { grid-template-columns: 1fr; }
+  .settings-card em { max-width: 96px; }
+}
 .db-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
