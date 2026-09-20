@@ -29,9 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/re
 指定端口 / 版本（推荐带 `TAG`，不走 GitHub API，避免国内 403）：
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=8080 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=10920 bash
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 TAG=v1.0.1 bash
 ```
+
+安装时如果机器上有签名过期的第三方 apt 源（常见是 MySQL `EXPKEYSIG`），脚本会临时跳过 `/etc/apt/sources.list.d`，装完依赖后自动恢复，不会改你原来的源。
 
 安装完成后：
 

@@ -37,9 +37,28 @@ curl -fsSL https://raw.githubusercontent.com/pmhw/HalfThereClass/main/scripts/re
 指定端口 / 版本（`TAG` 可跳过版本探测；安装脚本**不再依赖** `api.github.com`，避免国内代理 403）：
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=8080 bash
+curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 PORT=10920 bash
 curl -fsSL https://cdn.jsdelivr.net/gh/pmhw/HalfThereClass@main/scripts/remote-install.sh | sudo CN_MIRROR=1 TAG=v1.0.1 bash
 ```
+
+### 常见安装失败
+
+**MySQL 源密钥过期**（`EXPKEYSIG` / `The repository is not signed`）
+
+这是服务器上已有的 MySQL apt 源，不是本项目依赖。脚本会临时移开 `/etc/apt/sources.list.d`，用系统源装完 `curl` 等依赖后再恢复，不会改你的源配置。看到这段提示后继续等待即可：
+
+```text
+apt update 失败。常见原因是第三方源签名过期（例如 MySQL EXPKEYSIG）。
+临时跳过 /etc/apt/sources.list.d 后继续，安装结束会恢复原配置。
+```
+
+**国内下载 Release 返回 403**
+
+不要依赖 `api.github.com`。请带 `CN_MIRROR=1`，需要时再加 `TAG=v1.0.1`。脚本会依次尝试 ghfast、ghproxy 等镜像。
+
+**`npx: command not found`**
+
+Node 装在 `/usr/local` 时 PATH 里可能没有 `npx`。当前脚本会改用 `npm exec`。若是旧脚本中断的，重新执行上面的一键安装即可，已有 `.env` 和数据库会保留。
 
 若镜像仍失败，可浏览器下载 Release 包后放到可访问 URL，再：
 
