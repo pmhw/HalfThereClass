@@ -55,12 +55,15 @@ export class AuthService {
   }
 
   private async getWxOpenid(code: string): Promise<string> {
-    const appid = process.env.WX_APPID || '';
-    const secret = process.env.WX_SECRET || '';
-    const ready = appid && secret && !appid.includes('your-') && !secret.includes('your-');
-    if (!ready) {
+    const rows = await this.prisma.appSetting.findMany({
+      where: { key: { in: ['wxAppId', 'wxAppSecret'] } },
+    });
+    const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    const appid = this.pickWxValue(map.wxAppId, process.env.WX_APPID);
+    const secret = this.pickWxValue(map.wxAppSecret, process.env.WX_SECRET);
+    if (!appid || !secret) {
       if (process.env.NODE_ENV === 'production') {
-        throw new UnauthorizedException('微信登录未配置');
+        throw new UnauthorizedException('微信登录未配置，请在后台「系统设置 → 小程序」填写 AppID 和 AppSecret');
       }
       return 'dev-teacher';
     }
@@ -69,6 +72,14 @@ export class AuthService {
     const data = await response.json() as { openid?: string; errmsg?: string };
     if (!data.openid) throw new UnauthorizedException(data.errmsg || '微信登录失败');
     return data.openid;
+  }
+
+  private pickWxValue(stored?: string | null, envValue?: string) {
+    const fromDb = String(stored || '').trim();
+    if (fromDb && !fromDb.includes('your-')) return fromDb;
+    const fromEnv = String(envValue || '').trim();
+    if (fromEnv && !fromEnv.includes('your-')) return fromEnv;
+    return '';
   }
 
   private async generateToken(

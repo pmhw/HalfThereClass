@@ -57,6 +57,36 @@ function saveCaptchaStore(map: Map<string, CaptchaTicket>) {
 @Injectable()
 export class AdminService implements OnModuleInit {
   private updating = false;
+  private updateJob: {
+    running: boolean;
+    percent: number;
+    phase: string;
+    message: string;
+    error: string;
+    version: string;
+  } = {
+    running: false,
+    percent: 0,
+    phase: 'idle',
+    message: '',
+    error: '',
+    version: '',
+  };
+
+  private setUpdateProgress(percent: number, phase: string, message: string, extra: { error?: string; version?: string; running?: boolean } = {}) {
+    this.updateJob = {
+      running: extra.running ?? true,
+      percent,
+      phase,
+      message,
+      error: extra.error || '',
+      version: extra.version ?? this.updateJob.version,
+    };
+  }
+
+  getUpdateProgress() {
+    return { ...this.updateJob };
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -554,6 +584,42 @@ export class AdminService implements OnModuleInit {
     return this.prisma.school.create({ data: payload });
   }
 
+  async getWxConfig() {
+    const rows = await this.prisma.appSetting.findMany({
+      where: { key: { in: ['wxAppId', 'wxAppSecret'] } },
+    });
+    const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    const appId = this.usableSecret(map.wxAppId) || this.usableSecret(process.env.WX_APPID);
+    const secret = this.usableSecret(map.wxAppSecret) || this.usableSecret(process.env.WX_SECRET);
+    return { appId, secret, ready: Boolean(appId && secret) };
+  }
+
+  async saveWxConfig(data: { appId?: string; secret?: string }) {
+    const appId = String(data.appId || '').trim();
+    const secret = String(data.secret || '').trim();
+    if (!/^wx[0-9a-fA-F]{16}$/.test(appId)) throw new BadRequestException('AppID 格式不正确');
+    if (!secret || secret.includes('your-') || secret.length < 8) throw new BadRequestException('请填写有效的 AppSecret');
+    await this.prisma.$transaction([
+      this.prisma.appSetting.upsert({
+        where: { key: 'wxAppId' },
+        create: { key: 'wxAppId', value: appId },
+        update: { value: appId },
+      }),
+      this.prisma.appSetting.upsert({
+        where: { key: 'wxAppSecret' },
+        create: { key: 'wxAppSecret', value: secret },
+        update: { value: secret },
+      }),
+    ]);
+    return { appId, secret, ready: true };
+  }
+
+  private usableSecret(value?: string | null) {
+    const text = String(value || '').trim();
+    if (!text || text.includes('your-')) return '';
+    return text;
+  }
+
   async getAmapConfig() {
     const rows = await this.prisma.appSetting.findMany({
       where: { key: { in: ['amapKey', 'amapSecurity'] } },
@@ -882,23 +948,24 @@ export class AdminService implements OnModuleInit {
 
   async applyUpdate(tag?: string) {
     if (this.updating) throw new BadRequestException('正在更新，请稍候');
-    const info = await this.getSystemUpdates();
-    const target = tag
-      ? info.releases.find((item: any) => item.tag === tag || item.tag === `v${tag}`)
-      : info.updates[0] || null;
-    if (!target) {
-      throw new BadRequestException(
-        this.cnMirrorEnabled()
-          ? '没有可更新的版本（已启用国内镜像仍失败时，请检查 GITHUB_PROXY）'
-          : '没有可更新的版本。国内服务器请在 .env 设置 CN_MIRROR=1 后重启',
-      );
-    }
-    if (!target.newer && !tag) throw new BadRequestException('已经是最新版本');
-    if (!target.assetName || !/\.tar\.gz$/i.test(target.assetName)) {
-      throw new BadRequestException('该版本没有 Ubuntu 部署包，无法自动更新');
-    }
     this.updating = true;
+    this.setUpdateProgress(8, 'check', '正在检查新版本…');
     try {
+      const info = await this.getSystemUpdates();
+      const target = tag
+        ? info.releases.find((item: any) => item.tag === tag || item.tag === `v${tag}`)
+        : info.updates[0] || null;
+      if (!target) {
+        throw new BadRequestException(
+          this.cnMirrorEnabled()
+            ? '没有可更新的版本（已启用国内镜像仍失败时，请检查 GITHUB_PROXY）'
+            : '没有可更新的版本。国内服务器请在 .env 设置 CN_MIRROR=1 后重启',
+        );
+      }
+      if (!target.newer && !tag) throw new BadRequestException('已经是最新版本');
+      if (!target.assetName || !/\.tar\.gz$/i.test(target.assetName)) {
+        throw new BadRequestException('该版本没有 Ubuntu 部署包，无法自动更新');
+      }
       const root = this.installRoot();
       const work = join(root, 'uploads', 'updates');
       mkdirSync(work, { recursive: true });
@@ -914,6 +981,7 @@ export class AdminService implements OnModuleInit {
       ].filter(Boolean);
       const uniqueUrls = [...new Set(candidates as string[])];
 
+      this.setUpdateProgress(18, 'download', `正在下载 ${target.tag} …`);
       let downloaded = false;
       let lastStatus = 0;
       for (const url of uniqueUrls) {
@@ -941,6 +1009,7 @@ export class AdminService implements OnModuleInit {
         );
       }
 
+      this.setUpdateProgress(52, 'extract', '正在解压更新包…');
       await this.runCommand(`tar -xzf "${archive}" -C "${extractDir}"`, root);
       const entries = readdirSync(extractDir);
       const packageDir = entries
@@ -948,6 +1017,7 @@ export class AdminService implements OnModuleInit {
         .find((path) => existsSync(join(path, 'VERSION')) && existsSync(join(path, 'backend')));
       if (!packageDir) throw new BadRequestException('更新包结构不正确');
 
+      this.setUpdateProgress(64, 'replace', '正在替换程序文件…');
       const keepEnv = join(root, 'backend', '.env');
       const keepDb = join(root, 'backend', 'prisma', 'dev.db');
       const envBackup = existsSync(keepEnv) ? readFileSync(keepEnv) : null;
@@ -988,21 +1058,29 @@ export class AdminService implements OnModuleInit {
       if (envBackup) writeFileSync(keepEnv, envBackup);
       if (dbTemp && existsSync(dbTemp)) copyFileSync(dbTemp, keepDb);
 
+      this.setUpdateProgress(76, 'deps', '正在安装依赖…');
       await this.runCommand('npm ci --omit=dev', join(root, 'backend'));
+      this.setUpdateProgress(86, 'db', '正在更新数据库…');
       await this.runCommand('npx prisma generate', join(root, 'backend'));
       await this.runCommand('npx prisma migrate deploy', join(root, 'backend'));
 
-      writeFileSync(join(root, 'VERSION'), `${String(target.tag).replace(/^v/i, '')}\n`);
-      writeFileSync(join(root, 'backend', 'VERSION'), `${String(target.tag).replace(/^v/i, '')}\n`);
+      const nextVersion = String(target.tag).replace(/^v/i, '');
+      writeFileSync(join(root, 'VERSION'), `${nextVersion}\n`);
+      writeFileSync(join(root, 'backend', 'VERSION'), `${nextVersion}\n`);
 
+      this.setUpdateProgress(96, 'restart', '安装完成，正在重启服务…', { version: nextVersion });
       this.scheduleRestart(root);
       return {
         ok: true,
         restarting: true,
-        version: String(target.tag).replace(/^v/i, ''),
+        version: nextVersion,
         tag: target.tag,
         message: `已更新到 ${target.tag}，面板即将重启`,
       };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '更新失败';
+      this.setUpdateProgress(this.updateJob.percent || 0, 'error', message, { error: message, running: false });
+      throw error;
     } finally {
       setTimeout(() => { this.updating = false; }, 3000);
     }

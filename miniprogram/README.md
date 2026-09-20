@@ -21,14 +21,17 @@
 
 ### 配置
 
-修改 `config/index.js` 中的接口地址：
+修改 `config/index.js`。当前已指向线上：
 
 ```js
-development: {
-  baseUrl: 'http://localhost:3000/api', // 本地后端地址
-  imgBaseUrl: 'https://cdn.example.com',
+production: {
+  baseUrl: 'https://t.wisonenerge.com/api',
+  origin: 'https://t.wisonenerge.com',
+  imgBaseUrl: 'https://t.wisonenerge.com',
 },
 ```
+
+微信公众平台还需把 `https://t.wisonenerge.com` 配进 request、uploadFile、downloadFile 合法域名。本地调试把文件末尾的 `env` 改回 `development`。
 
 ## 项目结构
 

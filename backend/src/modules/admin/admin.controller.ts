@@ -75,6 +75,18 @@ export class AdminController {
     return this.adminService.saveAdmin(req.admin, body, Number(id));
   }
 
+  @Get('settings/wx')
+  @ApiOperation({ summary: '读取小程序配置' })
+  getWxSettings() {
+    return this.adminService.getWxConfig();
+  }
+
+  @Put('settings/wx')
+  @ApiOperation({ summary: '保存小程序配置' })
+  saveWxSettings(@Body() body: { appId?: string; secret?: string }) {
+    return this.adminService.saveWxConfig(body || {});
+  }
+
   @Get('settings/amap')
   @ApiOperation({ summary: '读取高德密钥' })
   getAmapSettings() {
@@ -121,6 +133,12 @@ export class AdminController {
   @ApiOperation({ summary: '可更新版本列表' })
   systemUpdates() {
     return this.adminService.getSystemUpdates();
+  }
+
+  @Get('system/update-progress')
+  @ApiOperation({ summary: '更新进度' })
+  updateProgress() {
+    return this.adminService.getUpdateProgress();
   }
 
   @Post('system/apply-update')

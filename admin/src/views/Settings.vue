@@ -9,6 +9,14 @@
     </div>
     <p v-if="error" class="error">{{ error }}</p>
     <div class="settings-grid">
+      <button type="button" class="settings-card" @click="openWx">
+        <span class="settings-icon wx">微</span>
+        <span class="settings-copy">
+          <strong>小程序</strong>
+          <small>登录用的 AppID 和 AppSecret，保存后立即生效</small>
+        </span>
+        <em :class="wx.ready ? 'ok' : 'wait'">{{ wx.ready ? '已配置' : '未配置' }}</em>
+      </button>
       <button type="button" class="settings-card" @click="openAmap">
         <span class="settings-icon map"><Icon name="pin" /></span>
         <span class="settings-copy">
@@ -41,6 +49,29 @@
         </span>
         <em :class="database.exists ? 'ok' : 'wait'">{{ dbLabel }}</em>
       </button>
+    </div>
+
+    <div v-if="dialog === 'wx'" class="modal-mask">
+      <div class="modal narrow" role="dialog">
+        <header>
+          <h3>小程序</h3>
+          <button class="modal-close" type="button" @click="close">×</button>
+        </header>
+        <form class="form" @submit.prevent="saveWx">
+          <p class="muted">填写微信公众平台「开发管理 → 开发设置」里的 AppID 和 AppSecret。须与小程序工程里的 AppID 一致，并配置 request 合法域名。</p>
+          <label>AppID
+            <input v-model="draft.appId" required placeholder="wx 开头的 AppID" autocomplete="off" />
+          </label>
+          <label>AppSecret
+            <input v-model="draft.secret" required placeholder="请输入 AppSecret" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+          </label>
+          <p v-if="dialogError" class="error">{{ dialogError }}</p>
+          <div class="form-actions">
+            <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
+            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <div v-if="dialog === 'amap'" class="modal-mask">
@@ -124,6 +155,7 @@ import Icon from '../components/Icon.vue';
 import MarkdownField from '../components/MarkdownField.vue';
 
 const form = ref({ key: '', security: '' });
+const wx = ref({ appId: '', secret: '', ready: false });
 const agreement = ref({ title: '', content: '' });
 const contract = ref({ title: '', content: '' });
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
@@ -153,12 +185,14 @@ function formatTime(value) {
 
 async function load() {
   try {
-    const [amap, text, paper, db] = await Promise.all([
+    const [mini, amap, text, paper, db] = await Promise.all([
+      api.settingsWx(),
       api.settingsAmap(),
       api.settingsAgreement(),
       api.settingsContract(),
       api.databaseInfo().catch(() => ({ exists: false, size: 0, updatedAt: null, hasInit: false })),
     ]);
+    wx.value = mini;
     form.value = amap;
     agreement.value = text;
     contract.value = paper;
@@ -166,6 +200,13 @@ async function load() {
   } catch (err) {
     error.value = err.message;
   }
+}
+
+function openWx() {
+  draft.value = { appId: wx.value.appId, secret: wx.value.secret };
+  showSecret.value = false;
+  dialogError.value = '';
+  dialog.value = 'wx';
 }
 
 function openAmap() {
@@ -202,6 +243,19 @@ function close() {
   dialog.value = '';
   dialogError.value = '';
   dialogOk.value = '';
+}
+
+async function saveWx() {
+  saving.value = true;
+  dialogError.value = '';
+  try {
+    wx.value = await api.saveSettingsWx(draft.value);
+    close();
+  } catch (err) {
+    dialogError.value = err.message;
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function saveAmap() {
@@ -319,6 +373,7 @@ onMounted(load);
   place-items: center;
   flex: none;
 }
+.settings-icon.wx { background: #ecfdf3; color: #059669; font-weight: 700; font-size: 16px; }
 .settings-icon.map { background: #eef4ff; color: #2563eb; }
 .settings-icon.doc { background: #ecfdf3; color: #059669; }
 .settings-icon.file { background: #fff7ed; color: #c2410c; }

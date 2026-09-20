@@ -7,15 +7,15 @@ const config = {
     origin: 'http://localhost:3000',
     imgBaseUrl: 'https://cdn.example.com',
   },
-  // 生产环境
+  // 生产环境（线上后台与接口同一域名）
   production: {
-    baseUrl: 'https://api.halfthereclass.com/api',
-    origin: 'https://api.halfthereclass.com',
-    imgBaseUrl: 'https://cdn.halfthereclass.com',
+    baseUrl: 'https://t.wisonenerge.com/api',
+    origin: 'https://t.wisonenerge.com',
+    imgBaseUrl: 'https://t.wisonenerge.com',
   },
 };
 
-// 获取当前环境
-const env = 'development'; // 可根据实际情况切换
+// 线上小程序用 production；本地调试可改回 development
+const env = 'production';
 
 module.exports = config[env];
