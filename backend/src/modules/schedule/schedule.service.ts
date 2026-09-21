@@ -76,7 +76,7 @@ export class ScheduleService {
       .sort((a, b) => b.year - a.year || (a.season === b.season ? 0 : a.season === 'spring' ? -1 : 1));
   }
 
-  async saveSemester(data: any, id?: number) {
+  async saveSemester(data: any, id?: number, actor?: any) {
     const year = Number(data.year);
     const season = data.season === 'spring' ? 'spring' : 'autumn';
     const startDate = this.ensureDate(data.startDate);
@@ -95,20 +95,24 @@ export class ScheduleService {
     if (id) {
       const exists = await this.prisma.semester.findUnique({ where: { id } });
       if (!exists) throw new NotFoundException('学期不存在');
+      this.assertOwnSemester(actor, exists);
     }
     const saved = id
       ? await this.prisma.semester.update({ where: { id }, data: payload })
-      : await this.prisma.semester.create({ data: payload });
+      : await this.prisma.semester.create({
+        data: { ...payload, ...(this.isSchool(actor) ? { ownerId: actor.id } : {}) },
+      });
     await this.syncHolidays(saved);
     return saved;
   }
 
-  async deleteSemester(id: number) {
+  async deleteSemester(id: number, actor?: any) {
     const semester = await this.prisma.semester.findUnique({
       where: { id },
       include: { _count: { select: { sessions: true } } },
     });
     if (!semester) throw new NotFoundException('学期不存在');
+    this.assertOwnSemester(actor, semester);
     if (semester._count.sessions) throw new BadRequestException('已有课次记录，学期需要留存，不能删除');
     await this.prisma.semester.delete({ where: { id } });
     return { id };
@@ -124,10 +128,11 @@ export class ScheduleService {
     });
   }
 
-  async saveHoliday(data: any) {
+  async saveHoliday(data: any, actor?: any) {
     const semesterId = Number(data.semesterId);
     const semester = await this.prisma.semester.findUnique({ where: { id: semesterId } });
     if (!semester) throw new NotFoundException('学期不存在');
+    this.assertOwnSemester(actor, semester);
     this.assertOpen(semester);
     const date = this.ensureDate(data.date);
     if (date < semester.startDate || date > semester.endDate) {
@@ -145,11 +150,14 @@ export class ScheduleService {
     return holiday;
   }
 
-  async deleteHoliday(id: number) {
+  async deleteHoliday(id: number, actor?: any) {
     const holiday = await this.prisma.holiday.findUnique({ where: { id } });
     if (!holiday) throw new NotFoundException('节假日不存在');
     const semester = await this.prisma.semester.findUnique({ where: { id: holiday.semesterId } });
-    if (semester) this.assertOpen(semester);
+    if (semester) {
+      this.assertOwnSemester(actor, semester);
+      this.assertOpen(semester);
+    }
     await this.prisma.holiday.delete({ where: { id } });
     return { id };
   }
@@ -159,6 +167,7 @@ export class ScheduleService {
     courseIds?: number[],
     slots?: { weekday: number; startTime: string; endTime?: string | null }[],
     count?: number,
+    actor?: any,
   ) {
     const semester = await this.prisma.semester.findUnique({ where: { id: semesterId } });
     if (!semester) throw new NotFoundException('学期不存在');
@@ -176,6 +185,7 @@ export class ScheduleService {
     const holidayMap = new Map(holidays.map((item) => [item.date, item.name]));
     const courses = await this.prisma.course.findMany({ where: { status: 1, id: Number(courseIds[0]) } });
     if (!courses.length) throw new NotFoundException('课程不存在或已下架');
+    await this.assertOwnCourse(actor, courses[0].id);
     const ids = courses.map((course) => course.id);
     const locked = await this.prisma.courseSession.findMany({
       where: { semesterId, courseId: { in: ids }, locked: true },
@@ -230,10 +240,11 @@ export class ScheduleService {
     };
   }
 
-  async listSessions(semesterId?: number, courseId?: number, page?: number, pageSize?: number, month?: string) {
+  async listSessions(semesterId?: number, courseId?: number, page?: number, pageSize?: number, month?: string, actor?: any) {
     const where: any = {};
     if (semesterId) where.semesterId = semesterId;
     if (courseId) where.courseId = courseId;
+    if (this.isSchool(actor)) where.course = { ownerId: actor.id };
     if (month) {
       if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
       const [year, mon] = month.split('-').map(Number);
@@ -269,9 +280,10 @@ export class ScheduleService {
     );
   }
 
-  async updateSession(id: number, data: { date?: string; startTime?: string; endTime?: string; status?: string; note?: string }) {
+  async updateSession(id: number, data: { date?: string; startTime?: string; endTime?: string; status?: string; note?: string }, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('课次不存在');
+    await this.assertOwnCourse(actor, current.courseId);
     const semester = await this.prisma.semester.findUnique({ where: { id: current.semesterId } });
     if (semester) this.assertOpen(semester);
     const date = data.date ? this.ensureDate(data.date) : current.date;
@@ -293,16 +305,18 @@ export class ScheduleService {
     });
   }
 
-  async deleteSession(id: number) {
+  async deleteSession(id: number, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('课次不存在');
+    await this.assertOwnCourse(actor, current.courseId);
     const semester = await this.prisma.semester.findUnique({ where: { id: current.semesterId } });
     if (semester) this.assertOpen(semester);
     await this.prisma.courseSession.delete({ where: { id } });
     return { ok: true };
   }
 
-  async coursePlan(courseId: number) {
+  async coursePlan(courseId: number, actor?: any) {
+    await this.assertOwnCourse(actor, courseId);
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
       select: { id: true, title: true },
@@ -337,7 +351,8 @@ export class ScheduleService {
     };
   }
 
-  async createCourseSession(courseId: number, data: { semesterId?: number; date?: string; startTime?: string; endTime?: string }) {
+  async createCourseSession(courseId: number, data: { semesterId?: number; date?: string; startTime?: string; endTime?: string }, actor?: any) {
+    await this.assertOwnCourse(actor, courseId);
     const course = await this.prisma.course.findUnique({ where: { id: courseId } });
     if (!course) throw new NotFoundException('课程不存在');
     const date = this.ensureDate(data.date || '');
@@ -374,16 +389,16 @@ export class ScheduleService {
     });
   }
 
-  async updateCourseSession(courseId: number, sessionId: number, data: { date?: string; startTime?: string; endTime?: string }) {
+  async updateCourseSession(courseId: number, sessionId: number, data: { date?: string; startTime?: string; endTime?: string }, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id: sessionId } });
     if (!current || current.courseId !== courseId) throw new NotFoundException('课次不存在');
-    return this.updateSession(sessionId, data);
+    return this.updateSession(sessionId, data, actor);
   }
 
-  async deleteCourseSession(courseId: number, sessionId: number) {
+  async deleteCourseSession(courseId: number, sessionId: number, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id: sessionId } });
     if (!current || current.courseId !== courseId) throw new NotFoundException('课次不存在');
-    return this.deleteSession(sessionId);
+    return this.deleteSession(sessionId, actor);
   }
 
   async calendar(month: string, userId?: number) {
@@ -695,5 +710,21 @@ export class ScheduleService {
     const month = `${date.getMonth() + 1}`.padStart(2, '0');
     const day = `${date.getDate()}`.padStart(2, '0');
     return `${date.getFullYear()}-${month}-${day}`;
+  }
+
+  private isSchool(actor?: any) {
+    return actor?.role === 'school';
+  }
+
+  private assertOwnSemester(actor: any, semester: { ownerId?: number | null }) {
+    if (this.isSchool(actor) && semester.ownerId !== actor.id) {
+      throw new ForbiddenException('只能编辑自己添加的学期');
+    }
+  }
+
+  private async assertOwnCourse(actor: any, courseId: number) {
+    if (!this.isSchool(actor)) return;
+    const course = await this.prisma.course.findUnique({ where: { id: courseId }, select: { ownerId: true } });
+    if (!course || course.ownerId !== actor.id) throw new ForbiddenException('只能编辑自己添加的课程课次');
   }
 }

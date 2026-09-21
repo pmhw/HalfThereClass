@@ -228,32 +228,32 @@ export class AdminController {
 
   @Get('courses/:id/plan')
   @ApiOperation({ summary: '一门课的排课日历' })
-  coursePlan(@Param('id') id: string) {
-    return this.scheduleService.coursePlan(Number(id));
+  coursePlan(@Req() req: any, @Param('id') id: string) {
+    return this.scheduleService.coursePlan(Number(id), req.admin);
   }
 
   @Post('courses/:id/sessions')
   @ApiOperation({ summary: '为一门课加一节' })
-  createCourseSession(@Param('id') id: string, @Body() body: any) {
-    return this.scheduleService.createCourseSession(Number(id), body || {});
+  createCourseSession(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.scheduleService.createCourseSession(Number(id), body || {}, req.admin);
   }
 
   @Post('courses/:id/generate')
   @ApiOperation({ summary: '按每周时间为一门课生成课次' })
-  generateCourse(@Param('id') id: string, @Body() body: any) {
-    return this.scheduleService.generate(Number(body?.semesterId), [Number(id)], body?.slots, Number(body?.count));
+  generateCourse(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.scheduleService.generate(Number(body?.semesterId), [Number(id)], body?.slots, Number(body?.count), req.admin);
   }
 
   @Put('courses/:id/sessions/:sessionId')
   @ApiOperation({ summary: '调整一门课的某一节' })
-  updateCourseSession(@Param('id') id: string, @Param('sessionId') sessionId: string, @Body() body: any) {
-    return this.scheduleService.updateCourseSession(Number(id), Number(sessionId), body || {});
+  updateCourseSession(@Req() req: any, @Param('id') id: string, @Param('sessionId') sessionId: string, @Body() body: any) {
+    return this.scheduleService.updateCourseSession(Number(id), Number(sessionId), body || {}, req.admin);
   }
 
   @Delete('courses/:id/sessions/:sessionId')
   @ApiOperation({ summary: '删除一门课的某一节' })
-  deleteCourseSession(@Param('id') id: string, @Param('sessionId') sessionId: string) {
-    return this.scheduleService.deleteCourseSession(Number(id), Number(sessionId));
+  deleteCourseSession(@Req() req: any, @Param('id') id: string, @Param('sessionId') sessionId: string) {
+    return this.scheduleService.deleteCourseSession(Number(id), Number(sessionId), req.admin);
   }
 
   @Get('courses/:id')
@@ -294,26 +294,26 @@ export class AdminController {
 
   @Post('categories')
   @ApiOperation({ summary: '新增分类' })
-  createCategory(@Body() body: any) {
-    return this.adminService.saveCategory(body);
+  createCategory(@Req() req: any, @Body() body: any) {
+    return this.adminService.saveCategory(body, undefined, req.admin);
   }
 
   @Put('categories/:id')
   @ApiOperation({ summary: '修改分类' })
-  updateCategory(@Param('id') id: string, @Body() body: any) {
-    return this.adminService.saveCategory(body, Number(id));
+  updateCategory(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.adminService.saveCategory(body, Number(id), req.admin);
   }
 
   @Delete('categories/:id')
   @ApiOperation({ summary: '删除分类' })
-  deleteCategory(@Param('id') id: string) {
-    return this.adminService.deleteCategory(Number(id));
+  deleteCategory(@Req() req: any, @Param('id') id: string) {
+    return this.adminService.deleteCategory(Number(id), req.admin);
   }
 
   @Post('categories/batch-delete')
   @ApiOperation({ summary: '批量删除分类' })
-  deleteCategories(@Body() body: { ids?: number[] }) {
-    return this.adminService.deleteCategories(body?.ids || []);
+  deleteCategories(@Req() req: any, @Body() body: { ids?: number[] }) {
+    return this.adminService.deleteCategories(body?.ids || [], req.admin);
   }
 
   @Get('schools/amap-config')
@@ -387,29 +387,30 @@ export class AdminController {
 
   @Post('semesters')
   @ApiOperation({ summary: '新增学期' })
-  createSemester(@Body() body: any) {
-    return this.scheduleService.saveSemester(body);
+  createSemester(@Req() req: any, @Body() body: any) {
+    return this.scheduleService.saveSemester(body, undefined, req.admin);
   }
 
   @Put('semesters/:id')
   @ApiOperation({ summary: '修改学期' })
-  updateSemester(@Param('id') id: string, @Body() body: any) {
-    return this.scheduleService.saveSemester(body, Number(id));
+  updateSemester(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.scheduleService.saveSemester(body, Number(id), req.admin);
   }
 
   @Delete('semesters/:id')
   @ApiOperation({ summary: '删除学期' })
-  deleteSemester(@Param('id') id: string) {
-    return this.scheduleService.deleteSemester(Number(id));
+  deleteSemester(@Req() req: any, @Param('id') id: string) {
+    return this.scheduleService.deleteSemester(Number(id), req.admin);
   }
 
   @Post('semesters/:id/generate')
   @ApiOperation({ summary: '按每周时间循环生成课表' })
   generateSemester(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: { courseIds?: number[]; slots?: { weekday: number; startTime: string; endTime?: string }[]; count?: number },
   ) {
-    return this.scheduleService.generate(Number(id), body?.courseIds, body?.slots, body?.count);
+    return this.scheduleService.generate(Number(id), body?.courseIds, body?.slots, body?.count, req.admin);
   }
 
   @Get('holidays')
@@ -420,14 +421,14 @@ export class AdminController {
 
   @Post('holidays')
   @ApiOperation({ summary: '新增节假日并修正课表' })
-  createHoliday(@Body() body: any) {
-    return this.scheduleService.saveHoliday(body);
+  createHoliday(@Req() req: any, @Body() body: any) {
+    return this.scheduleService.saveHoliday(body, req.admin);
   }
 
   @Delete('holidays/:id')
   @ApiOperation({ summary: '删除节假日并修正课表' })
-  deleteHoliday(@Param('id') id: string) {
-    return this.scheduleService.deleteHoliday(Number(id));
+  deleteHoliday(@Req() req: any, @Param('id') id: string) {
+    return this.scheduleService.deleteHoliday(Number(id), req.admin);
   }
 
   @Get('sessions')
@@ -438,6 +439,7 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('month') month?: string,
+    @Req() req?: any,
   ) {
     return this.scheduleService.listSessions(
       semesterId ? Number(semesterId) : undefined,
@@ -445,18 +447,19 @@ export class AdminController {
       Number(page),
       Number(pageSize),
       month,
+      req?.admin,
     );
   }
 
   @Put('sessions/:id')
   @ApiOperation({ summary: '调整单节课' })
-  updateSession(@Param('id') id: string, @Body() body: any) {
-    return this.scheduleService.updateSession(Number(id), body);
+  updateSession(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.scheduleService.updateSession(Number(id), body, req.admin);
   }
 
   @Delete('sessions/:id')
   @ApiOperation({ summary: '删除单节课' })
-  deleteSession(@Param('id') id: string) {
-    return this.scheduleService.deleteSession(Number(id));
+  deleteSession(@Req() req: any, @Param('id') id: string) {
+    return this.scheduleService.deleteSession(Number(id), req.admin);
   }
 }

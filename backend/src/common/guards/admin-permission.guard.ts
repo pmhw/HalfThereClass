@@ -28,11 +28,8 @@ export class AdminPermissionGuard implements CanActivate {
   private allowSchool(request: any) {
     const path = String(request.originalUrl || request.url || '').split('?')[0];
     const method = String(request.method || 'GET').toUpperCase();
-    if (/\/courses\/\d+\/(plan|sessions|generate)(?:\/|$)/.test(path)) {
-      throw new ForbiddenException('校企业账号不能排课');
-    }
-    if (/\/courses(?:\/|$)/.test(path)) return true;
-    if (method === 'GET' && /\/(categories|schools|teachers)(?:\/|$)/.test(path)) return true;
-    throw new ForbiddenException('校企业账号只能管理课程');
+    if (/\/(courses|categories|semesters|holidays|sessions)(?:\/|$)/.test(path)) return true;
+    if (method === 'GET' && /\/(schools|teachers)(?:\/|$)/.test(path)) return true;
+    throw new ForbiddenException('校企业账号只能管理自己的课程、分类和排课');
   }
 }

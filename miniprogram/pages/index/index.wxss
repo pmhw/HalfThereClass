@@ -191,12 +191,12 @@
   border: 3rpx solid #2f6cf6; border-radius: 50%; box-sizing: border-box;
 }
 
-.grab-scroll { white-space: nowrap; width: 100%; }
+.grab-list { display: flex; flex-direction: column; gap: 16rpx; }
 .grab {
-  display: inline-flex; width: 460rpx; margin-right: 16rpx; padding: 24rpx;
+  display: flex; width: 100%; padding: 24rpx;
   background: #fff; border-radius: 32rpx;
   box-shadow: 0 14rpx 0 rgba(226, 232, 240, .9), 0 18rpx 30rpx rgba(17, 24, 39, .05);
-  vertical-align: top; box-sizing: border-box; white-space: normal;
+  box-sizing: border-box;
 }
 .grab-press { transform: translateY(8rpx); box-shadow: 0 4rpx 0 rgba(226, 232, 240, .9); }
 .mark {
@@ -206,7 +206,7 @@
 .mark.blue { background: #2f6cf6; }
 .mark.purple { background: #7c5cfc; }
 .mark.cyan { background: #0891b2; }
-.grab-body { margin-left: 18rpx; min-width: 0; }
+.grab-body { margin-left: 18rpx; min-width: 0; flex: 1; }
 .grab-title { font-size: 30rpx; font-weight: 700; color: #111827; }
 .grab-meta, .grab-time { margin-top: 6rpx; color: #98a2b3; font-size: 22rpx; }
 .grab-tag {

@@ -133,6 +133,20 @@
           </div>
         </div>
         <div class="header-actions">
+          <div v-if="canCert" class="notice-wrap">
+            <router-link class="icon-btn" to="/certs" title="教师认证">
+              <Icon name="message" />
+              <i v-if="certCount" class="dot"></i>
+            </router-link>
+            <div v-if="showCertNotice" class="cert-notice">
+              <strong>教师认证待审核</strong>
+              <p>有 {{ certCount }} 条认证或证明需要处理{{ certNames ? `：${certNames}` : '' }}</p>
+              <div class="cert-notice-actions">
+                <router-link to="/certs" @click="dismissCert">去审核</router-link>
+                <button type="button" @click="dismissCert">知道了</button>
+              </div>
+            </div>
+          </div>
           <router-link v-if="profile?.role !== 'school'" class="icon-btn" to="/orders?status=pending" title="待支付订单">
             <Icon name="bell" />
             <i v-if="pendingCount" class="dot"></i>
@@ -177,6 +191,11 @@ const open = ref(false);
 const help = ref(false);
 const userMenu = ref(false);
 const pendingCount = ref(0);
+const certCount = ref(0);
+const certNames = ref('');
+const certDismissed = ref(Number(sessionStorage.getItem('cert_notice_count') || 0));
+const canCert = computed(() => profile.value?.role !== 'school' && allow(profile.value, 'people'));
+const showCertNotice = computed(() => certCount.value > 0 && certCount.value !== certDismissed.value);
 const versionOpen = ref(false);
 const versionLoading = ref(false);
 const applying = ref(false);
@@ -259,6 +278,8 @@ const menus = computed(() => {
       icon: 'book',
       children: [
         { to: '/courses', label: '课程列表', icon: 'list' },
+        { to: '/term', label: '学期排课', icon: 'cal' },
+        { to: '/categories', label: '分类管理', icon: 'folder' },
       ],
     }];
   }
@@ -421,9 +442,36 @@ async function applyUpdate(tag) {
   }
 }
 
+function dismissCert() {
+  certDismissed.value = certCount.value;
+  sessionStorage.setItem('cert_notice_count', String(certCount.value));
+}
+
+async function loadHeaderNotices() {
+  if (profile.value?.role === 'school') return;
+  if (allow(profile.value, 'overview')) {
+    try {
+      const data = await api.dashboard();
+      pendingCount.value = data.pendingOrderCount || 0;
+    } catch {
+      pendingCount.value = 0;
+    }
+  }
+  if (!canCert.value) return;
+  try {
+    const list = await api.certs();
+    const rows = (Array.isArray(list) ? list : []).filter((item) => item.status === 'pending' || item.clearanceStatus === 'pending');
+    certCount.value = rows.length;
+    certNames.value = rows.slice(0, 3).map((item) => item.realName || item.user?.nickname || '教师').join('、');
+  } catch {
+    certCount.value = 0;
+    certNames.value = '';
+  }
+}
 watch(() => route.path, () => {
   syncOpen();
   refreshUpdates();
+  loadHeaderNotices();
 });
 onMounted(async () => {
   syncOpen();
@@ -431,13 +479,7 @@ onMounted(async () => {
   refreshUpdates();
   updateTimer = window.setInterval(() => refreshUpdates(), 10 * 60 * 1000);
   window.addEventListener('resize', placeVersionPop);
-  if (!allow(profile.value, 'overview')) return;
-  try {
-    const data = await api.dashboard();
-    pendingCount.value = data.pendingOrderCount;
-  } catch {
-    pendingCount.value = 0;
-  }
+  loadHeaderNotices();
 });
 
 onUnmounted(() => {

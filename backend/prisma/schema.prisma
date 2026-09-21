@@ -49,9 +49,12 @@ model Category {
   sort        Int       @default(0) @map("sort")
   status      Int       @default(1) @map("status")
   createdAt   DateTime  @default(now()) @map("created_at")
+  ownerId     Int?      @map("owner_id")
 
   courses     Course[]
+  owner       AdminAccount? @relation("SchoolCategories", fields: [ownerId], references: [id], onDelete: SetNull)
 
+  @@index([ownerId])
   @@map("categories")
 }
 
@@ -85,6 +88,7 @@ model Course {
   isRecommend Boolean   @default(false) @map("is_recommend")
   isHot       Boolean   @default(false) @map("is_hot")
   sessionFee  Float?    @map("session_fee")
+  grabAt      DateTime? @map("grab_at")
   ownerId     Int?      @map("owner_id")
   status      Int       @default(1) @map("status") // 1:上架 0:下架
   publishedAt DateTime? @map("published_at")
@@ -277,11 +281,14 @@ model Semester {
   startDate String    @map("start_date")
   endDate   String    @map("end_date")
   status    Int       @default(1) @map("status")
+  ownerId   Int?      @map("owner_id")
   createdAt DateTime  @default(now()) @map("created_at")
 
   holidays  Holiday[]
   sessions  CourseSession[]
+  owner     AdminAccount? @relation("SchoolSemesters", fields: [ownerId], references: [id], onDelete: SetNull)
 
+  @@index([ownerId])
   @@map("semesters")
 }
 
@@ -339,6 +346,8 @@ model AdminAccount {
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   ownedCourses Course[] @relation("SchoolCourses")
+  ownedCategories Category[] @relation("SchoolCategories")
+  ownedSemesters Semester[] @relation("SchoolSemesters")
 
   @@map("admin_accounts")
 }

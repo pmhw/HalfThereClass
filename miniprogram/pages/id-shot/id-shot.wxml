@@ -1,48 +1,77 @@
 <privacy-popup />
 <view class="page">
-  <view wx:if="{{phase === 'need' || phase === 'wait'}}" class="wait">
-    <view class="nav-back wait-back" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;" bindtap="back">返回</view>
-    <view class="wait-text">拍摄身份证需要使用摄像头</view>
-    <button class="grant" bindtap="grantCamera">允许使用摄像头</button>
+  <view style="height: {{padTop}}px;"></view>
+  <view class="nav" style="height: {{navH}}px;">
+    <view class="back" bindtap="back"></view>
+    <text class="nav-title">拍摄身份证</text>
+    <text class="side">{{side === 'emblem' ? '国徽面' : '人像面'}}</text>
   </view>
-  <camera wx:if="{{phase === 'cam'}}" class="cam" device-position="back" flash="{{flash}}" resolution="high" binderror="onCamError">
-    <cover-view class="dim" style="left:0;top:0;width:{{winW}}px;height:{{frame.top}}px;"></cover-view>
-    <cover-view class="dim" style="left:0;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
-    <cover-view class="dim" style="left:{{frame.left + frame.w}}px;top:{{frame.top}}px;width:{{winW - frame.left - frame.w}}px;height:{{frame.h}}px;"></cover-view>
-    <cover-view class="dim rest" style="left:0;top:{{frame.top + frame.h}}px;width:{{winW}}px;height:{{winH - frame.top - frame.h}}px;"></cover-view>
 
-    <cover-view class="corner" style="left:{{frame.left}}px;top:{{frame.top}}px;border-left-width:4px;border-top-width:4px;"></cover-view>
-    <cover-view class="corner" style="left:{{frame.left + frame.w - 28}}px;top:{{frame.top}}px;border-right-width:4px;border-top-width:4px;"></cover-view>
-    <cover-view class="corner" style="left:{{frame.left}}px;top:{{frame.top + frame.h - 28}}px;border-left-width:4px;border-bottom-width:4px;"></cover-view>
-    <cover-view class="corner" style="left:{{frame.left + frame.w - 28}}px;top:{{frame.top + frame.h - 28}}px;border-right-width:4px;border-bottom-width:4px;"></cover-view>
+  <view class="lead">
+    <view class="lead-title">请拍摄本人身份证</view>
+    <view class="lead-sub">确保身份证完整、清晰、无遮挡</view>
+  </view>
 
-    <cover-view wx:if="{{side === 'portrait'}}" class="guide photo" style="left:{{frame.left + frame.w - 92}}px;top:{{frame.top + 28}}px;"></cover-view>
-    <cover-view wx:if="{{side === 'emblem'}}" class="guide emblem" style="left:{{frame.left + 22}}px;top:{{frame.top + 18}}px;"></cover-view>
-
-    <cover-view class="nav-back" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;" bindtap="back">返回</cover-view>
-    <cover-view class="nav-title" style="top:{{padTop}}px;height:{{navH}}px;line-height:{{navH}}px;">{{side === 'emblem' ? '拍摄国徽面' : '拍摄人像面'}}</cover-view>
-    <cover-view class="tip" style="top:{{frame.top + frame.h + 18}}px;width:{{winW}}px;">请将身份证{{side === 'emblem' ? '国徽面' : '人像面'}}与框对齐，避免反光</cover-view>
-
-    <cover-view class="tool" style="left:28px;bottom:{{dock}}px;" bindtap="pickAlbum">相册</cover-view>
-    <cover-view class="tool file" style="left:88px;bottom:{{dock}}px;" bindtap="pickFile">文件</cover-view>
-    <cover-view class="shutter" style="left:{{shutterLeft}}px;bottom:{{dock}}px;" bindtap="shoot">
-      <cover-view class="shutter-in"></cover-view>
-    </cover-view>
-    <cover-view class="tool right" style="right:28px;bottom:{{dock}}px;" bindtap="toggleFlash">{{flash === 'torch' ? '闪光开' : '闪光'}}</cover-view>
-  </camera>
-
-  <view wx:elif="{{phase === 'preview'}}" class="preview">
-    <view class="nav" style="padding-top: {{padTop}}px;">
-      <view class="back" style="height: {{navH}}px;" bindtap="back">返回</view>
-      <view class="title" style="height: {{navH}}px;">确认{{side === 'emblem' ? '国徽面' : '人像面'}}</view>
+  <view class="card">
+    <view class="frame-label">请将身份证放入框内</view>
+    <view class="frame">
+      <camera
+        wx:if="{{phase === 'cam'}}"
+        class="cam"
+        device-position="back"
+        flash="off"
+        resolution="high"
+        bindinitdone="onCamReady"
+        binderror="onCamError"
+      >
+        <cover-view class="cam-ring"></cover-view>
+        <cover-view class="corner c-tl"></cover-view>
+        <cover-view class="corner c-tr"></cover-view>
+        <cover-view class="corner c-bl"></cover-view>
+        <cover-view class="corner c-br"></cover-view>
+        <cover-view wx:if="{{side === 'portrait'}}" class="ghost-photo"></cover-view>
+        <cover-view wx:else class="ghost-emblem"></cover-view>
+      </camera>
+      <image wx:elif="{{phase === 'preview'}}" class="shot" src="{{preview}}" mode="aspectFill"></image>
+      <view wx:else class="sample">
+        <view class="sample-copy">
+          <view class="bar long"></view>
+          <view class="bar mid"></view>
+          <view class="bar short"></view>
+          <view class="sample-note">示例轮廓</view>
+        </view>
+        <view wx:if="{{side === 'portrait'}}" class="sample-photo"></view>
+        <view wx:else class="sample-emblem"></view>
+      </view>
+      <view wx:if="{{phase !== 'cam'}}" class="ring"></view>
+      <view wx:if="{{phase !== 'cam'}}" class="corner c-tl"></view>
+      <view wx:if="{{phase !== 'cam'}}" class="corner c-tr"></view>
+      <view wx:if="{{phase !== 'cam'}}" class="corner c-bl"></view>
+      <view wx:if="{{phase !== 'cam'}}" class="corner c-br"></view>
     </view>
-    <view class="sheet">
-      <image class="shot" src="{{preview}}" mode="aspectFit"></image>
+    <view class="status {{statusTone}}">
+      <text wx:if="{{statusTone === 'ok'}}" class="tick">✓</text>
+      {{statusText}}
     </view>
-    <view class="actions">
-      <view class="ghost" bindtap="retake">重拍</view>
-      <view class="use" bindtap="usePhoto">使用照片</view>
+  </view>
+
+  <view wx:if="{{phase !== 'preview'}}" class="shoot-box">
+    <view class="shutter" bindtap="onShutter">
+      <view class="shutter-in"></view>
     </view>
+    <text class="shoot-label">拍摄</text>
+  </view>
+  <view wx:else class="confirm">
+    <view class="ghost-btn" bindtap="retake">重拍</view>
+    <view class="use-btn" bindtap="usePhoto">使用照片</view>
+  </view>
+
+  <view class="reqs">
+    <view class="req">✓ 身份证四角完整</view>
+    <view class="req">✓ 文字清晰可见</view>
+    <view class="req">✓ 避免反光</view>
+    <view class="req">✓ 请勿遮挡身份证</view>
+    <view class="req">✓ 请使用本人身份证</view>
   </view>
 
   <canvas type="2d" id="crop" class="crop"></canvas>

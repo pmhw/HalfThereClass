@@ -156,6 +156,14 @@
               </div>
             </label>
             <label class="course-field">
+              <span>开抢时间</span>
+              <div class="course-control">
+                <Icon name="clock" />
+                <input v-model="form.grabAt" type="datetime-local" />
+              </div>
+              <small class="region-note">不填则认证并签合同后即可抢。到点前小程序按钮显示倒计时，老师可写入日历提醒。</small>
+            </label>
+            <label class="course-field">
               <span>课程封面</span>
               <button class="cover-box" type="button" @click="pickCover">
                 <img v-if="form.cover" :src="form.cover" alt="" />
@@ -530,6 +538,14 @@ const summary = computed(() => {
   ];
 });
 
+function toLocalInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function blank() {
   return {
     id: null,
@@ -538,6 +554,7 @@ function blank() {
     price: '',
     originalPrice: '',
     sessionFee: '',
+    grabAt: '',
     cover: '',
     level: 'beginner',
     school: '',
@@ -620,6 +637,7 @@ function openForm(item) {
         price: item.price,
         originalPrice: item.originalPrice ?? '',
         sessionFee: item.sessionFee ?? '',
+        grabAt: toLocalInput(item.grabAt),
         cover: item.cover || '',
         level: item.level || 'beginner',
         school: item.school || '',

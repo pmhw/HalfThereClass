@@ -154,7 +154,7 @@
       <view class="section-title">可抢课程</view>
       <text class="more" bindtap="goCourse">课程大厅 ›</text>
     </view>
-    <scroll-view wx:if="{{loading}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
+    <view wx:if="{{loading}}" class="grab-list">
       <view class="grab skel-card" wx:for="{{skel}}" wx:key="*this">
         <view class="sk sk-mark"></view>
         <view class="grab-body">
@@ -163,8 +163,8 @@
           <view class="sk sk-tag"></view>
         </view>
       </view>
-    </scroll-view>
-    <scroll-view wx:elif="{{recommend.length}}" scroll-x class="grab-scroll" enhanced show-scrollbar="{{false}}">
+    </view>
+    <view wx:elif="{{recommend.length}}" class="grab-list">
       <view class="grab" wx:for="{{recommend}}" wx:key="id" data-id="{{item.id}}" bindtap="openCourse" hover-class="grab-press" hover-stay-time="80">
         <view class="mark {{item.tone}}">{{item.initial}}</view>
         <view class="grab-body">
@@ -174,7 +174,7 @@
           <view class="grab-tag">可抢课</view>
         </view>
       </view>
-    </scroll-view>
+    </view>
     <view class="empty-line" wx:else>暂时没有未安排老师的课</view>
   </view>
 </view>

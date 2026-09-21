@@ -7,6 +7,7 @@
     <view class="line" wx:if="{{course.startTime}}">{{week}} {{course.startTime}}-{{course.endTime}}</view>
     <view class="line">{{course.school || '学校待定'}} {{course.classroom || ''}}</view>
     <view class="line">教师：{{course.teacherName || '待安排'}}</view>
+    <view class="price" wx:if="{{course.showPrice}}">{{course.priceLabel}} ¥{{course.coursePrice}}</view>
   </view>
 
   <view class="card block">
@@ -15,7 +16,11 @@
   </view>
 
   <view class="bar safe-bottom">
-    <button wx:if="{{course.canGrab}}" class="btn btn-primary btn-block" bindtap="onGrab">立即抢课</button>
+    <block wx:if="{{waiting}}">
+      <button class="btn btn-block" disabled>距开抢 {{countdown}}</button>
+      <button class="btn btn-primary btn-block remind" bindtap="addCalendar">提醒到日历</button>
+    </block>
+    <button wx:elif="{{course.canGrab}}" class="btn btn-primary btn-block" bindtap="onGrab">立即抢课</button>
     <view wx:elif="{{course.isMine}}" class="bar-row">
       <button class="btn btn-block" bindtap="goAdjust">登记调课</button>
       <button class="btn btn-primary btn-block" bindtap="goCheckin">去签到</button>

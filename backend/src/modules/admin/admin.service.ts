@@ -222,6 +222,8 @@ export class AdminService implements OnModuleInit {
       if (!actor?.isSuper || supers <= 1) throw new BadRequestException('至少保留一个超级管理员');
     }
     await this.prisma.course.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
+    await this.prisma.category.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
+    await this.prisma.semester.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.adminAccount.delete({ where: { id } });
     return { id };
   }
@@ -1407,39 +1409,48 @@ export class AdminService implements OnModuleInit {
     return { deleted, blocked };
   }
 
-  async saveCategory(data: any, id?: number) {
+  async saveCategory(data: any, id?: number, actor?: any) {
     if (!data.name?.trim()) throw new BadRequestException('请填写分类名称');
     const payload = {
       name: data.name.trim(),
       sort: Number(data.sort || 0),
       status: Number(data.status ?? 1),
     };
-    if (!id) return this.prisma.category.create({ data: payload });
+    if (!id) {
+      return this.prisma.category.create({
+        data: { ...payload, ...(this.isSchool(actor) ? { ownerId: actor.id } : {}) },
+      });
+    }
     const exists = await this.prisma.category.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('分类不存在');
+    this.assertOwnRecord(actor, exists, '只能编辑自己添加的分类');
     return this.prisma.category.update({ where: { id }, data: payload });
   }
 
-  async deleteCategory(id: number) {
+  async deleteCategory(id: number, actor?: any) {
     const category = await this.prisma.category.findUnique({
       where: { id },
       include: { _count: { select: { courses: true } } },
     });
     if (!category) throw new NotFoundException('分类不存在');
+    this.assertOwnRecord(actor, category, '只能删除自己添加的分类');
     if (category._count.courses) throw new BadRequestException('分类下还有课程，不能删除');
     await this.prisma.category.delete({ where: { id } });
     return { id };
   }
 
-  async deleteCategories(ids: number[]) {
+  async deleteCategories(ids: number[], actor?: any) {
     const list = await this.prisma.category.findMany({
       where: { id: { in: this.normalizeIds(ids) } },
       include: { _count: { select: { courses: true } } },
     });
-    const blocked = list
-      .filter((item) => item._count.courses)
-      .map((item) => ({ id: item.id, title: item.name, reason: '分类下还有课程' }));
-    const deleted = list.filter((item) => !item._count.courses).map((item) => item.id);
+    const blocked = [];
+    const deleted = [];
+    for (const item of list) {
+      if (this.isSchool(actor) && item.ownerId !== actor.id) blocked.push({ id: item.id, title: item.name, reason: '不是自己添加的' });
+      else if (item._count.courses) blocked.push({ id: item.id, title: item.name, reason: '分类下还有课程' });
+      else deleted.push(item.id);
+    }
     if (!deleted.length) {
       throw new BadRequestException(blocked.length ? this.blockedText(blocked) : '没有可删除的分类');
     }
@@ -1477,11 +1488,19 @@ export class AdminService implements OnModuleInit {
       gradeLabel: data.gradeLabel || null,
       teacherId,
       seats: teacherId || data.allowEnroll === false ? 0 : 1,
+      grabAt: this.parseGrabAt(data.grabAt),
     };
     if (!this.isSchool(actor)) {
       row.sessionFee = data.sessionFee === '' || data.sessionFee == null ? null : Number(data.sessionFee);
     }
     return row;
+  }
+
+  private parseGrabAt(value: any) {
+    if (value === '' || value == null) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('开抢时间不正确');
+    return date;
   }
 
   private isSchool(actor?: any) {
@@ -1492,6 +1511,10 @@ export class AdminService implements OnModuleInit {
     if (this.isSchool(actor) && course.ownerId !== actor.id) {
       throw new ForbiddenException('只能管理分配给自己的课程');
     }
+  }
+
+  private assertOwnRecord(actor: any, row: { ownerId?: number | null }, message: string) {
+    if (this.isSchool(actor) && row.ownerId !== actor.id) throw new ForbiddenException(message);
   }
 
   private async normalizeSchoolOwner(ownerId: any) {

@@ -29,6 +29,8 @@ const courseCardSelect = {
   startTime: true,
   endTime: true,
   seats: true,
+  sessionFee: true,
+  grabAt: true,
   teacherId: true,
   category: { select: { id: true, name: true } },
   teacher: { select: { id: true, nickname: true } },
@@ -106,7 +108,14 @@ export class CourseService {
     }
 
     const gate = await this.teacherGate(userId);
-    return { ...this.present(course, gate.certified, userId, gate.contracted), isBought, lessons: course.lessons };
+    const view = this.present(course, gate.certified, userId, gate.contracted);
+    if (gate.certified && !course.teacherId) {
+      const fee = course.sessionFee != null ? Number(course.sessionFee) : null;
+      view.showPrice = true;
+      view.coursePrice = fee != null ? fee : Number(course.price || 0);
+      view.priceLabel = fee != null ? '课时费' : '课程价格';
+    }
+    return { ...view, isBought, lessons: course.lessons };
   }
 
   async getRecommendCourses(limit = 6, userId?: number) {
@@ -201,6 +210,7 @@ export class CourseService {
     const course = await this.prisma.course.findUnique({ where: { id: courseId } });
     if (!course || course.status !== 1) throw new NotFoundException('课程不存在或已下架');
     if (course.teacherId) throw new BadRequestException('该课程已安排老师');
+    if (course.grabAt && course.grabAt.getTime() > Date.now()) throw new BadRequestException('还没到开抢时间');
     await this.staffService.ensureGrant(userId, courseId);
     return this.prisma.course.update({
       where: { id: courseId },
@@ -281,12 +291,18 @@ export class CourseService {
   }
 
   private present(course: any, certified: boolean, userId?: number, contracted = false) {
+    const grabAt = course.grabAt ? new Date(course.grabAt).getTime() : 0;
+    const opened = !grabAt || grabAt <= Date.now();
     const result = {
       ...course,
-      canSeePrice: false,
+      grabAt,
+      serverNow: Date.now(),
+      showPrice: false,
+      coursePrice: null,
+      priceLabel: '',
       certified,
       contractSigned: contracted,
-      canGrab: contracted && !course.teacherId && course.seats > 0,
+      canGrab: contracted && !course.teacherId && course.seats > 0 && opened,
       openGrab: !course.teacherId && course.seats > 0,
       isMine: !!userId && course.teacherId === userId,
       teacherName: course.teacher?.nickname || '',

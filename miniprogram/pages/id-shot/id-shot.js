@@ -1,32 +1,15 @@
-const RATIO = 856 / 540;
+const RATIO = 85.6 / 53.98;
 const privacy = require('../../utils/privacy.js');
 
-function layoutOf(info) {
-  const winW = info.windowWidth;
-  const winH = info.windowHeight;
-  const menu = wx.getMenuButtonBoundingClientRect();
-  const landscape = winW >= winH;
-  const maxW = winW - (landscape ? 160 : 36);
-  const maxH = winH - (landscape ? 120 : 210);
-  let frameW = maxW;
-  let frameH = Math.round(frameW / RATIO);
-  if (frameH > maxH) {
-    frameH = Math.max(120, maxH);
-    frameW = Math.round(frameH * RATIO);
-  }
-  const left = Math.round((winW - frameW) / 2);
-  const top = Math.round((winH - frameH) / 2 - (landscape ? 6 : 16));
-  const inset = info.safeArea ? Math.max(0, info.screenHeight - info.safeArea.bottom) : 0;
-  return {
-    padTop: menu.top || info.statusBarHeight || 24,
-    navH: menu.height || 32,
-    winW,
-    winH,
-    dock: (landscape ? 20 : 36) + inset,
-    shutterLeft: Math.round((winW - 74) / 2),
-    frame: { left, top, w: frameW, h: frameH },
-  };
-}
+const STATUS = {
+  empty: { text: '请将身份证放入框内', tone: 'wait' },
+  ok: { text: '身份证位置合适', tone: 'ok' },
+  tilt: { text: '请保持身份证水平', tone: 'warn' },
+  close: { text: '请稍微远离一点', tone: 'warn' },
+  dark: { text: '光线不足，请移至明亮处', tone: 'warn' },
+  glare: { text: '检测到反光，请调整角度', tone: 'warn' },
+  block: { text: '请确保身份证完整无遮挡', tone: 'warn' },
+};
 
 Page({
   data: {
@@ -34,37 +17,48 @@ Page({
     key: 'idCard',
     phase: 'wait',
     preview: '',
-    flash: 'off',
     padTop: 24,
     navH: 32,
-    winW: 375,
-    winH: 667,
-    dock: 48,
-    shutterLeft: 150,
-    frame: { left: 24, top: 180, w: 327, h: 206 },
+    statusText: STATUS.empty.text,
+    statusTone: STATUS.empty.tone,
   },
 
   onLoad(query) {
+    const info = wx.getWindowInfo();
+    const menu = wx.getMenuButtonBoundingClientRect();
     this.channel = this.getOpenerEventChannel();
     this.setData({
       side: query.side === 'emblem' ? 'emblem' : 'portrait',
       key: query.key === 'idCardBack' ? 'idCardBack' : 'idCard',
-      ...layoutOf(wx.getWindowInfo()),
+      padTop: menu.top || info.statusBarHeight || 24,
+      navH: menu.height || 32,
     });
     this.askCamera();
   },
 
-  onResize() {
-    this.setData(layoutOf(wx.getWindowInfo()));
+  onUnload() {
+    this.stopLight();
+  },
+
+  applyStatus(name) {
+    const item = STATUS[name] || STATUS.empty;
+    if (this.data.statusText === item.text) return;
+    this.setData({ statusText: item.text, statusTone: item.tone });
   },
 
   askCamera() {
     wx.getSetting({
       success: (res) => {
         if (res.authSetting && res.authSetting['scope.camera']) this.setData({ phase: 'cam' });
-        else this.setData({ phase: 'need' });
+        else {
+          this.setData({ phase: 'need' });
+          this.applyStatus('empty');
+        }
       },
-      fail: () => this.setData({ phase: 'need' }),
+      fail: () => {
+        this.setData({ phase: 'need' });
+        this.applyStatus('empty');
+      },
     });
   },
 
@@ -80,6 +74,43 @@ Page({
         if (privacy.denied(err)) this.askSetting();
       },
     });
+  },
+
+  onCamReady() {
+    this.applyStatus('ok');
+    this.watchLight();
+  },
+
+  watchLight() {
+    this.stopLight();
+    const ctx = wx.createCameraContext();
+    if (!ctx.onCameraFrame) return;
+    let last = 0;
+    const listener = ctx.onCameraFrame((frame) => {
+      const now = Date.now();
+      if (now - last < 600 || this.data.phase !== 'cam') return;
+      const bytes = frame && frame.data ? new Uint8Array(frame.data) : null;
+      if (!bytes || !frame.width || !frame.height || bytes.length < frame.width * frame.height * 4) return;
+      last = now;
+      let sum = 0;
+      let count = 0;
+      const step = 64;
+      for (let i = 0; i + 2 < bytes.length; i += step) {
+        sum += bytes[i] * 0.3 + bytes[i + 1] * 0.59 + bytes[i + 2] * 0.11;
+        count += 1;
+      }
+      const avg = count ? sum / count : 255;
+      this.applyStatus(avg < 42 ? 'dark' : 'ok');
+    });
+    listener.start();
+    this.lightListener = listener;
+  },
+
+  stopLight() {
+    if (this.lightListener) {
+      this.lightListener.stop();
+      this.lightListener = null;
+    }
   },
 
   onCamError(e) {
@@ -100,66 +131,32 @@ Page({
     });
   },
 
-  toggleFlash() {
-    this.setData({ flash: this.data.flash === 'torch' ? 'off' : 'torch' });
-  },
-
-  pickFile() {
-    wx.chooseMessageFile({
-      count: 1,
-      type: 'file',
-      extension: ['pdf', 'jpg', 'jpeg', 'png'],
-      success: (res) => {
-        const file = res.tempFiles && res.tempFiles[0];
-        if (!file) return;
-        if (/\.pdf$/i.test(file.name || file.path || '')) {
-          this.finish(file.path);
-          return;
-        }
-        this.setData({ phase: 'preview', preview: file.path });
-      },
-      fail: (err) => {
-        if (privacy.cancelled(err)) return;
-        if (privacy.undeclared(err)) {
-          privacy.explainUndeclared();
-          return;
-        }
-        wx.showToast({ title: '无法打开文件', icon: 'none' });
-      },
-    });
-  },
-
-  pickAlbum() {
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ['image'],
-      sourceType: ['album'],
-      sizeType: ['compressed'],
-      success: (res) => {
-        const file = res.tempFiles && res.tempFiles[0];
-        if (file) this.setData({ phase: 'preview', preview: file.tempFilePath });
-      },
-      fail: (err) => {
-        if (privacy.cancelled(err)) return;
-        if (privacy.undeclared(err)) privacy.explainUndeclared();
-      },
-    });
+  onShutter() {
+    if (this.data.phase === 'need' || this.data.phase === 'wait') {
+      this.grantCamera();
+      return;
+    }
+    this.shoot();
   },
 
   shoot() {
-    if (this.busy) return;
+    if (this.busy || this.data.phase !== 'cam') return;
     this.busy = true;
+    this.stopLight();
     wx.createCameraContext().takePhoto({
       quality: 'high',
       success: (res) => {
         this.crop(res.tempImagePath).then((path) => {
           this.setData({ phase: 'preview', preview: path });
+          this.applyStatus('ok');
         }).catch(() => {
           this.setData({ phase: 'preview', preview: res.tempImagePath });
+          this.applyStatus('ok');
         }).finally(() => { this.busy = false; });
       },
       fail: () => {
         this.busy = false;
+        this.watchLight();
         wx.showToast({ title: '拍摄失败，请重试', icon: 'none' });
       },
     });
@@ -167,6 +164,7 @@ Page({
 
   retake() {
     this.setData({ phase: 'cam', preview: '' });
+    this.applyStatus('empty');
   },
 
   usePhoto() {
@@ -184,7 +182,6 @@ Page({
   },
 
   crop(src) {
-    const frame = this.data.frame;
     return new Promise((resolve, reject) => {
       wx.getImageInfo({
         src,
@@ -192,23 +189,23 @@ Page({
           wx.createSelectorQuery().in(this).select('.cam').boundingClientRect().select('#crop').fields({ node: true }).exec((res) => {
             const view = res && res[0];
             const canvas = res && res[1] && res[1].node;
-            if (!view || !canvas) {
+            if (!view || !canvas || !view.width || !view.height) {
               reject(new Error('crop'));
               return;
             }
             const scale = Math.max(view.width / info.width, view.height / info.height);
             const ox = (info.width * scale - view.width) / 2;
             const oy = (info.height * scale - view.height) / 2;
-            let sx = Math.round((frame.left - view.left + ox) / scale);
-            let sy = Math.round((frame.top - view.top + oy) / scale);
-            let sw = Math.round(frame.w / scale);
-            let sh = Math.round(frame.h / scale);
+            let sx = Math.round(ox / scale);
+            let sy = Math.round(oy / scale);
+            let sw = Math.round(view.width / scale);
+            let sh = Math.round(view.height / scale);
             sx = Math.max(0, Math.min(sx, info.width - 1));
             sy = Math.max(0, Math.min(sy, info.height - 1));
             sw = Math.max(1, Math.min(sw, info.width - sx));
             sh = Math.max(1, Math.min(sh, info.height - sy));
             const outW = 856;
-            const outH = 540;
+            const outH = Math.round(outW / RATIO);
             canvas.width = outW;
             canvas.height = outH;
             const ctx = canvas.getContext('2d');
