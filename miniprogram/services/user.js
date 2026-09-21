@@ -29,13 +29,22 @@ const uploadCertFile = (filePath) => {
       success: (res) => {
         let body = {};
         try { body = JSON.parse(res.data || '{}'); } catch (err) {
-          reject(new Error('上传失败'));
+          reject(new Error(res.statusCode === 413 ? '文件过大，请重拍一张' : '上传失败'));
           return;
         }
-        if (body.code === 0) resolve(body.data);
-        else reject(new Error(body.message || '上传失败'));
+        const message = Array.isArray(body.message) ? body.message.join('，') : (body.message || '上传失败');
+        if (res.statusCode >= 400 || body.code !== 0 || !body.data || !body.data.url) {
+          reject(new Error(message));
+          return;
+        }
+        resolve(body.data);
       },
-      fail: () => reject(new Error('上传失败')),
+      fail: (err) => {
+        const msg = (err && err.errMsg) || '';
+        if (/url not in domain list/i.test(msg)) reject(new Error('未配置上传域名'));
+        else if (/timeout/i.test(msg)) reject(new Error('上传超时，请重试'));
+        else reject(new Error('上传失败'));
+      },
     });
   });
 };

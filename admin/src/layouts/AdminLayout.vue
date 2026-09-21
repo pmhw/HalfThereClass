@@ -4,9 +4,9 @@
       <div
         class="brand"
         :class="{ 'has-update': updates.hasUpdate }"
-        @mouseenter="openVersion"
+        @mouseenter="openVersion(true)"
         @mouseleave="closeVersion"
-        @focusin="openVersion"
+        @focusin="openVersion(true)"
         @focusout="closeVersion"
       >
         <div class="logo">
@@ -23,7 +23,7 @@
           v-if="versionOpen"
           class="version-pop"
           :style="versionStyle"
-          @mouseenter="openVersion"
+          @mouseenter="openVersion(false)"
           @mouseleave="closeVersion"
           @mousedown.prevent
         >
@@ -253,7 +253,14 @@ const menuSource = [
 ];
 const menus = computed(() => {
   if (profile.value?.role === 'school') {
-    return [{ key: 'course', label: '课程管理', icon: 'book', to: '/courses' }];
+    return [{
+      key: 'course',
+      label: '课程管理',
+      icon: 'book',
+      children: [
+        { to: '/courses', label: '课程列表', icon: 'list' },
+      ],
+    }];
   }
   return menuSource
   .map((group) => {
@@ -319,6 +326,7 @@ function formatTime(value) {
 }
 
 async function refreshUpdates(forceOpen = false) {
+  if (versionLoading.value) return;
   versionLoading.value = true;
   versionError.value = '';
   try {
@@ -328,7 +336,7 @@ async function refreshUpdates(forceOpen = false) {
       ...list,
       releasesUrl: list.repo ? `${list.repo}/releases` : '',
     };
-    if (forceOpen || list.hasUpdate) {
+    if (forceOpen) {
       placeVersionPop();
       versionOpen.value = true;
     }
@@ -342,7 +350,7 @@ async function refreshUpdates(forceOpen = false) {
       repo: version.value.repo || '',
       releasesUrl: '',
     };
-    if (forceOpen) versionError.value = err.message || '检测失败';
+    if (forceOpen || versionOpen.value) versionError.value = err.message || '检测失败';
   } finally {
     versionLoading.value = false;
   }
@@ -361,11 +369,11 @@ function placeVersionPop() {
   };
 }
 
-function openVersion() {
+function openVersion(check = false) {
   clearTimeout(versionTimer);
   placeVersionPop();
   versionOpen.value = true;
-  if (!updates.value.current && !versionLoading.value) refreshUpdates();
+  if (check) refreshUpdates();
 }
 
 function closeVersion() {
@@ -413,7 +421,10 @@ async function applyUpdate(tag) {
   }
 }
 
-watch(() => route.path, syncOpen);
+watch(() => route.path, () => {
+  syncOpen();
+  refreshUpdates();
+});
 onMounted(async () => {
   syncOpen();
   await nextTick();

@@ -8,7 +8,7 @@
   <camera wx:if="{{phase === 'cam'}}" class="cam" device-position="back" flash="{{flash}}" resolution="high" binderror="onCamError">
     <cover-view class="dim" style="left:0;top:0;width:{{winW}}px;height:{{frame.top}}px;"></cover-view>
     <cover-view class="dim" style="left:0;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
-    <cover-view class="dim" style="left:{{frame.left + frame.w}}px;top:{{frame.top}}px;width:{{frame.left}}px;height:{{frame.h}}px;"></cover-view>
+    <cover-view class="dim" style="left:{{frame.left + frame.w}}px;top:{{frame.top}}px;width:{{winW - frame.left - frame.w}}px;height:{{frame.h}}px;"></cover-view>
     <cover-view class="dim rest" style="left:0;top:{{frame.top + frame.h}}px;width:{{winW}}px;height:{{winH - frame.top - frame.h}}px;"></cover-view>
 
     <cover-view class="corner" style="left:{{frame.left}}px;top:{{frame.top}}px;border-left-width:4px;border-top-width:4px;"></cover-view>
@@ -31,7 +31,7 @@
     <cover-view class="tool right" style="right:28px;bottom:{{dock}}px;" bindtap="toggleFlash">{{flash === 'torch' ? '闪光开' : '闪光'}}</cover-view>
   </camera>
 
-  <view wx:else class="preview">
+  <view wx:elif="{{phase === 'preview'}}" class="preview">
     <view class="nav" style="padding-top: {{padTop}}px;">
       <view class="back" style="height: {{navH}}px;" bindtap="back">返回</view>
       <view class="title" style="height: {{navH}}px;">确认{{side === 'emblem' ? '国徽面' : '人像面'}}</view>

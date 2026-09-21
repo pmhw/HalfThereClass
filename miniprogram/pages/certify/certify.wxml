@@ -67,23 +67,23 @@
         </view>
         <view class="slots">
           <view class="slot" data-key="idCard" bindtap="choose">
-            <image wx:if="{{files.idCard}}" src="{{origin}}{{files.idCard}}" mode="aspectFill"></image>
-            <view wx:if="{{files.idCard}}" class="slot-tag">人像面 · 点击重拍</view>
+            <image wx:if="{{previews.idCard || files.idCard}}" src="{{previews.idCard || (origin + files.idCard)}}" mode="aspectFit"></image>
+            <view wx:if="{{previews.idCard || files.idCard}}" class="slot-tag">{{uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍'}}</view>
             <block wx:else>
               <view class="mark tl"></view><view class="mark tr"></view>
               <view class="mark bl"></view><view class="mark br"></view>
               <view class="slot-name">人像面</view>
-              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '拍摄或上传'}}</view>
+              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '横向拍摄'}}</view>
             </block>
           </view>
           <view class="slot" data-key="idCardBack" bindtap="choose">
-            <image wx:if="{{files.idCardBack}}" src="{{origin}}{{files.idCardBack}}" mode="aspectFill"></image>
-            <view wx:if="{{files.idCardBack}}" class="slot-tag">国徽面 · 点击重拍</view>
+            <image wx:if="{{previews.idCardBack || files.idCardBack}}" src="{{previews.idCardBack || (origin + files.idCardBack)}}" mode="aspectFit"></image>
+            <view wx:if="{{previews.idCardBack || files.idCardBack}}" class="slot-tag">{{uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍'}}</view>
             <block wx:else>
               <view class="mark tl"></view><view class="mark tr"></view>
               <view class="mark bl"></view><view class="mark br"></view>
               <view class="slot-name">国徽面</view>
-              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '拍摄或上传'}}</view>
+              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '横向拍摄'}}</view>
             </block>
           </view>
         </view>

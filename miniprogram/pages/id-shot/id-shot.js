@@ -1,9 +1,37 @@
 const RATIO = 856 / 540;
 const privacy = require('../../utils/privacy.js');
 
+function layoutOf(info) {
+  const winW = info.windowWidth;
+  const winH = info.windowHeight;
+  const menu = wx.getMenuButtonBoundingClientRect();
+  const landscape = winW >= winH;
+  const maxW = winW - (landscape ? 160 : 36);
+  const maxH = winH - (landscape ? 120 : 210);
+  let frameW = maxW;
+  let frameH = Math.round(frameW / RATIO);
+  if (frameH > maxH) {
+    frameH = Math.max(120, maxH);
+    frameW = Math.round(frameH * RATIO);
+  }
+  const left = Math.round((winW - frameW) / 2);
+  const top = Math.round((winH - frameH) / 2 - (landscape ? 6 : 16));
+  const inset = info.safeArea ? Math.max(0, info.screenHeight - info.safeArea.bottom) : 0;
+  return {
+    padTop: menu.top || info.statusBarHeight || 24,
+    navH: menu.height || 32,
+    winW,
+    winH,
+    dock: (landscape ? 20 : 36) + inset,
+    shutterLeft: Math.round((winW - 74) / 2),
+    frame: { left, top, w: frameW, h: frameH },
+  };
+}
+
 Page({
   data: {
     side: 'portrait',
+    key: 'idCard',
     phase: 'wait',
     preview: '',
     flash: 'off',
@@ -17,26 +45,17 @@ Page({
   },
 
   onLoad(query) {
-    const info = wx.getWindowInfo();
-    const menu = wx.getMenuButtonBoundingClientRect();
-    const winW = info.windowWidth;
-    const winH = info.windowHeight;
-    const frameW = winW - 48;
-    const frameH = Math.round(frameW / RATIO);
-    const left = Math.round((winW - frameW) / 2);
-    const top = Math.round((winH - frameH) / 2 - 24);
     this.channel = this.getOpenerEventChannel();
     this.setData({
       side: query.side === 'emblem' ? 'emblem' : 'portrait',
-      padTop: menu.top || info.statusBarHeight || 24,
-      navH: menu.height || 32,
-      winW,
-      winH,
-      dock: 36 + (info.screenHeight - info.safeArea.bottom || 0),
-      shutterLeft: Math.round((winW - 74) / 2),
-      frame: { left, top, w: frameW, h: frameH },
+      key: query.key === 'idCardBack' ? 'idCardBack' : 'idCard',
+      ...layoutOf(wx.getWindowInfo()),
     });
     this.askCamera();
+  },
+
+  onResize() {
+    this.setData(layoutOf(wx.getWindowInfo()));
   },
 
   askCamera() {
@@ -94,8 +113,7 @@ Page({
         const file = res.tempFiles && res.tempFiles[0];
         if (!file) return;
         if (/\.pdf$/i.test(file.name || file.path || '')) {
-          if (this.channel && this.channel.emit) this.channel.emit('done', { path: file.path });
-          wx.navigateBack();
+          this.finish(file.path);
           return;
         }
         this.setData({ phase: 'preview', preview: file.path });
@@ -153,7 +171,15 @@ Page({
 
   usePhoto() {
     if (!this.data.preview) return;
-    if (this.channel && this.channel.emit) this.channel.emit('done', { path: this.data.preview });
+    this.finish(this.data.preview);
+  },
+
+  finish(path) {
+    const pages = getCurrentPages();
+    const prev = pages[pages.length - 2];
+    const payload = { key: this.data.key, path };
+    if (prev && typeof prev.onIdShot === 'function') prev.onIdShot(payload);
+    else if (this.channel && this.channel.emit) this.channel.emit('done', payload);
     wx.navigateBack();
   },
 

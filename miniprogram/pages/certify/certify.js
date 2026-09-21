@@ -7,11 +7,25 @@ function isPdf(path) {
   return /\.pdf$/i.test(path || '');
 }
 
+function compressUpload(filePath) {
+  if (isPdf(filePath) || !wx.compressImage) return Promise.resolve(filePath);
+  return new Promise((resolve) => {
+    wx.compressImage({
+      src: filePath,
+      quality: 60,
+      compressedWidth: 1280,
+      success: (res) => resolve((res && res.tempFilePath) || filePath),
+      fail: () => resolve(filePath),
+    });
+  });
+}
+
 Page({
   data: {
     origin: config.origin,
     realName: '',
     files: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
+    previews: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     cert: { status: 'none' },
     step: 1,
     uploading: '',
@@ -42,7 +56,19 @@ Page({
       wx.navigateTo({ url: '/pages/login/login' });
       return;
     }
-    this.load();
+    this.refresh();
+  },
+
+  async refresh() {
+    await this.load();
+    const shot = this._shot;
+    if (!shot) return;
+    this._shot = null;
+    this.upload(shot.key, shot.path);
+  },
+
+  onIdShot(data) {
+    if (data && data.key && data.path) this._shot = data;
   },
 
   async load() {
@@ -51,16 +77,18 @@ Page({
       const step = cert.status === 'approved' && !cert.clearanceDue && !cert.clearancePending
         ? 3
         : (cert.status === 'pending' || cert.clearancePending ? 2 : 1);
+      const keep = this.data.files || {};
+      const keepLocal = (key, remote) => keep[key] || remote || '';
       this.setData({
         cert,
         step,
         realName: cert.realName || this.data.realName,
         files: {
-          idCard: cert.idCard || '',
-          idCardBack: cert.idCardBack || '',
-          diploma: cert.diploma || '',
-          clearance: cert.clearanceStatus === 'rejected' ? '' : (cert.clearance || ''),
-          certificate: cert.certificate || '',
+          idCard: keepLocal('idCard', cert.idCard),
+          idCardBack: keepLocal('idCardBack', cert.idCardBack),
+          diploma: keepLocal('diploma', cert.diploma),
+          clearance: cert.clearanceStatus === 'rejected' ? '' : keepLocal('clearance', cert.clearance),
+          certificate: keepLocal('certificate', cert.certificate),
         },
       });
     } catch (err) {
@@ -130,8 +158,7 @@ Page({
   openIdCamera(key) {
     const side = key === 'idCardBack' ? 'emblem' : 'portrait';
     wx.navigateTo({
-      url: `/pages/id-shot/id-shot?side=${side}`,
-      events: { done: (data) => data && data.path && this.upload(key, data.path) },
+      url: `/pages/id-shot/id-shot?side=${side}&key=${key}`,
       fail: () => wx.showToast({ title: '无法打开拍摄页', icon: 'none' }),
     });
   },
@@ -181,12 +208,19 @@ Page({
   },
 
   async upload(key, filePath) {
-    this.setData({ uploading: key });
+    const path = await compressUpload(filePath);
+    this.setData({
+      uploading: key,
+      previews: { ...this.data.previews, [key]: /\.pdf$/i.test(path) ? '' : path },
+    });
     try {
-      const data = await userService.uploadCertFile(filePath);
-      this.setData({ files: { ...this.data.files, [key]: data.url }, uploading: '' });
+      const data = await userService.uploadCertFile(path);
+      this.setData({
+        files: { ...this.data.files, [key]: data.url },
+        uploading: '',
+      });
     } catch (err) {
-      this.setData({ uploading: '' });
+      this.setData({ uploading: '', previews: { ...this.data.previews, [key]: '' } });
       wx.showToast({ title: err.message || '上传失败', icon: 'none' });
     }
   },

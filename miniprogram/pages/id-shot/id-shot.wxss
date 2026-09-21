@@ -31,7 +31,7 @@
 .back { position: absolute; left: 24rpx; color: #fff; font-size: 30rpx; display: flex; align-items: center; }
 .title { color: #fff; font-size: 32rpx; font-weight: 600; display: flex; align-items: center; }
 .sheet { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32rpx; }
-.shot { width: 640rpx; height: 404rpx; background: #111; border-radius: 16rpx; }
+.shot { width: 78vw; height: 49vw; max-height: 70vh; background: #111; border-radius: 16rpx; }
 .actions { display: flex; gap: 24rpx; padding: 24rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); }
 .ghost, .use {
   flex: 1; height: 88rpx; border-radius: 16rpx; display: flex; align-items: center; justify-content: center;

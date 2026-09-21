@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { CONTRACT_BODY_KEY, CONTRACT_TITLE_KEY, DEFAULT_CONTRACT } from '@/common/contract';
@@ -168,8 +168,11 @@ export class UserService {
     return cert;
   }
 
-  async saveCertFile(file?: { buffer?: Buffer; mimetype?: string }) {
-    const buffer = file?.buffer;
+  async saveCertFile(file?: { buffer?: Buffer; path?: string; mimetype?: string }) {
+    let buffer = file?.buffer;
+    if ((!buffer || !buffer.length) && file?.path) {
+      buffer = await readFile(file.path);
+    }
     if (!buffer?.length) throw new BadRequestException('请上传证明材料');
     if (buffer.length > 8 * 1024 * 1024) throw new BadRequestException('证明材料不能超过 8MB');
     const ext = certExt(buffer);
