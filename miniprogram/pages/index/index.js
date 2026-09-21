@@ -46,6 +46,17 @@ Page({
     recommend: [],
     loading: true,
     skel: [1, 2, 3],
+    padTop: 48,
+    titleH: 32,
+    navH: 88,
+  },
+
+  onLoad() {
+    const sys = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const menu = wx.getMenuButtonBoundingClientRect();
+    const padTop = menu.top || sys.statusBarHeight || 24;
+    const titleH = menu.height || 32;
+    this.setData({ padTop, titleH, navH: padTop + titleH + 10 });
   },
 
   onShow() {

@@ -4,7 +4,7 @@
       <div>
         <p class="crumb">系统 / 设置</p>
         <h1>系统设置</h1>
-        <p>点某一项，在弹窗里配置。空白处不会关闭，点 × 才关闭。</p>
+        <p>密钥仍在弹窗里配置。用户协议和教师合同会打开编辑页，左边编写、右边预览。</p>
       </div>
     </div>
     <p v-if="error" class="error">{{ error }}</p>
@@ -25,22 +25,22 @@
         </span>
         <em :class="form.key ? 'ok' : 'wait'">{{ form.key ? '已配置' : '未配置' }}</em>
       </button>
-      <button type="button" class="settings-card" @click="openAgreement">
+      <router-link class="settings-card" to="/settings/agreement">
         <span class="settings-icon doc"><Icon name="book" /></span>
         <span class="settings-copy">
           <strong>用户协议</strong>
           <small>教师登录前阅读并勾选，支持 Markdown 排版</small>
         </span>
         <em :class="agreement.title ? 'ok' : 'wait'">{{ agreement.title || '未配置' }}</em>
-      </button>
-      <button type="button" class="settings-card" @click="openContract">
+      </router-link>
+      <router-link class="settings-card" to="/settings/contract">
         <span class="settings-icon file"><Icon name="receipt" /></span>
         <span class="settings-copy">
           <strong>教师服务合同</strong>
           <small>认证通过后签订。未签订不能安排课程，也不能抢课</small>
         </span>
         <em :class="contract.title ? 'ok' : 'wait'">{{ contract.title || '未配置' }}</em>
-      </button>
+      </router-link>
       <button type="button" class="settings-card" @click="openDatabase">
         <span class="settings-icon db"><Icon name="layers" /></span>
         <span class="settings-copy">
@@ -97,27 +97,6 @@
       </div>
     </div>
 
-    <div v-if="dialog === 'agreement' || dialog === 'contract'" class="modal-mask">
-      <div class="modal md-dialog" role="dialog">
-        <header>
-          <h3>{{ dialog === 'contract' ? '教师服务合同' : '用户协议' }}</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveText">
-          <p class="muted">左边编写，右边预览。支持标题、加粗、列表、引用和链接。</p>
-          <label>{{ dialog === 'contract' ? '合同标题' : '协议标题' }}
-            <input v-model="draft.title" required maxlength="30" :placeholder="dialog === 'contract' ? '教师服务合同' : '用户协议'" />
-          </label>
-          <MarkdownField v-model="draft.content" />
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <div class="form-actions">
-            <button class="btn" type="button" @click="close">取消</button>
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
     <div v-if="dialog === 'database'" class="modal-mask">
       <div class="modal narrow" role="dialog">
         <header>
@@ -152,7 +131,6 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
 import Icon from '../components/Icon.vue';
-import MarkdownField from '../components/MarkdownField.vue';
 
 const form = ref({ key: '', security: '' });
 const wx = ref({ appId: '', secret: '', ready: false });
@@ -216,18 +194,6 @@ function openAmap() {
   dialog.value = 'amap';
 }
 
-function openAgreement() {
-  draft.value = { ...agreement.value };
-  dialogError.value = '';
-  dialog.value = 'agreement';
-}
-
-function openContract() {
-  draft.value = { ...contract.value };
-  dialogError.value = '';
-  dialog.value = 'contract';
-}
-
 async function openDatabase() {
   dialogError.value = '';
   dialogOk.value = '';
@@ -263,20 +229,6 @@ async function saveAmap() {
   dialogError.value = '';
   try {
     form.value = await api.saveSettingsAmap(draft.value);
-    close();
-  } catch (err) {
-    dialogError.value = err.message;
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function saveText() {
-  saving.value = true;
-  dialogError.value = '';
-  try {
-    if (dialog.value === 'contract') contract.value = await api.saveSettingsContract(draft.value);
-    else agreement.value = await api.saveSettingsAgreement(draft.value);
     close();
   } catch (err) {
     dialogError.value = err.message;
@@ -353,6 +305,7 @@ onMounted(load);
   min-height: 92px;
   padding: 16px 18px;
   text-align: left;
+  text-decoration: none;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;

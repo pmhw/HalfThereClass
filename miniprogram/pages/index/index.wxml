@@ -1,4 +1,7 @@
-<view class="page">
+<view class="page" style="padding-top: {{navH}}px;">
+  <view class="topbar" style="padding-top: {{padTop}}px;">
+    <view class="topbar-inner" style="height: {{titleH}}px;">诺维思</view>
+  </view>
   <view class="orb orb-a"></view>
   <view class="orb orb-b"></view>
 

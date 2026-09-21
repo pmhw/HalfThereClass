@@ -28,6 +28,13 @@
     <template v-else-if="name === 'check'"><path d="M5 12l5 5L20 7"/></template>
     <template v-else-if="name === 'plus'"><path d="M12 5v14M5 12h14"/></template>
     <template v-else-if="name === 'trash'"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13"/></template>
+    <template v-else-if="name === 'type'"><path d="M5 6h14M12 6v12M8 18h8"/></template>
+    <template v-else-if="name === 'bold'"><path d="M7 5h6.5a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7.5a3.5 3.5 0 0 1 0 7H7z"/></template>
+    <template v-else-if="name === 'italic'"><path d="M14 5h-6M16 19H10M15 5l-4 14"/></template>
+    <template v-else-if="name === 'list'"><path d="M9 7h11M9 12h11M9 17h11"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></template>
+    <template v-else-if="name === 'quote'"><path d="M8 8H5.5A1.5 1.5 0 0 0 4 9.5V12h4V8zM16 8h-2.5A1.5 1.5 0 0 0 12 9.5V12h4V8zM4 12v2.5A1.5 1.5 0 0 0 5.5 16H8v-4M12 12v2.5A1.5 1.5 0 0 0 13.5 16H16v-4"/></template>
+    <template v-else-if="name === 'code'"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></template>
+    <template v-else-if="name === 'link'"><path d="M10 13a5 5 0 0 0 7.1.4l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.4l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1"/></template>
   </svg>
 </template>
 

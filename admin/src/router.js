@@ -18,6 +18,7 @@ import Orgs from './views/Orgs.vue';
 import Assign from './views/Assign.vue';
 import Incomes from './views/Incomes.vue';
 import Settings from './views/Settings.vue';
+import DocEdit from './views/DocEdit.vue';
 import { allow, landingPath } from './access';
 
 const router = createRouter({
@@ -44,6 +45,8 @@ const router = createRouter({
         { path: 'incomes', component: Incomes, meta: { title: '收入记录', crumb: '数据 / 教师收入', perm: 'fee' } },
         { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin' } },
         { path: 'settings', component: Settings, meta: { title: '系统设置', crumb: '系统 / 设置', perm: 'admin' } },
+        { path: 'settings/agreement', component: DocEdit, meta: { title: '用户协议', crumb: '系统 / 设置 / 用户协议', perm: 'admin', kind: 'agreement' } },
+        { path: 'settings/contract', component: DocEdit, meta: { title: '教师服务合同', crumb: '系统 / 设置 / 教师服务合同', perm: 'admin', kind: 'contract' } },
       ],
     },
   ],

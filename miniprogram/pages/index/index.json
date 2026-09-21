@@ -1,4 +1,9 @@
 {
+  "navigationStyle": "custom",
   "navigationBarTitleText": "诺维思",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#eef3fb",
+  "backgroundColorTop": "#eef3fb",
+  "backgroundColorBottom": "#eef3fb",
   "usingComponents": {}
 }
