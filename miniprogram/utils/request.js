@@ -41,11 +41,16 @@ const request = (options) => {
           });
           reject(new Error('未授权'));
         } else {
-          wx.showToast({
-            title: message || '请求失败',
-            icon: 'none',
-          });
-          reject(new Error(message));
+          const text = Array.isArray(message) ? message.join('，') : (message || '请求失败');
+          if (require('./freeze.js').isFrozenMessage(text)) {
+            require('./freeze.js').lock(text);
+          } else {
+            wx.showToast({
+              title: text,
+              icon: 'none',
+            });
+          }
+          reject(new Error(text));
         }
       },
       fail: (err) => {

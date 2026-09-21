@@ -170,6 +170,15 @@
       </div>
     </div>
 
+    <div v-if="accountLock.message" class="update-mask freeze-mask">
+      <div class="update-card">
+        <strong>{{ accountLock.message.includes('停用') ? '账号已停用' : '账号已冻结' }}</strong>
+        <p>{{ accountLock.message }}</p>
+        <p>当前界面已锁定，无法继续操作。</p>
+        <button class="btn primary" type="button" @click="logout">退出登录</button>
+      </div>
+    </div>
+
     <div v-if="help" class="card help-card">
       <strong>当前后台能做什么</strong>
       <p>可以按权限创建管理员。密码连续错误 5 次会冻结 15 分钟。已安排老师的课程不能删除。</p>
@@ -181,7 +190,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
-import { api, clearToken, getProfile } from '../api';
+import { api, accountLock, clearToken, getProfile } from '../api';
 import { allow } from '../access';
 
 const route = useRoute();
@@ -333,6 +342,7 @@ function onSearch() {
 }
 
 function logout() {
+  accountLock.message = '';
   clearToken();
   router.push('/login');
 }
@@ -468,10 +478,19 @@ async function loadHeaderNotices() {
     certNames.value = '';
   }
 }
+async function guardAccount() {
+  try {
+    await api.session();
+  } catch (err) {
+    const text = err?.message || '';
+    if (/账号已冻结|账号已停用/.test(text)) accountLock.message = text;
+  }
+}
 watch(() => route.path, () => {
   syncOpen();
   refreshUpdates();
   loadHeaderNotices();
+  guardAccount();
 });
 onMounted(async () => {
   syncOpen();
@@ -480,6 +499,7 @@ onMounted(async () => {
   updateTimer = window.setInterval(() => refreshUpdates(), 10 * 60 * 1000);
   window.addEventListener('resize', placeVersionPop);
   loadHeaderNotices();
+  guardAccount();
 });
 
 onUnmounted(() => {

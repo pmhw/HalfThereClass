@@ -17,7 +17,8 @@
     "pages/profile/profile",
     "pages/order/order",
     "pages/comment/comment",
-    "pages/login/login"
+    "pages/login/login",
+    "pages/frozen/frozen"
   ],
   "window": {
     "backgroundTextStyle": "light",

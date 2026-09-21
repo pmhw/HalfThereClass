@@ -1,0 +1,10 @@
+<view class="page">
+  <view class="card">
+    <view class="mark">锁</view>
+    <view class="title">账号已冻结</view>
+    <view class="desc">{{message}}</view>
+    <view class="desc">课程、课表、抢课和认证都已锁定。解冻后重新打开即可继续使用。</view>
+    <button class="btn" bindtap="refresh">重新检查</button>
+    <button class="btn ghost" bindtap="logout">退出登录</button>
+  </view>
+</view>

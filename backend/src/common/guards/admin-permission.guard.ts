@@ -13,9 +13,14 @@ export class AdminPermissionGuard implements CanActivate {
     const admin = await this.prisma.adminAccount.findUnique({ where: { id: Number(user.adminId) } });
     if (!admin || admin.status !== 1) throw new ForbiddenException('账号已停用');
     if (admin.lockedUntil && admin.lockedUntil.getTime() > Date.now()) {
-      throw new ForbiddenException('账号已冻结，请稍后再试');
+      const pad = (value: number) => `${value}`.padStart(2, '0');
+      const time = `${pad(admin.lockedUntil.getHours())}:${pad(admin.lockedUntil.getMinutes())}`;
+      throw new ForbiddenException(`账号已冻结，请于 ${time} 后再试`);
     }
     request.admin = admin;
+    const path = String(request.originalUrl || request.url || '').split('?')[0];
+    const method = String(request.method || 'GET').toUpperCase();
+    if (method === 'GET' && /\/session(?:\/|$)/.test(path)) return true;
     if (admin.role === 'school') return this.allowSchool(request);
     if (admin.isSuper) return true;
     const need = permissionFor(request.originalUrl || request.url);

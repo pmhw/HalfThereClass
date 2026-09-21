@@ -140,6 +140,11 @@ Component({
         const result = await authService.wxLogin(loginRes.code);
         store.commit('SET_TOKEN', result.token);
         const user = result.user || {};
+        store.commit('SET_USER_INFO', user);
+        if (Number(user.status) === 0) {
+          require('../../utils/freeze.js').lock('账号已冻结');
+          return;
+        }
         if (user.nickname && user.avatar) {
           this.finish(user);
           return;

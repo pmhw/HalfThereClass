@@ -1,5 +1,9 @@
+import { reactive } from 'vue';
+
 const TOKEN_KEY = 'admin_token';
 const PROFILE_KEY = 'admin_profile';
+
+export const accountLock = reactive({ message: '' });
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || '';
@@ -40,11 +44,15 @@ export async function request(url, options = {}) {
   if (payload.code !== 0) {
     if (payload.code === 401) {
       clearToken();
+      accountLock.message = '';
       if (!location.pathname.endsWith('/login')) location.href = '/login';
     }
     const message = Array.isArray(payload.message) ? payload.message[0] : payload.message;
-    throw new Error(message || '请求失败');
+    const text = message || '请求失败';
+    if (getToken() && /账号已冻结|账号已停用/.test(text)) accountLock.message = text;
+    throw new Error(text);
   }
+  accountLock.message = '';
   return payload.data;
 }
 
@@ -59,6 +67,7 @@ function withQuery(url, params = {}) {
 
 export const api = {
   login: (body) => request('/api/admin/login', { method: 'POST', body }),
+  session: () => request('/api/admin/session'),
   captcha: () => request('/api/admin/captcha'),
   checkCaptcha: (body) => request('/api/admin/captcha/check', { method: 'POST', body }),
   admins: (params) => request(withQuery('/api/admin/admins', params)),

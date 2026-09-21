@@ -41,6 +41,12 @@ export class AdminController {
     private readonly scheduleService: ScheduleService,
   ) {}
 
+  @Get('session')
+  @ApiOperation({ summary: '检查当前账号是否被冻结或停用' })
+  session() {
+    return { ok: true };
+  }
+
   @Get('dashboard')
   @ApiOperation({ summary: '数据概览' })
   getDashboard() {

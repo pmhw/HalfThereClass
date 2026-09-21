@@ -1,5 +1,26 @@
 // app.js
 const store = require('./store/index.js');
+const freeze = require('./utils/freeze.js');
+
+const originPage = Page;
+Page = function pageWithFreeze(config) {
+  ['onLoad', 'onShow'].forEach((name) => {
+    const origin = config[name];
+    config[name] = function guarded(options) {
+      const route = this.route || '';
+      if (route === 'pages/frozen/frozen' || route === 'pages/login/login') {
+        if (origin) origin.call(this, options);
+        return;
+      }
+      const page = this;
+      freeze.check().then((locked) => {
+        if (locked || page.route !== route) return;
+        if (origin) origin.call(page, options);
+      });
+    };
+  });
+  return originPage(config);
+};
 
 App({
   onLaunch() {
@@ -66,6 +87,8 @@ App({
     wx.removeStorageSync('userInfo');
     this.globalData.token = '';
     this.globalData.userInfo = null;
+    this.globalData.frozenMessage = '';
+    freeze.clear();
   },
 
   // 获取用户信息（保证已登录）
