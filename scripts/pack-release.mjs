@@ -180,6 +180,8 @@ bash start.sh
 
 后台与接口同一端口（默认 3000）：\`http://服务器IP:3000/\`
 
+手机端教师网页：\`http://服务器IP:3000/m/\`
+
 首次安装会用 \`backend/prisma/init.db\` 初始化 \`dev.db\`。之后数据只保存在服务器，不要把 \`dev.db\` 再提交回 Git。请定期备份 \`backend/prisma/dev.db\`。
 `,
   );
@@ -248,14 +250,17 @@ async function main() {
     writeJsonVersion(join(root, 'package.json'), version);
     writeJsonVersion(join(root, 'backend/package.json'), version);
     writeJsonVersion(join(root, 'admin/package.json'), version);
+    writeJsonVersion(join(root, 'mobile/package.json'), version);
     writeFileSync(join(root, 'backend/VERSION'), `${version}\n`);
     console.log(`版本 -> ${version}`);
   }
 
   ensureNpm(join(root, 'admin'));
   ensureNpm(join(root, 'backend'));
+  ensureNpm(join(root, 'mobile'));
 
   run('npm run build', join(root, 'admin'));
+  run('npm run build', join(root, 'mobile'));
   run('npx prisma generate', join(root, 'backend'));
   run('npm run build', join(root, 'backend'));
 
@@ -268,8 +273,10 @@ async function main() {
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(join(outDir, 'backend'), { recursive: true });
   mkdirSync(join(outDir, 'www'), { recursive: true });
+  mkdirSync(join(outDir, 'www-mobile'), { recursive: true });
 
   cpSync(join(root, 'admin/dist'), join(outDir, 'www'), { recursive: true });
+  cpSync(join(root, 'mobile/dist'), join(outDir, 'www-mobile'), { recursive: true });
   cpSync(join(root, 'backend/dist'), join(outDir, 'backend/dist'), { recursive: true });
   cpSync(join(root, 'backend/prisma'), join(outDir, 'backend/prisma'), {
     recursive: true,
@@ -315,7 +322,7 @@ async function main() {
     return;
   }
 
-  run('git add VERSION package.json backend/package.json admin/package.json backend/VERSION');
+  run('git add VERSION package.json backend/package.json admin/package.json mobile/package.json backend/VERSION');
   const status = spawnSync('git status --porcelain', { cwd: root, shell: true, encoding: 'utf8' });
   if (String(status.stdout || '').trim()) {
     run(`git commit -m "release: v${version}"`);

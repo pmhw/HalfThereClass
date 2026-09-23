@@ -1077,6 +1077,10 @@ export class AdminService implements OnModuleInit {
         rmSync(join(root, 'www'), { recursive: true, force: true });
         cpSync(join(packageDir, 'www'), join(root, 'www'), { recursive: true });
       }
+      if (existsSync(join(packageDir, 'www-mobile'))) {
+        rmSync(join(root, 'www-mobile'), { recursive: true, force: true });
+        cpSync(join(packageDir, 'www-mobile'), join(root, 'www-mobile'), { recursive: true });
+      }
       mkdirSync(join(root, 'backend'), { recursive: true });
       for (const name of ['dist', 'package.json', 'package-lock.json', '.env.example', 'nest-cli.json', 'tsconfig.json', 'VERSION']) {
         const from = join(packageDir, 'backend', name);

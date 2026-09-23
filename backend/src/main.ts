@@ -18,6 +18,16 @@ function resolveWww() {
   return candidates.find((dir) => existsSync(join(dir, 'index.html'))) || null;
 }
 
+function resolveMobileWww() {
+  const candidates = [
+    join(process.cwd(), 'www-mobile'),
+    join(process.cwd(), '..', 'www-mobile'),
+    join(process.cwd(), 'www', 'm'),
+    join(process.cwd(), '..', 'www', 'm'),
+  ];
+  return candidates.find((dir) => existsSync(join(dir, 'index.html'))) || null;
+}
+
 function resolveVersion() {
   const candidates = [
     join(process.cwd(), 'VERSION'),
@@ -36,6 +46,10 @@ async function bootstrap() {
   const www = resolveWww();
   if (www) {
     app.useStaticAssets(www, { index: false });
+  }
+  const mobileWww = resolveMobileWww();
+  if (mobileWww) {
+    app.useStaticAssets(mobileWww, { prefix: '/m/', index: false });
   }
 
   app.setGlobalPrefix('api');
@@ -62,9 +76,19 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  if (mobileWww) {
+    const server = app.getHttpAdapter().getInstance();
+    server.get(/^\/m(?:\/.*)?$/, (req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const rel = String(req.path || '').replace(/^\/m\/?/, '');
+      if (rel && existsSync(join(mobileWww, rel))) return next();
+      return res.sendFile(join(mobileWww, 'index.html'));
+    });
+  }
+
   if (www) {
     const server = app.getHttpAdapter().getInstance();
-    server.get(/^\/(?!api(?:\/|$)|uploads(?:\/|$)).*/, (req, res, next) => {
+    server.get(/^\/(?!api(?:\/|$)|uploads(?:\/|$)|m(?:\/|$)).*/, (req, res, next) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
       if (req.path !== '/' && existsSync(join(www, req.path))) return next();
       return res.sendFile(join(www, 'index.html'));
@@ -76,6 +100,7 @@ async function bootstrap() {
   console.log(`🚀 服务运行于 http://localhost:${port}`);
   console.log(`📖 API 文档: http://localhost:${port}/api/docs`);
   if (www) console.log(`🖥️  管理后台: http://localhost:${port}/`);
+  if (mobileWww) console.log(`📱 手机端: http://localhost:${port}/m/`);
   console.log(`📦 版本: ${version}`);
 }
 bootstrap();

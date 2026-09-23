@@ -41,9 +41,29 @@ export class AuthService {
       user = await this.userService.applyLogin(user.id, { nickname, avatar });
     }
 
-    const token = await this.generateToken(user.id, user.openid, user.role);
+    return this.issueSession(user);
+  }
 
-    return {
+  // 手机网页登录（本机设备账号，接口与小程序一致）
+  async mobileLogin(dto: { deviceId: string; nickname?: string; avatar?: string }) {
+    const deviceId = String(dto.deviceId || '').trim();
+    if (!deviceId || deviceId.length < 8) throw new BadRequestException('设备标识无效');
+    const openid = `mobile:${deviceId.slice(0, 64)}`;
+    const nickname = dto.nickname?.trim();
+    const avatar = dto.avatar?.trim();
+
+    let user = await this.userService.findByOpenid(openid);
+    if (!user) {
+      user = await this.userService.create(openid, { nickname, avatar });
+    } else {
+      user = await this.userService.applyLogin(user.id, { nickname, avatar });
+    }
+
+    return this.issueSession(user);
+  }
+
+  private issueSession(user: { id: number; openid: string; role: string; nickname?: string | null; avatar?: string | null; status: number }) {
+    return this.generateToken(user.id, user.openid, user.role).then((token) => ({
       token,
       user: {
         id: user.id,
@@ -52,7 +72,7 @@ export class AuthService {
         role: user.role,
         status: user.status,
       },
-    };
+    }));
   }
 
   private async getWxOpenid(code: string): Promise<string> {

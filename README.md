@@ -62,6 +62,7 @@ sudo nano /opt/HalfThereClass/backend/.env
 ```
 HalfThereClass/
 ├── admin/             # Vue 管理后台
+├── mobile/            # 手机端教师网页（仿小程序）
 ├── backend/           # NestJS 接口（SQLite / Prisma）
 ├── miniprogram/       # 微信小程序教师端
 ├── scripts/           # 打包发布、远程安装脚本
@@ -76,6 +77,20 @@ HalfThereClass/
 | 课表 / 授课 | 节假日、抢课、签到、调课 |
 | 管理后台 | 课程、学期排课、教师审核、费用、数据同步 |
 | 发布更新 | Ubuntu 打包、GitHub Release、后台一键更新重启 |
+
+## 手机端（仿小程序）
+
+本地开发：
+
+```bash
+cd mobile
+npm install
+npm run dev
+```
+
+访问 `http://localhost:5174/m/`（接口代理到本机 3000）。
+
+生产环境与后台同域：`https://你的域名/m/`。手机端使用本机设备账号登录（`POST /auth/mobile-login`），功能接口与小程序一致。
 
 ## 技术栈
 

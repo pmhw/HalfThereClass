@@ -8,6 +8,7 @@ node_modules/
 # 编译输出
 backend/dist/
 admin/dist/
+mobile/dist/
 
 # 本地打包产物
 release/
