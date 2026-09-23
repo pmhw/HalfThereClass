@@ -929,6 +929,39 @@ export class AdminService implements OnModuleInit {
       .filter((item) => !item.draft)
       .map((item) => this.mapReleaseItem(item, current));
 
+    // GitHub 偶发：releases 列表里 assets 为空，但 /releases/:id/assets 仍有包
+    list = await Promise.all(
+      list.map(async (item) => {
+        if (item.assetName && item.size > 0) return item;
+        try {
+          const releaseMeta = (Array.isArray(releases) ? releases : []).find((row) => row.tag_name === item.tag);
+          if (!releaseMeta?.id) return item;
+          const { response } = await this.fetchFirstOk(
+            [
+              this.wrapGithubUrl(`https://api.github.com/repos/${repo}/releases/${releaseMeta.id}/assets`),
+              `https://api.github.com/repos/${repo}/releases/${releaseMeta.id}/assets`,
+            ].filter(Boolean),
+            { headers: this.githubHeaders() },
+          );
+          if (!response) return item;
+          const assets = await response.json();
+          const asset = (Array.isArray(assets) ? assets : []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
+            || (Array.isArray(assets) ? assets : []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''));
+          if (!asset?.name) return item;
+          const candidates = this.releaseDownloadCandidates(repo, item.tag, asset.name);
+          return {
+            ...item,
+            assetName: asset.name,
+            size: asset.size || 0,
+            downloadUrl: candidates[0] || asset.browser_download_url || item.downloadUrl,
+            downloadCandidates: candidates,
+          };
+        } catch {
+          return item;
+        }
+      }),
+    );
+
     if (!list.length) {
       source = 'version-file';
       const ver = await this.resolveRemoteVersion(repo);

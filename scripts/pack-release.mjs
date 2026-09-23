@@ -212,7 +212,7 @@ async function createGithubRelease(version, assetPath) {
       tag_name: tag,
       name,
       body,
-      draft: false,
+      draft: true,
       prerelease: false,
     }),
   });
@@ -229,7 +229,7 @@ async function createGithubRelease(version, assetPath) {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/gzip',
+      'Content-Type': 'application/octet-stream',
       'Content-Length': String(bytes.length),
       'X-GitHub-Api-Version': '2022-11-28',
     },
@@ -240,19 +240,35 @@ async function createGithubRelease(version, assetPath) {
     throw new Error(`上传附件失败: ${uploaded.message || uploadRes.status}`);
   }
 
+  const publishRes = await fetch(`https://api.github.com/repos/${repo}/releases/${release.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({ draft: false }),
+  });
+  const published = await publishRes.json();
+  if (!publishRes.ok) {
+    throw new Error(`发布 Release 失败: ${published.message || publishRes.status}`);
+  }
+
   // GitHub 偶发：附件已上传但 releases 列表里 assets 为空，后台会认为“没有部署包”
   let visible = false;
-  for (let i = 0; i < 10; i += 1) {
+  for (let i = 0; i < 12; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    const checkRes = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, {
+    const checkRes = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
     });
-    const check = await checkRes.json();
-    const names = (check.assets || []).map((row) => row.name);
+    const list = await checkRes.json();
+    const item = Array.isArray(list) ? list.find((row) => row.tag_name === tag) : null;
+    const names = (item?.assets || []).map((row) => row.name);
     if (names.includes(assetName)) {
       visible = true;
       break;
@@ -262,7 +278,11 @@ async function createGithubRelease(version, assetPath) {
     throw new Error(`附件已上传，但 GitHub Release 列表尚未显示 ${assetName}，请稍后补传后再更新`);
   }
 
-  return { tag, htmlUrl: release.html_url, downloadUrl: uploaded.browser_download_url };
+  return {
+    tag,
+    htmlUrl: published.html_url || release.html_url,
+    downloadUrl: uploaded.browser_download_url,
+  };
 }
 
 async function main() {
