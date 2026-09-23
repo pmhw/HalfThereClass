@@ -67,7 +67,7 @@
         </view>
         <view class="slots">
           <view class="slot" data-key="idCard" bindtap="choose">
-            <image wx:if="{{previews.idCard || files.idCard}}" src="{{previews.idCard || (origin + files.idCard)}}" mode="aspectFit"></image>
+            <image wx:if="{{previews.idCard || files.idCard}}" src="{{previews.idCard || sources.idCard}}" mode="aspectFit"></image>
             <view wx:if="{{previews.idCard || files.idCard}}" class="slot-tag">{{uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍'}}</view>
             <block wx:else>
               <view class="mark tl"></view><view class="mark tr"></view>
@@ -77,7 +77,7 @@
             </block>
           </view>
           <view class="slot" data-key="idCardBack" bindtap="choose">
-            <image wx:if="{{previews.idCardBack || files.idCardBack}}" src="{{previews.idCardBack || (origin + files.idCardBack)}}" mode="aspectFit"></image>
+            <image wx:if="{{previews.idCardBack || files.idCardBack}}" src="{{previews.idCardBack || sources.idCardBack}}" mode="aspectFit"></image>
             <view wx:if="{{previews.idCardBack || files.idCardBack}}" class="slot-tag">{{uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍'}}</view>
             <block wx:else>
               <view class="mark tl"></view><view class="mark tr"></view>

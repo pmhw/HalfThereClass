@@ -1,11 +1,12 @@
 import { get, post, put, upload } from './request';
-import { getDeviceId } from '../store';
 
 export const getAgreement = () => get('/auth/agreement');
-
-export const mobileLogin = (data = {}) =>
-  post('/auth/mobile-login', {
-    deviceId: getDeviceId(),
+export const getSmsStatus = () => get('/auth/sms/status');
+export const sendSmsCode = (phone) => post('/auth/sms/send', { phone });
+export const smsLogin = (data) =>
+  post('/auth/sms/login', {
+    phone: data.phone,
+    code: data.code,
     nickname: data.nickname,
     avatar: data.avatar,
   });

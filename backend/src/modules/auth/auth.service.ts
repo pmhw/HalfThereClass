@@ -6,6 +6,8 @@ import {
   AGREEMENT_TITLE_KEY,
   DEFAULT_AGREEMENT,
 } from '@/common/agreement';
+import { clientIp, rateLimit } from '@/common/security';
+import { SmsService } from '../sms/sms.service';
 import { UserService } from '../user/user.service';
 import { WxLoginDto } from './dto/wx-login.dto';
 
@@ -15,6 +17,7 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private prisma: PrismaService,
+    private smsService: SmsService,
   ) {}
 
   async getAgreement() {
@@ -28,7 +31,14 @@ export class AuthService {
     };
   }
 
-  // 微信登录
+  smsStatus() {
+    return this.smsService.getStatus();
+  }
+
+  sendSmsCode(phone: string, req?: any) {
+    return this.smsService.sendLoginCode(phone, req);
+  }
+
   async wxLogin(wxLoginDto: WxLoginDto) {
     const nickname = wxLoginDto.nickname?.trim();
     const avatar = wxLoginDto.avatar?.trim();
@@ -44,31 +54,50 @@ export class AuthService {
     return this.issueSession(user);
   }
 
-  // 手机网页登录（本机设备账号，接口与小程序一致）
-  async mobileLogin(dto: { deviceId: string; nickname?: string; avatar?: string }) {
-    const deviceId = String(dto.deviceId || '').trim();
-    if (!deviceId || deviceId.length < 8) throw new BadRequestException('设备标识无效');
-    const openid = `mobile:${deviceId.slice(0, 64)}`;
+  async smsLogin(
+    dto: { phone: string; code: string; nickname?: string; avatar?: string },
+    req?: { ip?: string; headers?: Record<string, any>; socket?: { remoteAddress?: string } },
+  ) {
+    if (process.env.MOBILE_LOGIN === '0' || process.env.MOBILE_LOGIN === 'false') {
+      throw new UnauthorizedException('手机网页登录已关闭');
+    }
+    rateLimit(`sms-login:${clientIp(req)}`, 40, 15 * 60 * 1000);
+    const phone = this.smsService.consumeLoginCode(dto.phone, dto.code);
     const nickname = dto.nickname?.trim();
     const avatar = dto.avatar?.trim();
 
-    let user = await this.userService.findByOpenid(openid);
+    let user = await this.userService.findByPhone(phone);
     if (!user) {
-      user = await this.userService.create(openid, { nickname, avatar });
+      rateLimit(`sms-register:${clientIp(req)}`, 20, 60 * 60 * 1000);
+      user = await this.userService.create(`phone:${phone}`, { nickname, avatar, phone });
     } else {
-      user = await this.userService.applyLogin(user.id, { nickname, avatar });
+      user = await this.userService.applyLogin(user.id, { nickname, avatar, phone });
     }
 
     return this.issueSession(user);
   }
 
-  private issueSession(user: { id: number; openid: string; role: string; nickname?: string | null; avatar?: string | null; status: number }) {
+  /** 设备号登录已停用 */
+  async mobileLogin() {
+    throw new BadRequestException('请使用手机号验证码登录');
+  }
+
+  private issueSession(user: {
+    id: number;
+    openid: string;
+    role: string;
+    nickname?: string | null;
+    avatar?: string | null;
+    phone?: string | null;
+    status: number;
+  }) {
     return this.generateToken(user.id, user.openid, user.role).then((token) => ({
       token,
       user: {
         id: user.id,
         nickname: user.nickname,
         avatar: user.avatar,
+        phone: user.phone,
         role: user.role,
         status: user.status,
       },
@@ -83,10 +112,10 @@ export class AuthService {
     const appid = this.pickWxValue(map.wxAppId, process.env.WX_APPID);
     const secret = this.pickWxValue(map.wxAppSecret, process.env.WX_SECRET);
     if (!appid || !secret) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new UnauthorizedException('微信登录未配置，请在后台「系统设置 → 小程序」填写 AppID 和 AppSecret');
+      if (process.env.ALLOW_DEV_WX === '1' && process.env.NODE_ENV !== 'production') {
+        return 'dev-teacher';
       }
-      return 'dev-teacher';
+      throw new UnauthorizedException('微信登录未配置，请在后台「系统设置 → 小程序」填写 AppID 和 AppSecret');
     }
     const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appid)}&secret=${encodeURIComponent(secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`;
     const response = await fetch(url);
@@ -103,12 +132,7 @@ export class AuthService {
     return '';
   }
 
-  private async generateToken(
-    userId: number,
-    openid: string,
-    role: string,
-  ): Promise<string> {
-    const payload = { userId, openid, role };
-    return this.jwtService.signAsync(payload);
+  private async generateToken(userId: number, openid: string, role: string): Promise<string> {
+    return this.jwtService.signAsync({ userId, openid, role });
   }
 }

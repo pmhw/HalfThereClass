@@ -9,10 +9,35 @@
     </label>
 
     <template v-if="step === 'login'">
-      <button class="btn btn-primary btn-block" type="button" :disabled="loading" @click="doLogin">
-        {{ loading ? '登录中…' : '进入诺维思' }}
-      </button>
-      <p class="hint">手机端使用本机账号登录，认证、抢课、课表与小程序同一套接口。</p>
+      <form class="sms-form" @submit.prevent="doLogin">
+        <input
+          v-model="phone"
+          class="field"
+          type="tel"
+          maxlength="11"
+          inputmode="numeric"
+          autocomplete="tel"
+          placeholder="手机号"
+        />
+        <div class="code-row">
+          <input
+            v-model="code"
+            class="field"
+            type="text"
+            maxlength="6"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            placeholder="验证码"
+          />
+          <button class="btn code-btn" type="button" :disabled="sending || cooldown > 0" @click="sendCode">
+            {{ cooldown > 0 ? `${cooldown}s` : sending ? '发送中' : '获取验证码' }}
+          </button>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" :disabled="loading">
+          {{ loading ? '登录中…' : '注册 / 登录' }}
+        </button>
+      </form>
+      <p class="hint">{{ statusHint }}</p>
     </template>
 
     <form v-else class="profile" @submit.prevent="onProfile">
@@ -38,8 +63,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
-import { getAgreement, mobileLogin, updateProfile, uploadAvatar } from '../api';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { getAgreement, getSmsStatus, sendSmsCode, smsLogin, updateProfile, uploadAvatar } from '../api';
 import { assetUrl, setSession, getUser } from '../store';
 import { lock as freezeLock } from '../utils/freeze';
 import { showToast } from '../api/request';
@@ -51,33 +76,98 @@ const emit = defineEmits(['success']);
 
 const step = ref('login');
 const loading = ref(false);
+const sending = ref(false);
 const agreed = ref(false);
+const phone = ref('');
+const code = ref('');
+const cooldown = ref(0);
 const avatar = ref('');
 const avatarFile = ref(null);
 const nickname = ref('');
 const agreementTitle = ref('用户协议');
 const agreementContent = ref('');
 const showAgreement = ref(false);
+const smsReady = ref(false);
+let timer = 0;
+
+const statusHint = computed(() =>
+  smsReady.value
+    ? '使用手机号验证码注册或登录，与小程序账号相互独立。'
+    : '短信登录尚未配置，请管理员在后台「系统设置 → 阿里云短信」启用。',
+);
 
 onMounted(async () => {
   try {
-    const paper = await getAgreement();
-    agreementTitle.value = paper.title || '用户协议';
-    agreementContent.value = paper.content || '';
+    const [paper, status] = await Promise.all([
+      getAgreement().catch(() => null),
+      getSmsStatus().catch(() => ({ ready: false })),
+    ]);
+    if (paper) {
+      agreementTitle.value = paper.title || '用户协议';
+      agreementContent.value = paper.content || '';
+    }
+    smsReady.value = !!status?.ready;
   } catch {
     /* ignore */
   }
 });
+
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer);
+});
+
+function startCooldown(seconds = 60) {
+  cooldown.value = seconds;
+  if (timer) clearInterval(timer);
+  timer = setInterval(() => {
+    cooldown.value -= 1;
+    if (cooldown.value <= 0) {
+      clearInterval(timer);
+      timer = 0;
+      cooldown.value = 0;
+    }
+  }, 1000);
+}
+
+async function sendCode() {
+  if (!agreed.value) {
+    showToast('请先勾选用户协议');
+    return;
+  }
+  if (!/^1[3-9]\d{9}$/.test(String(phone.value || '').trim())) {
+    showToast('请输入正确的手机号');
+    return;
+  }
+  if (sending.value || cooldown.value > 0) return;
+  sending.value = true;
+  try {
+    const result = await sendSmsCode(phone.value.trim());
+    showToast('验证码已发送');
+    startCooldown(Number(result?.cooldown) || 60);
+  } catch (err) {
+    showToast(err.message || '发送失败');
+  } finally {
+    sending.value = false;
+  }
+}
 
 async function doLogin() {
   if (!agreed.value) {
     showToast('请先勾选用户协议');
     return;
   }
+  if (!/^1[3-9]\d{9}$/.test(String(phone.value || '').trim())) {
+    showToast('请输入正确的手机号');
+    return;
+  }
+  if (!String(code.value || '').trim()) {
+    showToast('请输入验证码');
+    return;
+  }
   if (loading.value) return;
   loading.value = true;
   try {
-    const result = await mobileLogin();
+    const result = await smsLogin({ phone: phone.value.trim(), code: code.value.trim() });
     setSession(result.token, result.user);
     const user = result.user || {};
     if (Number(user.status) === 0) {
@@ -165,6 +255,39 @@ async function onProfile() {
   font-size: calc(24 * var(--r));
 }
 .agree a { color: #2563eb; }
+.sms-form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(20 * var(--r));
+}
+.field {
+  width: 100%;
+  height: calc(88 * var(--r));
+  border: 1px solid #e7edf5;
+  border-radius: calc(16 * var(--r));
+  padding: 0 calc(24 * var(--r));
+  background: #fff;
+  font-size: calc(30 * var(--r));
+}
+.code-row {
+  display: flex;
+  gap: calc(16 * var(--r));
+}
+.code-row .field { flex: 1; }
+.code-btn {
+  flex: 0 0 auto;
+  min-width: calc(200 * var(--r));
+  height: calc(88 * var(--r));
+  border: 1px solid #dbe4f0;
+  border-radius: calc(16 * var(--r));
+  background: #f8fafc;
+  color: #2563eb;
+  font-size: calc(26 * var(--r));
+  font-weight: 600;
+}
+.code-btn:disabled {
+  color: #98a2b3;
+}
 .hint {
   margin-top: calc(24 * var(--r));
   color: #98a2b3;

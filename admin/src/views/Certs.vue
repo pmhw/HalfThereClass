@@ -76,7 +76,7 @@
 
 <script setup>
 import { onMounted, ref } from 'vue';
-import { api } from '../api';
+import { api, protectedAssetUrl } from '../api';
 
 const list = ref([]);
 const error = ref('');
@@ -107,7 +107,11 @@ function filesOf(item) {
     ['无犯罪证明', item.clearance],
     ['合同签名', item.contractSign],
   ];
-  return rows.map(([label, url]) => ({ label, url, pdf: /\.pdf$/i.test(url || '') }));
+  return rows.map(([label, url]) => ({
+    label,
+    url: protectedAssetUrl(url),
+    pdf: /\.pdf$/i.test(url || ''),
+  }));
 }
 function openReject(item) { rejecting.value = item; reason.value = '资料不完整'; }
 async function load() {

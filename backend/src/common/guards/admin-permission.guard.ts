@@ -21,6 +21,11 @@ export class AdminPermissionGuard implements CanActivate {
     const path = String(request.originalUrl || request.url || '').split('?')[0];
     const method = String(request.method || 'GET').toUpperCase();
     if (method === 'GET' && /\/session(?:\/|$)/.test(path)) return true;
+    // 数据库导入/导出与在线更新只允许超级管理员
+    if (/\/system\/(database|apply-update)(?:\/|$)/.test(path)) {
+      if (!admin.isSuper) throw new ForbiddenException('仅超级管理员可操作数据库与在线更新');
+      return true;
+    }
     if (admin.role === 'school') return this.allowSchool(request);
     if (admin.isSuper) return true;
     const need = permissionFor(request.originalUrl || request.url);

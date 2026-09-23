@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as qiniu from 'qiniu';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class UploadService {
   getUploadToken(bucket: string = process.env.QINIU_BUCKET || '') {
     const options = {
       scope: bucket,
-      expires: 3600, // 1 小时有效期
+      expires: 600,
     };
     const putPolicy = new qiniu.rs.PutPolicy(options);
     const uploadToken = putPolicy.uploadToken(this.mac);
@@ -30,11 +30,18 @@ export class UploadService {
 
   // 获取文件上传凭证（指定文件名前缀）
   getUploadTokenWithPrefix(prefix: string) {
+    const safe = String(prefix || '')
+      .replace(/\\/g, '/')
+      .replace(/\.\./g, '')
+      .replace(/[^a-zA-Z0-9/_-]/g, '')
+      .replace(/^\/+|\/+$/g, '')
+      .slice(0, 64);
+    if (!safe) throw new BadRequestException('上传路径无效');
     const bucket = process.env.QINIU_BUCKET || '';
     const options = {
       scope: bucket,
-      expires: 3600,
-      saveKey: `${prefix}/$(etag)$(ext)`,
+      expires: 600,
+      saveKey: `${safe}/$(etag)$(ext)`,
     };
     const putPolicy = new qiniu.rs.PutPolicy(options);
     const uploadToken = putPolicy.uploadToken(this.mac);

@@ -56,10 +56,23 @@ export class LessonService {
   ) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
+      include: {
+        course: { select: { id: true, isFree: true } },
+      },
     });
 
     if (!lesson) {
       throw new NotFoundException('课时不存在');
+    }
+
+    const canWatch = lesson.isFree || lesson.course.isFree;
+    if (!canWatch) {
+      const userCourse = await this.prisma.userCourse.findUnique({
+        where: { userId_courseId: { userId, courseId: lesson.courseId } },
+      });
+      if (!userCourse) {
+        throw new ForbiddenException('请先购买课程');
+      }
     }
 
     const isCompleted = lesson.duration > 0 && progress >= lesson.duration * 0.9;

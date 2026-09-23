@@ -18,13 +18,14 @@ const RULES: { test: RegExp; permission: AdminPermission }[] = [
   { test: /\/(fees|incomes)(?:\/|$)/, permission: 'fee' },
   { test: /\/admins(?:\/|$)/, permission: 'admin' },
   { test: /\/settings(?:\/|$)/, permission: 'admin' },
+  // 具体路径必须写在宽泛 /system 规则之前，否则 overview 会覆盖 database / apply-update
+  { test: /\/system\/(database|apply-update)(?:\/|$)/, permission: 'admin' },
+  { test: /\/system(?:\/|$)/, permission: 'overview' },
   { test: /\/(courses|categories|teachers|schools)(?:\/|$)/, permission: 'course' },
   { test: /\/(semesters|holidays|sessions)(?:\/|$)/, permission: 'schedule' },
   { test: /\/orders(?:\/|$)/, permission: 'order' },
   { test: /\/comments(?:\/|$)/, permission: 'comment' },
-  { test: /\/system(?:\/|$)/, permission: 'overview' },
-  { test: /\/system\/(database|apply-update)(?:\/|$)/, permission: 'admin' },
-  { test: /\/(dashboard|search|me|permissions|system)(?:\/|$)/, permission: 'overview' },
+  { test: /\/(dashboard|search|me|permissions)(?:\/|$)/, permission: 'overview' },
 ];
 
 export function permissionFor(url = '') {

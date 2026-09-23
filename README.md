@@ -121,7 +121,7 @@ npm install
 npm run dev
 ```
 
-默认：`http://localhost:5173/`（账号见 `.env` 中 `ADMIN_USER` / `ADMIN_PASSWORD`）
+默认：`http://localhost:5173/`（首次启动若库中无管理员，会按 `.env` 的 `ADMIN_USER` / `ADMIN_PASSWORD` 创建；密码留空则自动生成并写入服务日志，请勿使用弱口令）
 
 ### 小程序
 

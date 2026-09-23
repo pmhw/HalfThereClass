@@ -25,6 +25,7 @@ Page({
     origin: config.origin,
     realName: '',
     files: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
+    sources: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     previews: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     cert: { status: 'none' },
     step: 1,
@@ -79,16 +80,24 @@ Page({
         : (cert.status === 'pending' || cert.clearancePending ? 2 : 1);
       const keep = this.data.files || {};
       const keepLocal = (key, remote) => keep[key] || remote || '';
+      const files = {
+        idCard: keepLocal('idCard', cert.idCard),
+        idCardBack: keepLocal('idCardBack', cert.idCardBack),
+        diploma: keepLocal('diploma', cert.diploma),
+        clearance: cert.clearanceStatus === 'rejected' ? '' : keepLocal('clearance', cert.clearance),
+        certificate: keepLocal('certificate', cert.certificate),
+      };
       this.setData({
         cert,
         step,
         realName: cert.realName || this.data.realName,
-        files: {
-          idCard: keepLocal('idCard', cert.idCard),
-          idCardBack: keepLocal('idCardBack', cert.idCardBack),
-          diploma: keepLocal('diploma', cert.diploma),
-          clearance: cert.clearanceStatus === 'rejected' ? '' : keepLocal('clearance', cert.clearance),
-          certificate: keepLocal('certificate', cert.certificate),
+        files,
+        sources: {
+          idCard: util.assetUrl(files.idCard),
+          idCardBack: util.assetUrl(files.idCardBack),
+          diploma: util.assetUrl(files.diploma),
+          clearance: util.assetUrl(files.clearance),
+          certificate: util.assetUrl(files.certificate),
         },
       });
     } catch (err) {
@@ -217,6 +226,7 @@ Page({
       const data = await userService.uploadCertFile(path);
       this.setData({
         files: { ...this.data.files, [key]: data.url },
+        sources: { ...this.data.sources, [key]: util.assetUrl(data.url) },
         uploading: '',
       });
     } catch (err) {

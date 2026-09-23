@@ -9,6 +9,15 @@ export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || '';
 }
 
+/** 受保护静态资源（证件/签名）追加 access_token */
+export function protectedAssetUrl(path) {
+  if (!path) return '';
+  if (/^https?:\/\//.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path;
+  const token = getToken();
+  if (!token || !/\/uploads\/(certs|signs)\//.test(path)) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`;
+}
+
 export function getProfile() {
   try {
     return JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
@@ -110,6 +119,8 @@ export const api = {
   saveSettingsAmap: (body) => request('/api/admin/settings/amap', { method: 'PUT', body }),
   settingsWx: () => request('/api/admin/settings/wx'),
   saveSettingsWx: (body) => request('/api/admin/settings/wx', { method: 'PUT', body }),
+  settingsSms: () => request('/api/admin/settings/sms'),
+  saveSettingsSms: (body) => request('/api/admin/settings/sms', { method: 'PUT', body }),
   settingsAgreement: () => request('/api/admin/settings/agreement'),
   saveSettingsAgreement: (body) => request('/api/admin/settings/agreement', { method: 'PUT', body }),
   settingsContract: () => request('/api/admin/settings/contract'),

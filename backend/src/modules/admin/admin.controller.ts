@@ -14,20 +14,20 @@ export class AdminAuthController {
 
   @Get('captcha')
   @ApiOperation({ summary: '登录滑块' })
-  captcha() {
-    return this.adminService.createCaptcha();
+  captcha(@Req() req: any) {
+    return this.adminService.createCaptcha(req);
   }
 
   @Post('captcha/check')
   @ApiOperation({ summary: '核对滑块位置' })
-  checkCaptcha(@Body() dto: CaptchaCheckDto) {
-    return this.adminService.checkCaptcha(dto.captchaToken, dto.offset);
+  checkCaptcha(@Body() dto: CaptchaCheckDto, @Req() req: any) {
+    return this.adminService.checkCaptcha(dto.captchaToken, dto.offset, req);
   }
 
   @Post('login')
   @ApiOperation({ summary: '管理员登录' })
-  login(@Body() dto: AdminLoginDto) {
-    return this.adminService.login(dto.username, dto.password, dto.captchaToken, dto.offset);
+  login(@Body() dto: AdminLoginDto, @Req() req: any) {
+    return this.adminService.login(dto.username, dto.password, dto.captchaToken, dto.offset, req);
   }
 }
 
@@ -91,6 +91,18 @@ export class AdminController {
   @ApiOperation({ summary: '修改管理员权限' })
   updateAdmin(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.adminService.saveAdmin(req.admin, body, Number(id));
+  }
+
+  @Get('settings/sms')
+  @ApiOperation({ summary: '读取阿里云短信配置' })
+  getSmsSettings() {
+    return this.adminService.getSmsConfig();
+  }
+
+  @Put('settings/sms')
+  @ApiOperation({ summary: '保存阿里云短信配置' })
+  saveSmsSettings(@Body() body: any) {
+    return this.adminService.saveSmsConfig(body || {});
   }
 
   @Get('settings/wx')
@@ -325,7 +337,7 @@ export class AdminController {
   @Get('schools/amap-config')
   @ApiOperation({ summary: '学校地图用的高德配置' })
   amapConfig() {
-    return this.adminService.getAmapConfig();
+    return this.adminService.getAmapRuntimeConfig();
   }
 
   @Get('schools')
@@ -354,8 +366,8 @@ export class AdminController {
 
   @Get('categories')
   @ApiOperation({ summary: '分类列表' })
-  getCategories() {
-    return this.adminService.getCategories();
+  getCategories(@Req() req: any) {
+    return this.adminService.getCategories(req.admin);
   }
 
   @Get('orders')

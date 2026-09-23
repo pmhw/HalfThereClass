@@ -47,7 +47,7 @@
             <label>姓名<input v-model="form.name" required /></label>
             <label>账号<input v-model="form.username" required :disabled="!!form.id" /></label>
           </div>
-          <label>密码<input v-model="form.password" type="password" :placeholder="form.id ? '不修改请留空' : '至少 6 位'" :required="!form.id" /></label>
+          <label>密码<input v-model="form.password" type="password" :placeholder="form.id ? '不修改请留空' : '至少 10 位，勿用弱口令'" :required="!form.id" /></label>
           <div class="perm-panel">
             <div class="perm-head">
               <div>

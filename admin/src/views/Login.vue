@@ -31,7 +31,7 @@
         <p v-if="error" class="error">{{ error }}</p>
         <button class="login-submit" :disabled="loading">{{ loading ? '登录中…' : '登录' }}</button>
       </form>
-      <div class="hint">连续输错 5 次会冻结 15 分钟。本地默认账号 admin / admin123</div>
+      <div class="hint">连续输错 5 次会冻结 15 分钟</div>
     </div>
   </div>
 </template>
@@ -43,8 +43,8 @@ import { api, setSession } from '../api';
 import { landingPath } from '../access';
 
 const router = useRouter();
-const username = ref('admin');
-const password = ref('admin123');
+const username = ref('');
+const password = ref('');
 const error = ref('');
 const loading = ref(false);
 const open = ref(false);

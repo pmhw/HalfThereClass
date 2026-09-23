@@ -18,6 +18,11 @@ backend/prisma/dev.db
 backend/prisma/*.db-journal
 *.db-journal
 
+# 安装脚本生成的初始管理员口令文件
+INITIAL_ADMIN.txt
+**/INITIAL_ADMIN.txt
+INITIAL_ADMIN.local.txt
+
 # 日志
 *.log
 npm-debug.log*

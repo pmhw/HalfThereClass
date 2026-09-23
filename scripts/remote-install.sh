@@ -426,8 +426,10 @@ setup_app() {
   step "安装 npm 依赖并初始化数据库..."
   ensure_node_bins
   cd "${INSTALL_DIR}/backend"
+  local created_env=0
   if [[ ! -f .env ]]; then
     cp .env.example .env
+    created_env=1
   fi
   # 已有 PORT 不覆盖，避免把线上 10920 等端口改回默认 3000
   if ! grep -q '^PORT=' .env 2>/dev/null; then
@@ -435,6 +437,28 @@ setup_app() {
   fi
   ensure_env_kv .env NODE_ENV production
   ensure_env_kv .env GITHUB_REPO "${REPO}"
+
+  # 强制生成强 JWT / 初始管理员密码，杜绝示例弱口令上线
+  local jwt_now admin_pass_now
+  jwt_now="$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- || true)"
+  if [[ -z "${jwt_now}" || "${jwt_now}" == *"CHANGE_ME"* || "${jwt_now}" == *"your-jwt"* || ${#jwt_now} -lt 32 ]]; then
+    ensure_env_kv .env JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
+  fi
+  admin_pass_now="$(grep '^ADMIN_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)"
+  if [[ "${created_env}" == "1" || -z "${admin_pass_now}" || "${admin_pass_now}" == "admin123" || "${admin_pass_now}" == *"CHANGE_ME"* || ${#admin_pass_now} -lt 10 ]]; then
+    admin_pass_now="$(openssl rand -base64 18 | tr -d '\n=/+' | cut -c1-20)"
+    ensure_env_kv .env ADMIN_USER admin
+    ensure_env_kv .env ADMIN_PASSWORD "${admin_pass_now}"
+    umask 077
+    {
+      echo "ADMIN_USER=admin"
+      echo "ADMIN_PASSWORD=${admin_pass_now}"
+      echo "请登录后台后立即修改密码，并删除本文件"
+    } > "${INSTALL_DIR}/INITIAL_ADMIN.txt"
+    chmod 600 "${INSTALL_DIR}/INITIAL_ADMIN.txt" || true
+    yellow "已生成初始管理员密码，见 ${INSTALL_DIR}/INITIAL_ADMIN.txt"
+  fi
+
   if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
     ensure_env_kv .env CN_MIRROR 1
     ensure_env_kv .env GITHUB_PROXY "${GITHUB_PROXY}"
@@ -539,15 +563,20 @@ print_done() {
   echo " 服务:   ${SERVICE_NAME}"
   echo " 后台:   http://${ip}:${PORT}/"
   echo " 接口:   http://${ip}:${PORT}/api"
-  echo " 文档:   http://${ip}:${PORT}/api/docs"
+  echo " 手机端: http://${ip}:${PORT}/m/"
   echo
+  if [[ -f "${INSTALL_DIR}/INITIAL_ADMIN.txt" ]]; then
+    yellow "初始管理员账号密码已写入："
+    echo "   ${INSTALL_DIR}/INITIAL_ADMIN.txt"
+    yellow "登录后请立即修改密码，并删除该文件。"
+  fi
   echo " 常用命令:"
   echo "   sudo systemctl status ${SERVICE_NAME}"
   echo "   sudo systemctl restart ${SERVICE_NAME}"
   echo "   sudo journalctl -u ${SERVICE_NAME} -f"
   echo "   sudo nano ${INSTALL_DIR}/backend/.env"
   echo
-  yellow "请尽快修改 ${INSTALL_DIR}/backend/.env 中的管理员密码、JWT、微信等配置，然后执行："
+  yellow "请确认 JWT_SECRET / 微信 / 支付等生产配置已设置，然后执行："
   echo "   sudo systemctl restart ${SERVICE_NAME}"
   green "已设置开机自启。"
 }

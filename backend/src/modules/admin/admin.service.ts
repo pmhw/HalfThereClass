@@ -22,6 +22,16 @@ import {
   CONTRACT_TITLE_KEY,
   DEFAULT_CONTRACT,
 } from '@/common/contract';
+import {
+  assertStrongPassword,
+  clientIp,
+  generatePassword,
+  isMaskedSecret,
+  isWeakPassword,
+  maskSecret,
+  rateLimit,
+} from '@/common/security';
+import { SmsService } from '@/modules/sms/sms.service';
 
 const FAIL_LIMIT = 5;
 const FREEZE_MS = 15 * 60 * 1000;
@@ -91,13 +101,16 @@ export class AdminService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private smsService: SmsService,
   ) {}
 
   async onModuleInit() {
     await this.ensureSuper();
+    await this.rotateWeakDefaultPasswords();
   }
 
-  createCaptcha() {
+  createCaptcha(req?: any) {
+    rateLimit(`admin-captcha:${clientIp(req)}`, 40, 15 * 60 * 1000);
     const store = loadCaptchaStore();
     const token = randomBytes(16).toString('hex');
     const x = 48 + Math.floor(Math.random() * 180);
@@ -106,19 +119,26 @@ export class AdminService implements OnModuleInit {
     return { token, width: 280, height: 150, piece: 42, image: this.captchaImage(x) };
   }
 
-  checkCaptcha(token: string, offset: number) {
+  checkCaptcha(token: string, offset: number, req?: any) {
+    rateLimit(`admin-captcha-check:${clientIp(req)}`, 60, 15 * 60 * 1000);
     const store = loadCaptchaStore();
-    const item = store.get(String(token || ''));
+    const key = String(token || '');
+    const item = store.get(key);
     if (!item) throw new BadRequestException('滑块验证已过期，请重试');
     const ok = Math.abs(Number(offset) - item.x) <= CAPTCHA_TOLERANCE;
-    if (ok) {
-      item.passed = true;
+    if (!ok) {
+      store.delete(key);
       saveCaptchaStore(store);
+      return { ok: false };
     }
-    return { ok };
+    item.passed = true;
+    item.x = -1;
+    saveCaptchaStore(store);
+    return { ok: true };
   }
 
-  async login(username: string, password: string, captchaToken: string, offset: number) {
+  async login(username: string, password: string, captchaToken: string, offset: number, req?: any) {
+    rateLimit(`admin-login:${clientIp(req)}`, 20, 15 * 60 * 1000);
     this.verifyCaptcha(captchaToken, offset);
     await this.ensureSuper();
     const name = String(username || '').trim();
@@ -148,7 +168,7 @@ export class AdminService implements OnModuleInit {
     });
     const token = await this.jwtService.signAsync(
       { adminId: admin.id, userId: 0, openid: admin.username, role: 'admin' },
-      { secret: process.env.JWT_SECRET, expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
+      { secret: process.env.JWT_SECRET, expiresIn: process.env.ADMIN_JWT_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '12h' },
     );
     return { token, admin: this.publicAdmin(admin) };
   }
@@ -184,8 +204,8 @@ export class AdminService implements OnModuleInit {
     const username = String(data.username || current?.username || '').trim();
     if (!username) throw new BadRequestException('请填写账号');
     const password = String(data.password || '');
-    if (!id && password.length < 6) throw new BadRequestException('密码至少 6 位');
-    if (password && password.length < 6) throw new BadRequestException('密码至少 6 位');
+    if (!id && !password) throw new BadRequestException('请填写密码');
+    if (password) assertStrongPassword(password);
     const role = data.role === 'school' || (data.role == null && current?.role === 'school') ? 'school' : 'admin';
     const isSuper = role === 'school' ? false : (actor?.isSuper ? !!data.isSuper : !!current?.isSuper);
     const permissions = isSuper ? [] : (role === 'school' ? ['course'] : parsePermissions(JSON.stringify(data.permissions || [])));
@@ -204,7 +224,7 @@ export class AdminService implements OnModuleInit {
       failCount: 0,
       lockedUntil: null,
     };
-    if (password) payload.password = await bcrypt.hash(password, 10);
+    if (password) payload.password = await bcrypt.hash(password, 12);
     if (!id && !payload.password) throw new BadRequestException('请填写密码');
     if (current && current.id === actor?.id && payload.status === 0) throw new BadRequestException('不能停用自己');
     const saved = id
@@ -230,23 +250,32 @@ export class AdminService implements OnModuleInit {
 
   private verifyCaptcha(token: string, offset: number) {
     const store = loadCaptchaStore();
-    const item = store.get(String(token || ''));
+    const key = String(token || '');
+    const item = store.get(key);
     if (!item) throw new BadRequestException('滑块验证已过期，请重试');
-    const aligned = Math.abs(Number(offset) - item.x) <= CAPTCHA_TOLERANCE;
-    if (!item.passed && !aligned) throw new BadRequestException('滑块验证未通过，请重试');
-    store.delete(String(token || ''));
+    // 必须先通过 checkCaptcha；登录时不再接受仅凭 offset 的旁路
+    if (!item.passed) throw new BadRequestException('滑块验证未通过，请重试');
+    store.delete(key);
     saveCaptchaStore(store);
+    void offset;
   }
 
   private captchaImage(x: number) {
+    // 用噪声块干扰简单正则解析缺口坐标；真实缺口用 path 绘制
+    const decoys = Array.from({ length: 6 }, (_, index) => {
+      const dx = 20 + ((index * 97 + x * 3) % 200);
+      const dy = 20 + ((index * 53) % 100);
+      return `<rect x="${dx}" y="${dy}" width="18" height="18" rx="4" fill="#94a3b8" fill-opacity="0.18"/>`;
+    }).join('');
     const blobs = [0, 1, 2, 3, 4, 5, 6, 7]
       .map((index) => {
         const colors = ['#dbe7ff', '#c7d7fe', '#bfdbfe', '#d1fae5', '#fde68a'];
         return `<circle cx="${24 + ((index * 53) % 230)}" cy="${28 + ((index * 37) % 90)}" r="16" fill="${colors[index % colors.length]}"/>`;
       })
       .join('');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="280" height="150"><rect width="280" height="150" fill="#eef4ff"/>${blobs}<rect x="${x}" y="54" width="42" height="42" rx="8" fill="#0f172a" fill-opacity="0.72"/><rect x="${x + 8}" y="70" width="26" height="8" rx="2" fill="#fff"/></svg>`;
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    const gap = `<path d="M${x} 54h42v42h-42z" fill="#0f172a" fill-opacity="0.72"/><path d="M${x + 8} 70h26v8h-26z" fill="#fff"/>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="280" height="150"><rect width="280" height="150" fill="#eef4ff"/>${blobs}${decoys}${gap}</svg>`;
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
   private publicAdmin(admin: any) {
@@ -272,17 +301,56 @@ export class AdminService implements OnModuleInit {
   private async ensureSuper() {
     const count = await this.prisma.adminAccount.count();
     if (count) return;
-    const username = process.env.ADMIN_USER || 'admin';
-    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    const username = (process.env.ADMIN_USER || 'admin').trim() || 'admin';
+    let password = String(process.env.ADMIN_PASSWORD || '');
+    let generated = false;
+    if (isWeakPassword(password)) {
+      password = generatePassword(14);
+      generated = true;
+    }
     await this.prisma.adminAccount.create({
       data: {
         username,
-        password: await bcrypt.hash(password, 10),
+        password: await bcrypt.hash(password, 12),
         name: '超级管理员',
         isSuper: true,
         permissions: '[]',
       },
     });
+    if (generated) {
+      console.warn('============================================================');
+      console.warn(`已创建初始超级管理员账号：${username}`);
+      console.warn(`初始密码（仅显示一次）：${password}`);
+      console.warn('请立即登录后台修改密码，并妥善保存。切勿使用默认弱口令。');
+      console.warn('============================================================');
+    } else {
+      console.warn(`已创建初始超级管理员账号：${username}（密码来自 ADMIN_PASSWORD）`);
+    }
+  }
+
+  private async rotateWeakDefaultPasswords() {
+    const admins = await this.prisma.adminAccount.findMany({ select: { id: true, username: true, password: true } });
+    const envPass = String(process.env.ADMIN_PASSWORD || '');
+    for (const admin of admins) {
+      const weak = await bcrypt.compare('admin123', admin.password);
+      if (!weak) continue;
+      let next = envPass;
+      let generated = false;
+      if (isWeakPassword(next)) {
+        next = generatePassword(14);
+        generated = true;
+      }
+      await this.prisma.adminAccount.update({
+        where: { id: admin.id },
+        data: { password: await bcrypt.hash(next, 12), failCount: 0, lockedUntil: null },
+      });
+      console.warn('============================================================');
+      console.warn(`检测到弱默认密码，已重置管理员「${admin.username}」`);
+      if (generated) console.warn(`新密码（仅显示一次）：${next}`);
+      else console.warn('新密码已写入为环境变量 ADMIN_PASSWORD');
+      console.warn('请立即登录并修改密码。');
+      console.warn('============================================================');
+    }
   }
 
   async getDashboardStats() {
@@ -536,8 +604,10 @@ export class AdminService implements OnModuleInit {
     return course;
   }
 
-  async getCategories() {
+  async getCategories(actor?: any) {
+    const where = this.isSchool(actor) ? { ownerId: actor.id } : {};
     return this.prisma.category.findMany({
+      where,
       orderBy: [{ sort: 'asc' }, { id: 'asc' }],
       include: { _count: { select: { courses: true } } },
     });
@@ -632,6 +702,14 @@ export class AdminService implements OnModuleInit {
     return this.prisma.school.create({ data: payload });
   }
 
+  getSmsConfig() {
+    return this.smsService.getAdminConfig();
+  }
+
+  saveSmsConfig(data: any) {
+    return this.smsService.saveAdminConfig(data || {});
+  }
+
   async getWxConfig() {
     const rows = await this.prisma.appSetting.findMany({
       where: { key: { in: ['wxAppId', 'wxAppSecret'] } },
@@ -639,14 +717,29 @@ export class AdminService implements OnModuleInit {
     const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
     const appId = this.usableSecret(map.wxAppId) || this.usableSecret(process.env.WX_APPID);
     const secret = this.usableSecret(map.wxAppSecret) || this.usableSecret(process.env.WX_SECRET);
-    return { appId, secret, ready: Boolean(appId && secret) };
+    return {
+      appId,
+      secret: maskSecret(secret),
+      hasSecret: Boolean(secret),
+      ready: Boolean(appId && secret),
+    };
   }
 
   async saveWxConfig(data: { appId?: string; secret?: string }) {
     const appId = String(data.appId || '').trim();
-    const secret = String(data.secret || '').trim();
+    let secret = String(data.secret || '').trim();
     if (!/^wx[0-9a-fA-F]{16}$/.test(appId)) throw new BadRequestException('AppID 格式不正确');
-    if (!secret || secret.includes('your-') || secret.length < 8) throw new BadRequestException('请填写有效的 AppSecret');
+    if (isMaskedSecret(secret)) {
+      const current = await this.getWxConfig();
+      if (!current.hasSecret) throw new BadRequestException('请填写有效的 AppSecret');
+      const rows = await this.prisma.appSetting.findMany({
+        where: { key: { in: ['wxAppSecret'] } },
+      });
+      secret = this.usableSecret(rows[0]?.value) || this.usableSecret(process.env.WX_SECRET);
+      if (!secret) throw new BadRequestException('请填写有效的 AppSecret');
+    } else if (!secret || secret.includes('your-') || secret.length < 8) {
+      throw new BadRequestException('请填写有效的 AppSecret');
+    }
     await this.prisma.$transaction([
       this.prisma.appSetting.upsert({
         where: { key: 'wxAppId' },
@@ -659,7 +752,7 @@ export class AdminService implements OnModuleInit {
         update: { value: secret },
       }),
     ]);
-    return { appId, secret, ready: true };
+    return this.getWxConfig();
   }
 
   private usableSecret(value?: string | null) {
@@ -669,18 +762,36 @@ export class AdminService implements OnModuleInit {
   }
 
   async getAmapConfig() {
+    const full = await this.getAmapRuntimeConfig();
+    return {
+      key: full.key,
+      security: maskSecret(full.security),
+      hasSecurity: Boolean(full.security),
+    };
+  }
+
+  /** 已登录后台拉地图脚本用，需完整安全密钥 */
+  async getAmapRuntimeConfig() {
     const rows = await this.prisma.appSetting.findMany({
       where: { key: { in: ['amapKey', 'amapSecurity'] } },
     });
     const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    return { key: map.amapKey || '', security: map.amapSecurity || '' };
+    return {
+      key: map.amapKey || '',
+      security: map.amapSecurity || '',
+    };
   }
 
   async saveAmapConfig(data: { key?: string; security?: string }) {
     const key = String(data.key || '').trim();
-    const security = String(data.security || '').trim();
+    let security = String(data.security || '').trim();
     if (!key) throw new BadRequestException('请填写高德 Key');
-    if (!security) throw new BadRequestException('请填写高德安全密钥');
+    if (isMaskedSecret(security)) {
+      const current = await this.getAmapRuntimeConfig();
+      security = current.security;
+      if (!security) throw new BadRequestException('请填写安全密钥');
+    }
+    if (!security) throw new BadRequestException('请填写安全密钥');
     await this.prisma.$transaction([
       this.prisma.appSetting.upsert({
         where: { key: 'amapKey' },
@@ -693,7 +804,7 @@ export class AdminService implements OnModuleInit {
         update: { value: security },
       }),
     ]);
-    return { key, security };
+    return this.getAmapConfig();
   }
 
   async getAgreementConfig() {

@@ -113,6 +113,21 @@ const requireLogin = (callback) => {
   }
 };
 
+/** 证件/签名等受保护资源需带 access_token */
+const assetUrl = (path) => {
+  if (!path) return '';
+  if (/^https?:\/\//.test(path) || path.startsWith('wxfile:') || path.startsWith('http://tmp') || path.startsWith('data:')) {
+    return path;
+  }
+  const config = require('../config/index.js');
+  const token = wx.getStorageSync('token');
+  let url = `${config.origin}${path.startsWith('/') ? path : `/${path}`}`;
+  if (token && /\/uploads\/(certs|signs)\//.test(path)) {
+    url += `${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`;
+  }
+  return url;
+};
+
 module.exports = {
   formatTime,
   formatDuration,
@@ -124,4 +139,5 @@ module.exports = {
   throttle,
   checkLogin,
   requireLogin,
+  assetUrl,
 };

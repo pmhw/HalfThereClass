@@ -2,7 +2,7 @@
   <view class="card done" wx:if="{{paper.signed}}">
     <view class="h">合同已签订</view>
     <view class="sub">现在可以抢课，后台也可以把课程安排给你</view>
-    <image wx:if="{{paper.sign}}" class="sign-img" src="{{origin}}{{paper.sign}}" mode="aspectFit"></image>
+    <image wx:if="{{paper.sign}}" class="sign-img" src="{{signUrl}}" mode="aspectFit"></image>
   </view>
 
   <view class="card wait" wx:elif="{{paper.status && paper.status !== 'approved' && loaded}}">

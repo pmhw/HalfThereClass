@@ -6,6 +6,7 @@ const { renderMarkdown } = require('../../utils/markdown.js');
 Page({
   data: {
     origin: config.origin,
+    signUrl: '',
     paper: { title: '教师服务合同', status: 'none', signed: false },
     html: '',
     agreed: false,
@@ -32,6 +33,7 @@ Page({
       const paper = await userService.getContract();
       this.setData({
         paper,
+        signUrl: util.assetUrl(paper.sign || ''),
         html: renderMarkdown(paper.content),
         loaded: true,
       });

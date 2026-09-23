@@ -17,6 +17,14 @@
         </span>
         <em :class="wx.ready ? 'ok' : 'wait'">{{ wx.ready ? '已配置' : '未配置' }}</em>
       </button>
+      <button type="button" class="settings-card" @click="openSms">
+        <span class="settings-icon sms">信</span>
+        <span class="settings-copy">
+          <strong>阿里云短信</strong>
+          <small>手机网页端验证码注册 / 登录</small>
+        </span>
+        <em :class="sms.ready ? 'ok' : 'wait'">{{ sms.ready ? '已启用' : (sms.enabled ? '未配齐' : '未开启') }}</em>
+      </button>
       <button type="button" class="settings-card" @click="openAmap">
         <span class="settings-icon map"><Icon name="pin" /></span>
         <span class="settings-copy">
@@ -63,7 +71,43 @@
             <input v-model="draft.appId" required placeholder="wx 开头的 AppID" autocomplete="off" />
           </label>
           <label>AppSecret
-            <input v-model="draft.secret" required placeholder="请输入 AppSecret" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+            <input v-model="draft.secret" :required="!wx.hasSecret" :placeholder="wx.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 AppSecret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+          </label>
+          <p v-if="dialogError" class="error">{{ dialogError }}</p>
+          <div class="form-actions">
+            <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
+            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="dialog === 'sms'" class="modal-mask">
+      <div class="modal narrow" role="dialog">
+        <header>
+          <h3>阿里云短信</h3>
+          <button class="modal-close" type="button" @click="close">×</button>
+        </header>
+        <form class="form" @submit.prevent="saveSms">
+          <p class="muted">用于手机网页端（/m/）验证码注册登录。请在阿里云短信服务开通国内短信，创建签名与验证码模板（模板变量建议为 code）。</p>
+          <label class="check">
+            <input v-model="draft.enabled" type="checkbox" />
+            <span>启用短信登录</span>
+          </label>
+          <label>AccessKey ID
+            <input v-model="draft.accessKeyId" :required="draft.enabled" placeholder="LTAI…" autocomplete="off" />
+          </label>
+          <label>AccessKey Secret
+            <input v-model="draft.accessKeySecret" :required="draft.enabled && !sms.hasSecret" :placeholder="sms.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 Secret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+          </label>
+          <label>短信签名
+            <input v-model="draft.signName" :required="draft.enabled" placeholder="控制台审核通过的签名" autocomplete="off" />
+          </label>
+          <label>模板 CODE
+            <input v-model="draft.templateCode" :required="draft.enabled" placeholder="SMS_…" autocomplete="off" />
+          </label>
+          <label>模板变量名
+            <input v-model="draft.templateParam" placeholder="默认 code" autocomplete="off" />
           </label>
           <p v-if="dialogError" class="error">{{ dialogError }}</p>
           <div class="form-actions">
@@ -86,7 +130,7 @@
             <input v-model="draft.key" required placeholder="请输入高德 Key" autocomplete="off" />
           </label>
           <label>安全密钥
-            <input v-model="draft.security" required placeholder="请输入安全密钥" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+            <input v-model="draft.security" :required="!form.hasSecurity" :placeholder="form.hasSecurity ? '已配置，留空或保持掩码则不修改' : '请输入安全密钥'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
           </label>
           <p v-if="dialogError" class="error">{{ dialogError }}</p>
           <div class="form-actions">
@@ -134,6 +178,16 @@ import Icon from '../components/Icon.vue';
 
 const form = ref({ key: '', security: '' });
 const wx = ref({ appId: '', secret: '', ready: false });
+const sms = ref({
+  enabled: false,
+  accessKeyId: '',
+  accessKeySecret: '',
+  hasSecret: false,
+  signName: '',
+  templateCode: '',
+  templateParam: 'code',
+  ready: false,
+});
 const agreement = ref({ title: '', content: '' });
 const contract = ref({ title: '', content: '' });
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
@@ -163,18 +217,20 @@ function formatTime(value) {
 
 async function load() {
   try {
-    const [mini, amap, text, paper, db] = await Promise.all([
+    const [mini, amap, text, paper, db, smsCfg] = await Promise.all([
       api.settingsWx(),
       api.settingsAmap(),
       api.settingsAgreement(),
       api.settingsContract(),
       api.databaseInfo().catch(() => ({ exists: false, size: 0, updatedAt: null, hasInit: false })),
+      api.settingsSms().catch(() => ({ enabled: false, ready: false })),
     ]);
     wx.value = mini;
     form.value = amap;
     agreement.value = text;
     contract.value = paper;
     database.value = db;
+    sms.value = smsCfg;
   } catch (err) {
     error.value = err.message;
   }
@@ -185,6 +241,20 @@ function openWx() {
   showSecret.value = false;
   dialogError.value = '';
   dialog.value = 'wx';
+}
+
+function openSms() {
+  draft.value = {
+    enabled: !!sms.value.enabled,
+    accessKeyId: sms.value.accessKeyId || '',
+    accessKeySecret: sms.value.accessKeySecret || '',
+    signName: sms.value.signName || '',
+    templateCode: sms.value.templateCode || '',
+    templateParam: sms.value.templateParam || 'code',
+  };
+  showSecret.value = false;
+  dialogError.value = '';
+  dialog.value = 'sms';
 }
 
 function openAmap() {
@@ -216,6 +286,19 @@ async function saveWx() {
   dialogError.value = '';
   try {
     wx.value = await api.saveSettingsWx(draft.value);
+    close();
+  } catch (err) {
+    dialogError.value = err.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function saveSms() {
+  saving.value = true;
+  dialogError.value = '';
+  try {
+    sms.value = await api.saveSettingsSms(draft.value);
     close();
   } catch (err) {
     dialogError.value = err.message;
@@ -327,10 +410,18 @@ onMounted(load);
   flex: none;
 }
 .settings-icon.wx { background: #ecfdf3; color: #059669; font-weight: 700; font-size: 16px; }
+.settings-icon.sms { background: #fff1f2; color: #e11d48; font-weight: 700; font-size: 16px; }
 .settings-icon.map { background: #eef4ff; color: #2563eb; }
 .settings-icon.doc { background: #ecfdf3; color: #059669; }
 .settings-icon.file { background: #fff7ed; color: #c2410c; }
 .settings-icon.db { background: #f5f3ff; color: #7c3aed; }
+.form label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.form label.check input { width: auto; }
 .settings-copy { min-width: 0; flex: 1; }
 .settings-copy strong { display: block; font-size: 15px; font-weight: 650; }
 .settings-copy small {

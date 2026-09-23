@@ -15,6 +15,10 @@ export class UserService {
     return this.prisma.user.findUnique({ where: { openid } });
   }
 
+  async findByPhone(phone: string) {
+    return this.prisma.user.findUnique({ where: { phone } });
+  }
+
   async findById(id: number) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
@@ -23,12 +27,13 @@ export class UserService {
     return user;
   }
 
-  async create(openid: string, data?: { nickname?: string; avatar?: string }) {
+  async create(openid: string, data?: { nickname?: string; avatar?: string; phone?: string }) {
     return this.prisma.user.create({
       data: {
         openid,
         nickname: data?.nickname,
         avatar: data?.avatar,
+        phone: data?.phone || null,
       },
     });
   }
@@ -203,7 +208,7 @@ export class UserService {
     await this.prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
   }
 
-  async applyLogin(id: number, data: { nickname?: string; avatar?: string }) {
+  async applyLogin(id: number, data: { nickname?: string; avatar?: string; phone?: string }) {
     const nickname = data.nickname?.trim();
     return this.prisma.user.update({
       where: { id },
@@ -211,6 +216,7 @@ export class UserService {
         lastLoginAt: new Date(),
         ...(nickname ? { nickname: nickname.slice(0, 30) } : {}),
         ...(data.avatar ? { avatar: data.avatar } : {}),
+        ...(data.phone ? { phone: data.phone } : {}),
       },
     });
   }
