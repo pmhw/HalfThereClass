@@ -239,6 +239,29 @@ async function createGithubRelease(version, assetPath) {
   if (!uploadRes.ok) {
     throw new Error(`上传附件失败: ${uploaded.message || uploadRes.status}`);
   }
+
+  // GitHub 偶发：附件已上传但 releases 列表里 assets 为空，后台会认为“没有部署包”
+  let visible = false;
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const checkRes = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    const check = await checkRes.json();
+    const names = (check.assets || []).map((row) => row.name);
+    if (names.includes(assetName)) {
+      visible = true;
+      break;
+    }
+  }
+  if (!visible) {
+    throw new Error(`附件已上传，但 GitHub Release 列表尚未显示 ${assetName}，请稍后补传后再更新`);
+  }
+
   return { tag, htmlUrl: release.html_url, downloadUrl: uploaded.browser_download_url };
 }
 

@@ -884,11 +884,12 @@ export class AdminService implements OnModuleInit {
   }
 
   private mapReleaseItem(item: any, current: string) {
+    const tag = item.tag_name;
     const asset = (item.assets || []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
       || (item.assets || []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''))
       || null;
-    const tag = item.tag_name;
-    const assetName = asset?.name || '';
+    const ver = String(tag || '').replace(/^v/i, '');
+    const assetName = asset?.name || (ver ? `HalfThereClass-v${ver}-ubuntu22.tar.gz` : '');
     const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
     const candidates = assetName
       ? this.releaseDownloadCandidates(repo, tag, assetName)
