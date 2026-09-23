@@ -66,7 +66,12 @@ async function check() {
   if (!wx.getStorageSync('token')) return false;
   if (Date.now() - lastOkAt < 2000) return false;
   if (pending) return pending;
-  pending = runCheck().finally(() => {
+  pending = Promise.race([
+    runCheck(),
+    new Promise((resolve) => {
+      setTimeout(() => resolve(false), 3500);
+    }),
+  ]).finally(() => {
     pending = null;
   });
   return pending;

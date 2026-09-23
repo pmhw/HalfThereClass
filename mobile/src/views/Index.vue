@@ -161,7 +161,7 @@ onMounted(() => {
 function decorate(list) {
   const tones = ['blue', 'purple', 'cyan'];
   return (list || [])
-    .filter((item) => item.openGrab || (!item.teacherId && Number(item.seats) > 0))
+    .filter((item) => item.openGrab || !item.teacherId)
     .map((item, index) => {
       const span = [item.startTime, item.endTime].filter(Boolean).join(' - ');
       const when = [weekdayText(item.weekday), span].filter(Boolean).join(' ');
@@ -177,9 +177,12 @@ function decorate(list) {
 async function load() {
   loading.value = true;
   try {
-    const [todayData, rec] = await Promise.all([getToday(), getRecommendCourses(12)]);
+    const [todayData, rec] = await Promise.all([
+      getToday().catch(() => null),
+      getRecommendCourses(12).catch(() => []),
+    ]);
     today.value = todayData;
-    remain.value = todayData.next ? remainText(todayData.next.startTime) : '';
+    remain.value = todayData?.next ? remainText(todayData.next.startTime) : '';
     recommend.value = decorate(rec);
   } catch {
     /* ignore */

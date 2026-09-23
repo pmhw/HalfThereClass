@@ -144,7 +144,6 @@ User=halfthere
 Group=halfthere
 WorkingDirectory=/opt/HalfThereClass/backend
 Environment=NODE_ENV=production
-Environment=PORT=3000
 EnvironmentFile=-/opt/HalfThereClass/backend/.env
 ExecStart=/usr/bin/node --enable-source-maps /opt/HalfThereClass/backend/dist/src/main.js
 Restart=always

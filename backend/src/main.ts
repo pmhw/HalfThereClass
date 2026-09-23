@@ -95,12 +95,23 @@ async function bootstrap() {
     });
   }
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  const port = Number(process.env.PORT || 3000);
+  try {
+    await app.listen(port);
+  } catch (err: any) {
+    if (err?.code === 'EADDRINUSE') {
+      console.error(`端口 ${port} 已被占用。请修改 backend/.env 的 PORT，或结束占用该端口的进程后重启。`);
+    }
+    throw err;
+  }
   console.log(`🚀 服务运行于 http://localhost:${port}`);
   console.log(`📖 API 文档: http://localhost:${port}/api/docs`);
   if (www) console.log(`🖥️  管理后台: http://localhost:${port}/`);
   if (mobileWww) console.log(`📱 手机端: http://localhost:${port}/m/`);
   console.log(`📦 版本: ${version}`);
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  console.error('服务启动失败:', err?.stack || err?.message || err);
+  process.exit(1);
+});

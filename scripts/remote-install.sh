@@ -429,7 +429,10 @@ setup_app() {
   if [[ ! -f .env ]]; then
     cp .env.example .env
   fi
-  ensure_env_kv .env PORT "${PORT}"
+  # 已有 PORT 不覆盖，避免把线上 10920 等端口改回默认 3000
+  if ! grep -q '^PORT=' .env 2>/dev/null; then
+    ensure_env_kv .env PORT "${PORT}"
+  fi
   ensure_env_kv .env NODE_ENV production
   ensure_env_kv .env GITHUB_REPO "${REPO}"
   if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
@@ -474,7 +477,6 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${INSTALL_DIR}/backend
 Environment=NODE_ENV=production
-Environment=PORT=${PORT}
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 EnvironmentFile=-${INSTALL_DIR}/backend/.env
 ExecStart=${node_bin} --enable-source-maps ${INSTALL_DIR}/backend/dist/src/main.js

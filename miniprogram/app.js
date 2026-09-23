@@ -13,9 +13,10 @@ Page = function pageWithFreeze(config) {
         return;
       }
       const page = this;
+      // 先渲染页面，冻结检查超时也不挡住首页列表
+      if (origin) origin.call(page, options);
       freeze.check().then((locked) => {
-        if (locked || page.route !== route) return;
-        if (origin) origin.call(page, options);
+        if (!locked || page.route !== route) return;
       });
     };
   });
