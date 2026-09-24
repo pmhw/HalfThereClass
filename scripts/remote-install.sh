@@ -124,6 +124,18 @@ ensure_env_kv() {
   fi
 }
 
+# 弱/缺失 JWT 时生成强密钥并写回 .env（安装与启动共用）
+ensure_strong_jwt() {
+  local file="$1"
+  [[ -f "${file}" ]] || return 0
+  local jwt_now
+  jwt_now="$(grep '^JWT_SECRET=' "${file}" 2>/dev/null | cut -d= -f2- || true)"
+  if [[ -z "${jwt_now}" || "${#jwt_now}" -lt 32 || "${jwt_now}" == *"CHANGE_ME"* || "${jwt_now}" == *"your-jwt"* || "${jwt_now}" == *"example"* || "${jwt_now}" == *"placeholder"* ]]; then
+    ensure_env_kv "${file}" JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
+    yellow "已自动生成强 JWT_SECRET 并写入 ${file}"
+  fi
+}
+
 restore_apt_sources() {
   if [[ -n "${APT_LIST_BAK:-}" && -f "${APT_LIST_BAK}" ]]; then
     cp -a "${APT_LIST_BAK}" /etc/apt/sources.list
@@ -439,11 +451,8 @@ setup_app() {
   ensure_env_kv .env GITHUB_REPO "${REPO}"
 
   # 强制生成强 JWT / 初始管理员密码，杜绝示例弱口令上线
-  local jwt_now admin_pass_now
-  jwt_now="$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- || true)"
-  if [[ -z "${jwt_now}" || "${jwt_now}" == *"CHANGE_ME"* || "${jwt_now}" == *"your-jwt"* || ${#jwt_now} -lt 32 ]]; then
-    ensure_env_kv .env JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
-  fi
+  ensure_strong_jwt .env
+  local admin_pass_now
   admin_pass_now="$(grep '^ADMIN_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)"
   if [[ "${created_env}" == "1" || -z "${admin_pass_now}" || "${admin_pass_now}" == "admin123" || "${admin_pass_now}" == *"CHANGE_ME"* || ${#admin_pass_now} -lt 10 ]]; then
     admin_pass_now="$(openssl rand -base64 18 | tr -d '\n=/+' | cut -c1-20)"
@@ -525,8 +534,23 @@ cd "\$ROOT/backend"
 export NODE_ENV=production
 export PORT="\${PORT:-${PORT}}"
 if [[ ! -f .env ]]; then
-  echo "缺少 backend/.env"
-  exit 1
+  if [[ -f .env.example ]]; then
+    cp .env.example .env
+  else
+    echo "缺少 backend/.env"
+    exit 1
+  fi
+fi
+# 弱 JWT 自动修复（与 Node 启动兜底一致）
+jwt_now="\$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- || true)"
+if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"* || "\${jwt_now}" == *"your-jwt"* ]]; then
+  new_jwt="\$(openssl rand -base64 48 | tr -d '\\n')"
+  if grep -q '^JWT_SECRET=' .env; then
+    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=\${new_jwt}|" .env
+  else
+    echo "JWT_SECRET=\${new_jwt}" >> .env
+  fi
+  echo "已自动生成强 JWT_SECRET"
 fi
 if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
   cp prisma/init.db prisma/dev.db

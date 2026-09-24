@@ -88,8 +88,24 @@ cd "$ROOT/backend"
 export NODE_ENV=production
 export PORT="\${PORT:-3000}"
 if [[ ! -f .env ]]; then
-  echo "缺少 backend/.env，请先复制 .env.example 并填写配置"
-  exit 1
+  if [[ -f .env.example ]]; then
+    cp .env.example .env
+    echo "已从 .env.example 生成 backend/.env"
+  else
+    echo "缺少 backend/.env，请先复制 .env.example 并填写配置"
+    exit 1
+  fi
+fi
+# 弱/缺失 JWT 时自动生成（Node 启动时还有二次兜底）
+jwt_now="$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- || true)"
+if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"* || "\${jwt_now}" == *"your-jwt"* ]]; then
+  new_jwt="$(openssl rand -base64 48 | tr -d '\\n')"
+  if grep -q '^JWT_SECRET=' .env; then
+    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=\${new_jwt}|" .env
+  else
+    echo "JWT_SECRET=\${new_jwt}" >> .env
+  fi
+  echo "已自动生成强 JWT_SECRET"
 fi
 if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
   cp prisma/init.db prisma/dev.db
@@ -122,7 +138,21 @@ if [[ ! -f prisma/dev.db ]]; then
 fi
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "已生成 backend/.env，请按服务器环境修改后再启动"
+  echo "已生成 backend/.env"
+fi
+# 首次安装即写入强 JWT，避免弱密钥上线
+jwt_now="$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- || true)"
+if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"* || "\${jwt_now}" == *"your-jwt"* ]]; then
+  new_jwt="$(openssl rand -base64 48 | tr -d '\\n')"
+  if grep -q '^JWT_SECRET=' .env; then
+    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=\${new_jwt}|" .env
+  else
+    echo "JWT_SECRET=\${new_jwt}" >> .env
+  fi
+  echo "已自动生成强 JWT_SECRET"
+fi
+if ! grep -q '^NODE_ENV=' .env; then
+  echo "NODE_ENV=production" >> .env
 fi
 chmod +x "$ROOT/start.sh"
 echo "安装完成。启动: $ROOT/start.sh"

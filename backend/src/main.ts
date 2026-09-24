@@ -9,7 +9,7 @@ import { verify } from 'jsonwebtoken';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { assertJwtSecretConfigured } from './common/security';
+import { ensureJwtSecret } from './common/security';
 
 function resolveWww() {
   const candidates = [
@@ -62,7 +62,7 @@ function requireUploadAuth(req: any, res: any, next: () => void) {
 }
 
 async function bootstrap() {
-  assertJwtSecretConfigured();
+  ensureJwtSecret();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const uploadsRoot = join(process.cwd(), 'uploads');

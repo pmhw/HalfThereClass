@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 const WEAK_PASSWORDS = new Set([
   'admin123',
@@ -47,18 +49,72 @@ export function isWeakJwtSecret(secret?: string | null) {
   return false;
 }
 
-export function assertJwtSecretConfigured() {
-  const secret = process.env.JWT_SECRET;
-  const production = process.env.NODE_ENV === 'production';
-  if (isWeakJwtSecret(secret)) {
-    const message =
-      'JWT_SECRET 未配置或过于弱。请在 backend/.env 设置至少 32 位随机字符串（可用 openssl rand -base64 48）。';
-    if (production) {
-      console.error(message);
-      process.exit(1);
-    }
-    console.warn(`[安全警告] ${message}`);
+function resolveEnvPath() {
+  const candidates = [
+    join(process.cwd(), '.env'),
+    join(process.cwd(), 'backend', '.env'),
+    join(process.cwd(), '..', 'backend', '.env'),
+  ];
+  return candidates.find((file) => existsSync(file)) || candidates[0];
+}
+
+function persistEnvKv(file: string, key: string, value: string) {
+  let text = '';
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    text = '';
   }
+  const line = `${key}=${value}`;
+  if (new RegExp(`^${key}=`, 'm').test(text)) {
+    text = text.replace(new RegExp(`^${key}=.*$`, 'm'), line);
+  } else {
+    text = `${text.replace(/\s*$/, '')}\n${line}\n`;
+  }
+  writeFileSync(file, text, { encoding: 'utf8', mode: 0o600 });
+}
+
+/**
+ * 启动时保证 JWT_SECRET 可用：弱/缺失则自动生成并写入 .env，绝不因此退出。
+ * 已存在的强密钥不会被覆盖。
+ */
+export function ensureJwtSecret() {
+  if (!isWeakJwtSecret(process.env.JWT_SECRET)) {
+    return process.env.JWT_SECRET as string;
+  }
+
+  const secret = generateSecret(36);
+  process.env.JWT_SECRET = secret;
+
+  const envPath = resolveEnvPath();
+  try {
+    const exampleCandidates = [
+      join(process.cwd(), '.env.example'),
+      join(process.cwd(), 'backend', '.env.example'),
+      join(process.cwd(), '..', 'backend', '.env.example'),
+    ];
+    if (!existsSync(envPath)) {
+      const example = exampleCandidates.find((file) => existsSync(file));
+      if (example) {
+        writeFileSync(envPath, readFileSync(example, 'utf8'), { encoding: 'utf8', mode: 0o600 });
+      } else {
+        writeFileSync(envPath, 'NODE_ENV=production\n', { encoding: 'utf8', mode: 0o600 });
+      }
+    }
+    persistEnvKv(envPath, 'JWT_SECRET', secret);
+    console.warn(`[安全] 已自动生成并写入强 JWT_SECRET → ${envPath}`);
+    console.warn('[安全] 原登录态将失效，请重新登录后台与手机端。');
+  } catch (err: any) {
+    console.warn(`[安全] 已在内存中使用临时 JWT_SECRET，但写入 .env 失败: ${err?.message || err}`);
+    console.warn('[安全] 请检查 backend/.env 写权限，否则重启后密钥会变化。');
+  }
+
+  return secret;
+}
+
+/** @deprecated 使用 ensureJwtSecret；保留兼容旧调用 */
+export function assertJwtSecretConfigured() {
+  ensureJwtSecret();
 }
 
 export function generateSecret(bytes = 36) {
