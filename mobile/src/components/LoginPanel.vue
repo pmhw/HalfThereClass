@@ -53,22 +53,30 @@
     </form>
 
     <div v-if="showAgreement" class="mask" @click.self="showAgreement = false">
-      <div class="sheet">
-        <h3>{{ agreementTitle }}</h3>
-        <div class="md" v-html="agreementHtml"></div>
-        <button class="btn btn-primary btn-block" type="button" @click="showAgreement = false">知道了</button>
+      <div class="sheet" role="dialog" aria-modal="true">
+        <header class="sheet-head">
+          <h3>{{ agreementTitle }}</h3>
+          <button class="sheet-close" type="button" aria-label="关闭" @click="showAgreement = false">×</button>
+        </header>
+        <div class="sheet-body md" v-html="agreementHtml"></div>
+        <div class="sheet-foot">
+          <button class="btn btn-primary btn-block" type="button" @click="showAgreement = false">知道了</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getAgreement, getSmsStatus, sendSmsCode, smsLogin, updateProfile, uploadAvatar } from '../api';
 import { assetUrl, setSession, getUser } from '../store';
 import { lock as freezeLock } from '../utils/freeze';
 import { showToast } from '../api/request';
 import { renderMarkdown } from '../utils/markdown';
+
+const PHONE_KEY = 'mobile_login_phone';
+const AGREED_KEY = 'mobile_login_agreed';
 
 const props = defineProps({
   slogan: { type: String, default: '教师端登录' },
@@ -78,7 +86,7 @@ const emit = defineEmits(['success']);
 const step = ref('login');
 const loading = ref(false);
 const sending = ref(false);
-const agreed = ref(false);
+const agreed = ref(localStorage.getItem(AGREED_KEY) === '1');
 const phone = ref('');
 const code = ref('');
 const cooldown = ref(0);
@@ -99,7 +107,13 @@ const statusHint = computed(() =>
     : '短信登录尚未配置，请管理员在后台「系统设置 → 阿里云短信」启用。',
 );
 
+function readSavedPhone() {
+  const saved = String(localStorage.getItem(PHONE_KEY) || '').trim();
+  return /^1[3-9]\d{0,9}$/.test(saved) ? saved : '';
+}
+
 onMounted(async () => {
+  phone.value = readSavedPhone();
   try {
     const [paper, status] = await Promise.all([
       getAgreement().catch(() => null),
@@ -113,6 +127,18 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
+});
+
+watch(phone, (value) => {
+  const text = String(value || '').replace(/\D/g, '').slice(0, 11);
+  if (text !== value) phone.value = text;
+  if (/^1[3-9]\d{9}$/.test(text)) localStorage.setItem(PHONE_KEY, text);
+  else if (!text) localStorage.removeItem(PHONE_KEY);
+  else localStorage.setItem(PHONE_KEY, text);
+});
+
+watch(agreed, (value) => {
+  localStorage.setItem(AGREED_KEY, value ? '1' : '0');
 });
 
 onBeforeUnmount(() => {
@@ -327,47 +353,92 @@ async function onProfile() {
 .mask {
   position: fixed;
   inset: 0;
-  z-index: 50;
-  background: rgba(15, 23, 42, 0.45);
+  z-index: 100050;
+  background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
 }
 .sheet {
   width: 100%;
-  max-height: 70vh;
-  overflow: auto;
+  max-width: 100%;
+  max-height: min(86vh, 920px);
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border-radius: calc(24 * var(--r)) calc(24 * var(--r)) 0 0;
-  padding: calc(32 * var(--r));
+  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
 }
-.sheet h3 { margin: 0 0 calc(16 * var(--r)); }
-.sheet .md {
-  max-height: 48vh;
+.sheet-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(16 * var(--r));
+  padding: calc(28 * var(--r)) calc(28 * var(--r)) calc(16 * var(--r));
+  border-bottom: 1px solid #eef2f6;
+}
+.sheet-head h3 {
+  margin: 0;
+  font-size: calc(32 * var(--r));
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.3;
+  padding-right: calc(12 * var(--r));
+}
+.sheet-close {
+  width: calc(56 * var(--r));
+  height: calc(56 * var(--r));
+  border: 0;
+  border-radius: 50%;
+  background: #f3f5f8;
+  color: #667085;
+  font-size: calc(36 * var(--r));
+  line-height: 1;
+  flex-shrink: 0;
+}
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  margin: 0 0 calc(24 * var(--r));
-  color: #475467;
-  font-size: calc(26 * var(--r));
-  line-height: 1.7;
   -webkit-overflow-scrolling: touch;
+  padding: calc(20 * var(--r)) calc(28 * var(--r));
+  color: #475467;
+  font-size: calc(28 * var(--r));
+  line-height: 1.75;
+  word-break: break-word;
 }
-.sheet .md :deep(h1),
-.sheet .md :deep(h2),
-.sheet .md :deep(h3) {
+.sheet-body :deep(h1),
+.sheet-body :deep(h2),
+.sheet-body :deep(h3) {
   color: #111827;
   font-weight: 700;
   margin: 0.9em 0 0.4em;
   line-height: 1.35;
 }
-.sheet .md :deep(p) { margin: 0 0 0.7em; color: #344054; }
-.sheet .md :deep(ul),
-.sheet .md :deep(ol) { margin: 0 0 0.7em; padding-left: 1.2em; }
-.sheet .md :deep(blockquote) {
-  margin: 0 0 0.8em;
-  padding: 0.6em 0.8em;
+.sheet-body :deep(h1) { font-size: 1.15em; }
+.sheet-body :deep(h2) { font-size: 1.05em; }
+.sheet-body :deep(h3) { font-size: 1em; }
+.sheet-body :deep(p) { margin: 0 0 0.75em; color: #344054; }
+.sheet-body :deep(ul),
+.sheet-body :deep(ol) { margin: 0 0 0.75em; padding-left: 1.25em; }
+.sheet-body :deep(li) { margin: 0.15em 0; }
+.sheet-body :deep(blockquote) {
+  margin: 0 0 0.85em;
+  padding: 0.65em 0.85em;
   border-left: 3px solid #93c5fd;
   background: #f8fbff;
   border-radius: 0 8px 8px 0;
 }
-.sheet .md :deep(blockquote p) { margin: 0; }
-.sheet .md :deep(a) { color: #2563eb; }
+.sheet-body :deep(blockquote p) { margin: 0; }
+.sheet-body :deep(a) { color: #2563eb; word-break: break-all; }
+.sheet-foot {
+  flex: 0 0 auto;
+  padding: calc(16 * var(--r)) calc(28 * var(--r)) calc(20 * var(--r) + env(safe-area-inset-bottom));
+  border-top: 1px solid #eef2f6;
+  background: #fff;
+}
 </style>
