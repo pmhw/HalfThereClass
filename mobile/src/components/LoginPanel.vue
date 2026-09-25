@@ -103,7 +103,7 @@ const agreementHtml = computed(() => renderMarkdown(agreementContent.value || ''
 
 const statusHint = computed(() =>
   smsReady.value
-    ? '使用手机号验证码注册或登录，与小程序账号相互独立。'
+    ? '使用手机号验证码注册或登录；绑定微信后两边账号会合并为同一账号。'
     : '短信登录尚未配置，请管理员在后台「系统设置 → 阿里云短信」启用。',
 );
 

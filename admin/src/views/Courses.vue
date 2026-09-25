@@ -48,15 +48,24 @@
         </select>
         <Icon name="chevron" />
       </label>
+      <label class="field pick">
+        <select v-model="semesterScope">
+          <option value="current">当前学期</option>
+          <option value="history">历史学期</option>
+          <option value="all">全部课程</option>
+        </select>
+        <Icon name="chevron" />
+      </label>
       <button class="btn" type="button" @click="resetFilters">重置</button>
       <button class="btn primary" type="button" @click="reload"><Icon name="search" />搜索</button>
       <button class="btn danger" :disabled="!selected.length" @click="askRemoveSelected">批量删除{{ selected.length ? `（${selected.length}）` : '' }}</button>
     </div>
     <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="notice" class="ok-tip">{{ notice }}</p>
     <article class="card">
       <table>
         <thead>
-          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>分类</th><th>老师</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th></th></tr>
+          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>年级</th><th>分类</th><th>老师</th><th>学期</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
@@ -64,8 +73,17 @@
             <td>
               <div class="course-cell"><span class="thumb">课</span><span>{{ item.title }}</span></div>
             </td>
+            <td>{{ item.gradeLabel || '—' }}</td>
             <td>{{ item.category?.name || '—' }}</td>
-            <td>{{ item.teacher?.teacherCert?.realName || item.teacher?.nickname || '未安排' }}</td>
+            <td>
+              <router-link
+                v-if="item.teacher?.id"
+                class="link"
+                :to="`/faculty/${item.teacher.id}`"
+              >{{ item.teacher?.teacherCert?.realName || item.teacher?.nickname || '老师' }}</router-link>
+              <span v-else>未安排</span>
+            </td>
+            <td>{{ termLabel(item.activeSemester) }}</td>
             <td v-if="!schoolAccount">{{ item.owner?.name || '—' }}</td>
             <td>{{ item.isFree ? '免费' : money(item.price) }}</td>
             <td v-if="!schoolAccount">{{ item.sessionFee == null ? '—' : money(item.sessionFee) }}</td>
@@ -74,6 +92,8 @@
               <div class="row-actions">
                 <button v-if="!schoolAccount && item._count?.sessions" class="link plan" type="button" @click="openPlan(item)">已排课</button>
                 <button v-else-if="!schoolAccount" class="link wait" type="button" @click="goSchedule(item)">未排课</button>
+                <button class="link" type="button" @click="copyGrabLink(item)">复制链接</button>
+                <button class="link" type="button" @click="openContinue(item)">延续学期</button>
                 <button class="link" @click="openForm(item)">编辑</button>
                 <button class="link danger" :disabled="!!item.teacherId" :title="item.teacherId ? '已安排老师，不能删除' : ''" @click="askRemove(item)">删除</button>
               </div>
@@ -199,10 +219,10 @@
               </div>
             </label>
             <label class="course-field">
-              <span>默认班级</span>
+              <span>年级（可选）</span>
               <div class="course-control">
                 <Icon name="users" />
-                <input v-model="form.gradeLabel" placeholder="请输入班级名称（可选）" />
+                <input v-model="form.gradeLabel" placeholder="如一年级 / 初一，可不填" />
               </div>
             </label>
             <label v-if="!schoolAccount" class="course-field">
@@ -295,7 +315,7 @@
             v-for="item in filteredTeachers"
             :key="item.id"
             type="button"
-            :class="{ on: String(item.id) === form.teacherId, off: !item.contractSigned && String(item.id) !== form.teacherId }"
+            :class="{ on: String(item.id) === form.teacherId }"
             @mousedown.prevent="pickTeacher(item)"
           >{{ teacherLabel(item) }}</button>
           <p v-if="!filteredTeachers.length" class="combo-empty">没有认证通过的老师</p>
@@ -401,6 +421,41 @@
         </form>
       </div>
     </div>
+    <div v-if="continueForm" class="modal-mask">
+      <div class="modal narrow" role="dialog">
+        <header>
+          <h3>延续到新学期</h3>
+          <button class="modal-close" type="button" @click="continueForm = null">×</button>
+        </header>
+        <form class="form" @submit.prevent="saveContinue">
+          <p class="muted">「{{ continueForm.title }}」会切到新学期展示；上学期课次保留可在历史里查看。可清空老师重新抢课，或直接指定新老师。</p>
+          <label>目标学期
+            <select v-model="continueForm.semesterId" required>
+              <option value="">请选择</option>
+              <option v-for="item in semesters.filter((row) => row.phase !== 'ended')" :key="item.id" :value="String(item.id)">
+                {{ item.label }} {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label class="check-line">
+            <input v-model="continueForm.clearTeacher" type="checkbox" />
+            <span>清空老师，重新开放抢课</span>
+          </label>
+          <label v-if="!continueForm.clearTeacher">指定老师
+            <select v-model="continueForm.teacherId">
+              <option value="">沿用原老师</option>
+              <option v-for="item in teachers" :key="item.id" :value="String(item.id)">{{ teacherLabel(item) }}</option>
+            </select>
+          </label>
+          <label>开抢时间（可选）<input v-model="continueForm.grabAt" type="datetime-local" /></label>
+          <p v-if="continueError" class="error">{{ continueError }}</p>
+          <div class="form-actions">
+            <button class="btn primary" type="submit" :disabled="continueSaving">{{ continueSaving ? '处理中' : '确认延续' }}</button>
+            <button class="btn" type="button" @click="continueForm = null">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -424,7 +479,13 @@ const isFree = ref('');
 const page = ref(1);
 const pageSize = ref(10);
 const categoryId = ref('');
+const semesterScope = ref('current');
 const error = ref('');
+const notice = ref('');
+const continueForm = ref(null);
+const continueError = ref('');
+const continueSaving = ref(false);
+const semesters = ref([]);
 const form = ref(null);
 const pending = ref([]);
 const selected = ref([]);
@@ -444,7 +505,7 @@ function teacherLabel(item) {
   const name = item.realName || item.nickname || `教师${item.id}`;
   const extra = [item.teacherNo, item.phone].filter(Boolean).join(' · ');
   const base = extra ? `${name} · ${extra}` : name;
-  return item.contractSigned ? base : `${base} · 未签合同`;
+  return item.contractSigned ? base : `${base} · 未签合同(可预分配)`;
 }
 const filteredTeachers = computed(() => {
   const text = teacherQuery.value.trim().toLowerCase();
@@ -461,11 +522,10 @@ const missingTeacher = computed(() => {
 });
 function pickTeacher(item) {
   if (!form.value) return;
-  if (item && !item.contractSigned && String(item.id) !== String(form.value.teacherId)) {
-    formError.value = '该老师尚未签订合同，不能安排课程';
-    return;
-  }
   formError.value = '';
+  if (item && !item.contractSigned) {
+    formError.value = '该老师本学期合同未生效：将按预分配锁定，签完合同并审核通过后解锁时间安排。';
+  }
   form.value.teacherId = item ? String(item.id) : '';
   teacherQuery.value = '';
   teacherOpen.value = false;
@@ -611,6 +671,7 @@ async function load() {
       status: status.value,
       isFree: isFree.value,
       categoryId: categoryId.value,
+      semesterScope: semesterScope.value,
     });
   } catch (err) {
     error.value = err.message;
@@ -622,7 +683,50 @@ function resetFilters() {
   status.value = '';
   isFree.value = '';
   categoryId.value = '';
+  semesterScope.value = 'current';
   reload();
+}
+function termLabel(item) {
+  if (!item) return '未挂学期';
+  const season = item.season === 'spring' ? '春' : '秋';
+  return `${String(item.year).slice(-2)}${season}`;
+}
+function openContinue(item) {
+  continueError.value = '';
+  const openId = result.value.openSemesterId || (semesters.value.find((row) => row.phase === 'active')?.id);
+  continueForm.value = {
+    id: item.id,
+    title: item.title,
+    semesterId: openId ? String(openId) : '',
+    clearTeacher: true,
+    teacherId: '',
+    grabAt: '',
+  };
+}
+async function saveContinue() {
+  if (!continueForm.value?.semesterId) {
+    continueError.value = '请选择要延续到的学期';
+    return;
+  }
+  continueSaving.value = true;
+  continueError.value = '';
+  try {
+    await api.continueCourse(continueForm.value.id, {
+      semesterId: Number(continueForm.value.semesterId),
+      clearTeacher: !!continueForm.value.clearTeacher,
+      teacherId: continueForm.value.clearTeacher
+        ? null
+        : (continueForm.value.teacherId ? Number(continueForm.value.teacherId) : undefined),
+      grabAt: continueForm.value.grabAt || null,
+    });
+    notice.value = `「${continueForm.value.title}」已延续到新学期`;
+    continueForm.value = null;
+    await load();
+  } catch (err) {
+    continueError.value = err.message;
+  } finally {
+    continueSaving.value = false;
+  }
 }
 function changePage(next) { page.value = next; load(); }
 function changeSize(next) { pageSize.value = next; reload(); }
@@ -759,6 +863,32 @@ const planCells = computed(() => {
 
 function goSchedule(item) {
   router.push({ path: '/term', query: { courseId: String(item.id) } });
+}
+
+async function copyGrabLink(item) {
+  const url = `${window.location.origin}/m/course/${item.id}`;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const input = document.createElement('textarea');
+      input.value = url;
+      input.setAttribute('readonly', 'true');
+      input.style.position = 'fixed';
+      input.style.left = '-9999px';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+    error.value = '';
+    notice.value = `已复制抢课链接：${url}`;
+    setTimeout(() => {
+      if (notice.value.startsWith('已复制')) notice.value = '';
+    }, 2500);
+  } catch {
+    window.prompt('复制以下抢课链接', url);
+  }
 }
 
 function focusPlanMonth() {
@@ -925,13 +1055,21 @@ onMounted(async () => {
   document.addEventListener('mousedown', onTeacherPointer);
   window.addEventListener('resize', placeTeacherMenu);
   window.addEventListener('scroll', placeTeacherMenu, true);
-  const jobs = [api.categories(), api.teachers(), api.schools()];
-  if (!schoolAccount) jobs.push(api.schoolAccounts());
-  const [categoryList, teacherList, schoolList, accountList] = await Promise.all(jobs);
-  categories.value = categoryList;
-  teachers.value = Array.isArray(teacherList) ? teacherList : [];
-  schools.value = Array.isArray(schoolList) ? schoolList.filter((item) => item.status !== 0) : [];
-  schoolAccounts.value = Array.isArray(accountList) ? accountList : [];
+  try {
+    const jobs = [api.categories(), api.teachers(), api.schools(), api.semesters()];
+    if (!schoolAccount) jobs.push(api.schoolAccounts());
+    const settled = await Promise.allSettled(jobs);
+    const valueOf = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : []);
+    categories.value = valueOf(0) || [];
+    teachers.value = Array.isArray(valueOf(1)) ? valueOf(1) : [];
+    schools.value = Array.isArray(valueOf(2)) ? valueOf(2).filter((item) => item.status !== 0) : [];
+    semesters.value = Array.isArray(valueOf(3)) ? valueOf(3) : [];
+    schoolAccounts.value = Array.isArray(valueOf(4)) ? valueOf(4) : [];
+    const failed = settled.find((item) => item.status === 'rejected');
+    if (failed) formError.value = failed.reason?.message || '部分基础数据加载失败，可刷新重试';
+  } catch (err) {
+    formError.value = err.message || '加载失败';
+  }
   await load();
 });
 onBeforeUnmount(() => {

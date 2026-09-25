@@ -3,6 +3,7 @@
     <header class="nav">
       <button type="button" class="back" @click="router.back()">‹ 返回</button>
       <span>课程详情</span>
+      <button type="button" class="share" @click="copyLink">复制链接</button>
     </header>
 
     <div class="banner">{{ initial }}</div>
@@ -31,7 +32,7 @@
       </button>
       <div v-else-if="course.isMine" class="bar-row">
         <button class="btn btn-block" type="button" @click="goAdjust">登记调课</button>
-        <button class="btn btn-primary btn-block" type="button" @click="goCheckin">去签到</button>
+        <button class="btn btn-block" type="button" disabled>过时默认已上</button>
       </div>
       <button v-else-if="course.teacherId" class="btn btn-block" type="button" disabled>已安排老师</button>
       <button
@@ -171,12 +172,34 @@ function goContract() {
   router.push('/contract');
 }
 
-function goCheckin() {
-  router.push(`/checkin?id=${courseId}`);
-}
-
 function goAdjust() {
   router.push(`/adjust?courseId=${courseId}`);
+}
+
+function courseLink() {
+  return `${window.location.origin}/m/course/${courseId}`;
+}
+
+async function copyLink() {
+  const text = courseLink();
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const input = document.createElement('textarea');
+      input.value = text;
+      input.setAttribute('readonly', 'true');
+      input.style.position = 'fixed';
+      input.style.left = '-9999px';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+    showToast('链接已复制，发给伙伴可直接打开抢课');
+  } catch {
+    showToast(text);
+  }
 }
 </script>
 
@@ -189,7 +212,14 @@ function goAdjust() {
   padding: calc(24 * var(--r));
   font-weight: 650;
 }
+.nav span { flex: 1; text-align: center; }
 .back { color: #2563eb; }
+.share {
+  color: #2563eb;
+  font-size: calc(26 * var(--r));
+  font-weight: 600;
+  white-space: nowrap;
+}
 .banner {
   height: calc(200 * var(--r));
   margin: 0 calc(24 * var(--r));

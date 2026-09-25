@@ -1,7 +1,7 @@
 .page {
   min-height: 100vh;
   background: #eef2f7;
-  padding: 24rpx 28rpx 56rpx;
+  padding: 24rpx 28rpx calc(48rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 .card {
@@ -38,43 +38,36 @@
   color: #111827;
   letter-spacing: 0.02em;
 }
-.badge {
-  display: inline-block;
-  padding: 6rpx 16rpx;
-  border-radius: 999rpx;
-  background: #ecfdf3;
-  color: #059669;
-  font-size: 22rpx;
-  font-weight: 650;
-  margin-bottom: 12rpx;
-}
 .done .h { color: #111827; margin-bottom: 8rpx; }
 .wait .h { color: #2563eb; }
-.sub {
-  margin-top: 8rpx;
-  color: #667085;
-  font-size: 26rpx;
-  line-height: 1.55;
+.body-label {
+  margin: 8rpx 0 4rpx;
+  color: #98a2b3;
+  font-size: 22rpx;
 }
 .body {
-  height: 58vh;
-  min-height: 520rpx;
-  max-height: 760rpx;
+  /* 固定高度别占满屏，留给下方签名区；页面本身可滚动 */
+  height: 42vh;
+  min-height: 360rpx;
+  max-height: 560rpx;
   margin-top: 8rpx;
   box-sizing: border-box;
 }
 .signed-body {
-  height: 42vh;
-  min-height: 360rpx;
-  max-height: 560rpx;
+  height: 36vh;
+  min-height: 300rpx;
+  max-height: 480rpx;
   margin-top: 20rpx;
   padding-top: 12rpx;
   border-top: 1rpx dashed #e5e7eb;
 }
 .label { font-size: 30rpx; font-weight: 650; color: #111827; }
 .req { color: #ef4444; margin-left: 4rpx; }
-.hint, .foot { margin-top: 8rpx; color: #98a2b3; font-size: 22rpx; }
-.foot { text-align: center; margin-top: 16rpx; }
+.hint { margin-top: 8rpx; color: #98a2b3; font-size: 22rpx; line-height: 1.5; }
+.foot { text-align: center; color: #98a2b3; font-size: 22rpx; margin-top: 16rpx; padding-bottom: 24rpx; }
+.sign-card {
+  scroll-margin-top: 24rpx;
+}
 .pad-wrap {
   position: relative;
   margin-top: 16rpx;
@@ -131,3 +124,35 @@
   background: #f8fafc;
   border-radius: 12rpx;
 }
+.tip {
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+.badge {
+  display: inline-block;
+  background: #ecfdf3;
+  color: #027a48;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  margin-bottom: 12rpx;
+}
+.badge.amber { background: #fff7ed; color: #9a3412; }
+.annex-title { font-weight: 650; margin-bottom: 8rpx; font-size: 26rpx; }
+.annex-body { white-space: pre-wrap; color: #344054; font-size: 24rpx; line-height: 1.6; }
+.hist-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #f0f2f5;
+  font-size: 24rpx;
+  color: #475467;
+}
+.hist-row .link { color: #2563eb; }
+.btn-block { width: 100%; margin-top: 20rpx; }
+.sub { color: #667085; font-size: 26rpx; line-height: 1.5; margin-top: 8rpx; }

@@ -16,42 +16,49 @@
     </view>
 
     <view wx:if="{{!certified}}" class="empty">认证通过后才能查看自己的课程和课时费</view>
-    <view wx:elif="{{!shown.length}}" class="empty">这一天还没有授课安排</view>
-    <view wx:else>
-      <view class="lesson" wx:for="{{shown}}" wx:key="id" data-id="{{item.id}}" bindtap="open">
-        <view class="top">
-          <view class="mark {{item.tone}}">{{item.initial}}</view>
-          <view class="info">
-            <view class="title">{{item.title}}</view>
-            <view class="meta">{{item.place}}</view>
-            <view class="place">
-              <view class="pin"></view>
-              <text>{{item.room}}</text>
+    <block wx:else>
+      <view wx:if="{{lockedCount}}" class="lock-banner">
+        <text>有 {{lockedCount}} 门预分配课程未解锁，请签订本学期合同后查看时间安排</text>
+        <text class="link" bindtap="goContract">去签合同</text>
+      </view>
+      <view wx:if="{{!shown.length}}" class="empty">这一天还没有授课安排</view>
+      <view wx:else>
+        <view class="lesson" wx:for="{{shown}}" wx:key="id" data-id="{{item.id}}" data-locked="{{item.locked}}" bindtap="open">
+          <view class="top">
+            <view class="mark {{item.tone}}">{{item.initial}}</view>
+            <view class="info">
+              <view class="title">{{item.title}}</view>
+              <view class="meta">{{item.place}}</view>
+              <view class="place">
+                <view class="pin"></view>
+                <text>{{item.room}}</text>
+              </view>
             </view>
+            <view class="tag {{item.locked ? 'lock' : item.showFee ? 'mine' : 'wait'}}">{{item.locked ? '未解锁' : item.showFee ? '我的课' : '已排课'}}</view>
           </view>
-          <view class="tag {{item.showFee ? 'mine' : 'wait'}}">{{item.showFee ? '我的课' : '已排课'}}</view>
-        </view>
-        <view class="line"></view>
-        <view class="bottom">
-          <view class="cell">
-            <view class="ico clock"></view>
-            <view>
-              <view class="label">上课时间</view>
-              <view class="value">{{item.when}}</view>
+          <view class="line"></view>
+          <view class="bottom">
+            <view class="cell">
+              <view class="ico clock"></view>
+              <view>
+                <view class="label">上课时间</view>
+                <view class="value off" wx:if="{{item.locked}}">{{item.lockTip || '课程未解锁，请签合同后解锁'}}</view>
+                <view class="value" wx:else>{{item.when}}</view>
+              </view>
             </view>
-          </view>
-          <view class="vline"></view>
-          <view class="cell">
-            <view class="ico coin"></view>
-            <view>
-              <view class="label">课时费</view>
-              <view class="value fee" wx:if="{{item.showFee}}">¥{{item.teacherFee}} / 节</view>
-              <view class="value off" wx:else>课时费未开放</view>
+            <view class="vline"></view>
+            <view class="cell">
+              <view class="ico coin"></view>
+              <view>
+                <view class="label">课时费</view>
+                <view class="value fee" wx:if="{{item.showFee}}">¥{{item.teacherFee}} / 节</view>
+                <view class="value off" wx:else>课时费未开放</view>
+              </view>
             </view>
           </view>
         </view>
       </view>
-    </view>
+    </block>
 
     <view class="foot">
       <view class="art">

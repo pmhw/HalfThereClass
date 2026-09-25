@@ -5,11 +5,19 @@ const wxLogin = (code) => post('/auth/wx-login', { code });
 
 const getAgreement = () => get('/auth/agreement');
 
+const getSmsStatus = () => get('/auth/sms/status');
+
+const sendSmsCode = (phone) => post('/auth/sms/send', { phone });
+
+const bindPhone = (phone, code) => post('/auth/bind-phone', { phone, code });
+
 const assetUrl = (path) => {
   if (!path) return '';
   if (/^https?:\/\//.test(path)) return path;
   return `${config.origin}${path}`;
 };
+
+const courseShareUrl = (courseId) => `${config.origin}/m/course/${courseId}`;
 
 const uploadAvatar = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -38,6 +46,10 @@ const uploadAvatar = (filePath) => {
 module.exports = {
   wxLogin,
   getAgreement,
+  getSmsStatus,
+  sendSmsCode,
+  bindPhone,
   uploadAvatar,
   assetUrl,
+  courseShareUrl,
 };

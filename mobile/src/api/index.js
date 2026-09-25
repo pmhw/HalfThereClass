@@ -19,6 +19,9 @@ export const submitCert = (data) => post('/user/cert', data);
 export const uploadCertFile = (file) => upload('/user/cert-file', file);
 export const getContract = () => get('/user/contract');
 export const signContract = (file) => upload('/user/contract', file);
+export const exportContract = (id) => get('/user/contract/export', id ? { id } : {});
+export const listMyContracts = () => get('/user/contracts');
+
 
 export const getCourseList = (params) => get('/courses', params);
 export const getCourseDetail = (id) => get(`/courses/${id}`);

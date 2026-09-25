@@ -8,7 +8,7 @@
     <div class="hello">
       <div class="hello-main">
         <div class="hello-title">{{ greetText }}，{{ name }}</div>
-        <div class="hello-sub">今天的课、签到和可抢课程</div>
+        <div class="hello-sub">今天的课、授课安排和可抢课程</div>
       </div>
       <div class="hello-side">
         <div class="slogan">好的教育<span class="u">从每一堂课开始</span></div>
@@ -46,8 +46,8 @@
       </div>
       <div class="hero-foot">
         <div class="remain-line"><span class="clock-ico" />{{ remain }}</div>
-        <button v-if="today.next.isMine" type="button" class="go" @click="goCheckin">
-          {{ today.checkedIn ? '已签到' : '去签到' }} ›
+        <button v-if="today.next.isMine" type="button" class="go" @click="goNext">
+          {{ today.checkedIn || today.sessionDone ? '已上课' : '查看课程' }} ›
         </button>
         <button v-else type="button" class="go" @click="goNext">查看课程 ›</button>
       </div>
@@ -94,8 +94,8 @@
         <button type="button" class="quick-item" @click="router.push('/teaching')">
           <div class="qicon teach" /><span>授课</span>
         </button>
-        <button type="button" class="quick-item" @click="goCheckin">
-          <div class="qicon check" /><span>签到</span>
+        <button type="button" class="quick-item" @click="router.push('/adjust')">
+          <div class="qicon check" /><span>调课</span>
         </button>
         <button type="button" class="quick-item" @click="goCert">
           <div class="qicon badge" /><span>认证</span>
@@ -195,16 +195,6 @@ function goNext() {
   const next = today.value?.next;
   if (!next) return;
   router.push(`/course/${next.id}`);
-}
-
-function goCheckin() {
-  const next = today.value?.next;
-  if (!next) {
-    showToast('今天没有待签到课程');
-    return;
-  }
-  if (!requireLogin(router)) return;
-  router.push(`/checkin?id=${next.id}`);
 }
 
 function goCert() {

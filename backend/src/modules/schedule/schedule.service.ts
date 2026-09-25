@@ -3,9 +3,11 @@ import { PrismaService } from '@/common/prisma/prisma.service';
 import { buildPaginationResult, getPaginationParams } from '@/common/utils/pagination.util';
 import { getDayDetail } from 'chinese-days';
 import { chinaHolidays } from './china-holidays';
+import { StaffService } from '../staff/staff.service';
 
 const STATUS_TEXT: Record<string, string> = {
-  scheduled: '上课',
+  scheduled: '待上',
+  completed: '已上',
   holiday: '节假日',
   cancelled: '停课',
   rescheduled: '已调出',
@@ -14,7 +16,10 @@ const STATUS_TEXT: Record<string, string> = {
 
 @Injectable()
 export class ScheduleService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private staffService: StaffService,
+  ) {}
 
   async listSemesters() {
     await this.closeExpired();
@@ -30,6 +35,7 @@ export class ScheduleService {
 
   async semesterRecords() {
     await this.closeExpired();
+    await this.completeDueSessions();
     const list = await this.prisma.semester.findMany({
       orderBy: [{ year: 'desc' }, { id: 'desc' }],
       include: {
@@ -38,31 +44,67 @@ export class ScheduleService {
             courseId: true,
             status: true,
             kind: true,
-            course: { select: { title: true } },
+            course: {
+              select: {
+                title: true,
+                teacherId: true,
+                teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
+              },
+            },
+          },
+        },
+        termTeachers: {
+          select: {
+            courseId: true,
+            teacherId: true,
+            teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
           },
         },
       },
     });
     return list
       .map((item) => {
-        const courses = new Map<number, { courseId: number; title: string; total: number; held: number; stopped: number }>();
-        const counts = { held: 0, cancelled: 0, rescheduled: 0, observe: 0, extra: 0 };
+        const termTeacherMap = new Map(item.termTeachers.map((row) => [row.courseId, row]));
+        const courses = new Map<number, {
+          courseId: number;
+          title: string;
+          total: number;
+          held: number;
+          stopped: number;
+          teacherId: number | null;
+          teacherName: string;
+        }>();
+        const counts = { held: 0, cancelled: 0, rescheduled: 0, observe: 0, extra: 0, completed: 0 };
         for (const session of item.sessions) {
           if (session.status === 'scheduled' && session.kind === 'extra') counts.extra += 1;
           else if (session.status === 'cancelled') counts.cancelled += 1;
           else if (session.status === 'rescheduled') counts.rescheduled += 1;
           else if (session.status === 'observe') counts.observe += 1;
-          if (session.status === 'scheduled' || session.status === 'observe') counts.held += 1;
+          else if (session.status === 'completed') counts.completed += 1;
+          if (session.status === 'completed' || session.status === 'observe') counts.held += 1;
+          const term = termTeacherMap.get(session.courseId);
+          const teacherId = term?.teacherId || session.course?.teacherId || null;
+          const teacherName = term?.teacher?.teacherCert?.realName
+            || term?.teacher?.nickname
+            || session.course?.teacher?.teacherCert?.realName
+            || session.course?.teacher?.nickname
+            || '';
           const row = courses.get(session.courseId) || {
             courseId: session.courseId,
             title: session.course?.title || '课程',
             total: 0,
             held: 0,
             stopped: 0,
+            teacherId,
+            teacherName,
           };
           row.total += 1;
-          if (session.status === 'scheduled' || session.status === 'observe') row.held += 1;
+          if (session.status === 'completed' || session.status === 'observe') row.held += 1;
           if (session.status === 'cancelled' || session.status === 'rescheduled') row.stopped += 1;
+          if (!row.teacherId && teacherId) {
+            row.teacherId = teacherId;
+            row.teacherName = teacherName;
+          }
           courses.set(session.courseId, row);
         }
         return {
@@ -229,6 +271,22 @@ export class ScheduleService {
       }
     }
     if (rows.length) await this.prisma.courseSession.createMany({ data: rows });
+    await this.prisma.course.update({
+      where: { id: course.id },
+      data: {
+        activeSemesterId: semesterId,
+        ...(weekly[0]
+          ? {
+              weekday: weekly[0].weekday,
+              startTime: weekly[0].startTime,
+              endTime: weekly[0].endTime || null,
+            }
+          : {}),
+      },
+    });
+    if (course.teacherId) {
+      await this.assignTermTeacher(course.id, semesterId, course.teacherId);
+    }
     return {
       created: rows.length,
       requested: times,
@@ -237,10 +295,162 @@ export class ScheduleService {
       skipped: [],
       endDate: semester.endDate,
       season: semester.season,
+      activeSemesterId: semesterId,
     };
   }
 
+  /** 下学期延续：切到新学期，可选清空老师重新抢课或指定新老师，并生成课次 */
+  async continueCourse(
+    courseId: number,
+    body: {
+      semesterId: number;
+      clearTeacher?: boolean;
+      teacherId?: number | string | null;
+      grabAt?: string | null;
+      slots?: { weekday: number; startTime: string; endTime?: string | null }[];
+      count?: number;
+    },
+    actor?: any,
+  ) {
+    const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) throw new NotFoundException('课程不存在');
+    await this.assertOwnCourse(actor, courseId);
+    const semesterId = Number(body.semesterId);
+    const semester = await this.prisma.semester.findUnique({ where: { id: semesterId } });
+    if (!semester) throw new NotFoundException('学期不存在');
+    this.assertOpen(semester);
+    if (course.activeSemesterId === semesterId) {
+      throw new BadRequestException('该课程已在这个学期开放，无需重复延续');
+    }
+
+    const prevTeacherId = course.teacherId;
+    let nextTeacherId: number | null = course.teacherId;
+    if (body.clearTeacher) {
+      nextTeacherId = null;
+    } else if (body.teacherId !== undefined) {
+      const raw = body.teacherId;
+      if (raw === null || raw === '') nextTeacherId = null;
+      else {
+        nextTeacherId = Number(raw);
+        if (!Number.isFinite(nextTeacherId)) throw new BadRequestException('老师不存在');
+        const teacher = await this.prisma.user.findUnique({ where: { id: nextTeacherId } });
+        if (!teacher) throw new BadRequestException('老师不存在');
+      }
+    }
+
+    if (prevTeacherId && prevTeacherId !== nextTeacherId && course.activeSemesterId) {
+      await this.prisma.courseTermTeacher.updateMany({
+        where: { courseId, semesterId: course.activeSemesterId, endedAt: null },
+        data: { endedAt: new Date() },
+      });
+    }
+
+    const grabAt = body.grabAt === undefined
+      ? course.grabAt
+      : (body.grabAt === '' || body.grabAt == null ? null : new Date(body.grabAt));
+    if (grabAt && Number.isNaN(grabAt.getTime())) throw new BadRequestException('开抢时间不正确');
+
+    await this.prisma.course.update({
+      where: { id: courseId },
+      data: {
+        activeSemesterId: semesterId,
+        teacherId: nextTeacherId,
+        seats: nextTeacherId ? 0 : 1,
+        grabAt,
+        status: 1,
+      },
+    });
+
+    if (nextTeacherId) {
+      await this.assignTermTeacher(courseId, semesterId, nextTeacherId);
+      await this.staffService.ensureGrant(nextTeacherId, courseId);
+    }
+
+    let generated: any = null;
+    if (body.slots?.length && body.count) {
+      generated = await this.generate(semesterId, [courseId], body.slots, Number(body.count), actor);
+    }
+
+    return {
+      id: courseId,
+      activeSemesterId: semesterId,
+      teacherId: nextTeacherId,
+      previousTeacherId: prevTeacherId,
+      generated,
+    };
+  }
+
+  async assignTermTeacher(courseId: number, semesterId: number, teacherId: number) {
+    await this.prisma.courseTermTeacher.upsert({
+      where: { courseId_semesterId: { courseId, semesterId } },
+      update: { teacherId, endedAt: null, assignedAt: new Date() },
+      create: { courseId, semesterId, teacherId },
+    });
+  }
+
+  /** 过了上课时间默认记为已上，并结算课时费（特殊标注 manual 的除外） */
+  async completeDueSessions() {
+    const today = this.formatDate(new Date());
+    const nowHm = this.formatHm(new Date());
+    const due = await this.prisma.courseSession.findMany({
+      where: {
+        status: 'scheduled',
+        completionMode: 'auto',
+        OR: [
+          { date: { lt: today } },
+          { date: today, endTime: { lte: nowHm } },
+          { date: today, endTime: null, startTime: { lte: nowHm } },
+        ],
+      },
+      include: {
+        course: { select: { id: true, teacherId: true, activeSemesterId: true } },
+      },
+      take: 500,
+    });
+    for (const session of due) {
+      await this.prisma.courseSession.update({
+        where: { id: session.id },
+        data: { status: 'completed', completedAt: new Date() },
+      });
+      const teacherId = await this.resolveSessionTeacher(session);
+      if (teacherId) {
+        try {
+          await this.staffService.settle(teacherId, session.courseId, session.date);
+        } catch {
+          /* 费用未配置时忽略，课次仍记已上 */
+        }
+      }
+    }
+    return { completed: due.length };
+  }
+
+  private async resolveSessionTeacher(session: {
+    courseId: number;
+    semesterId: number;
+    course?: { teacherId?: number | null } | null;
+  }) {
+    const term = await this.prisma.courseTermTeacher.findUnique({
+      where: { courseId_semesterId: { courseId: session.courseId, semesterId: session.semesterId } },
+    });
+    return term?.teacherId || session.course?.teacherId || null;
+  }
+
+  private formatHm(date: Date) {
+    const h = `${date.getHours()}`.padStart(2, '0');
+    const m = `${date.getMinutes()}`.padStart(2, '0');
+    return `${h}:${m}`;
+  }
+
+  async currentOpenSemester() {
+    const today = this.formatDate(new Date());
+    return this.prisma.semester.findFirst({
+      where: { status: 1, startDate: { lte: today }, endDate: { gte: today } },
+      orderBy: { id: 'desc' },
+    });
+  }
+
   async listSessions(semesterId?: number, courseId?: number, page?: number, pageSize?: number, month?: string, actor?: any) {
+    await this.completeDueSessions();
     const where: any = {};
     if (semesterId) where.semesterId = semesterId;
     if (courseId) where.courseId = courseId;
@@ -280,7 +490,14 @@ export class ScheduleService {
     );
   }
 
-  async updateSession(id: number, data: { date?: string; startTime?: string; endTime?: string; status?: string; note?: string }, actor?: any) {
+  async updateSession(id: number, data: {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    status?: string;
+    note?: string;
+    completionMode?: string;
+  }, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('课次不存在');
     await this.assertOwnCourse(actor, current.courseId);
@@ -290,6 +507,11 @@ export class ScheduleService {
     const startTime = String(data.startTime || current.startTime || '').slice(0, 5);
     if (!/^\d{2}:\d{2}$/.test(startTime)) throw new BadRequestException('请填写开始时间');
     const endTime = data.endTime === undefined ? current.endTime : data.endTime ? String(data.endTime).slice(0, 5) : null;
+    const status = data.status || current.status;
+    const completionMode = data.completionMode || current.completionMode || 'auto';
+    if (!['auto', 'manual', 'exempt'].includes(completionMode)) {
+      throw new BadRequestException('完成方式不正确');
+    }
     return this.prisma.courseSession.update({
       where: { id },
       data: {
@@ -297,7 +519,9 @@ export class ScheduleService {
         startTime,
         endTime,
         weekday: this.weekdayOf(date),
-        status: data.status || current.status,
+        status,
+        completionMode,
+        completedAt: status === 'completed' ? (current.completedAt || new Date()) : current.completedAt,
         note: data.note === undefined ? current.note : data.note || null,
         locked: true,
         source: 'teacher',
@@ -389,7 +613,7 @@ export class ScheduleService {
     });
   }
 
-  async updateCourseSession(courseId: number, sessionId: number, data: { date?: string; startTime?: string; endTime?: string }, actor?: any) {
+  async updateCourseSession(courseId: number, sessionId: number, data: any, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id: sessionId } });
     if (!current || current.courseId !== courseId) throw new NotFoundException('课次不存在');
     return this.updateSession(sessionId, data, actor);
@@ -403,12 +627,15 @@ export class ScheduleService {
 
   async calendar(month: string, userId?: number) {
     if (!/^\d{4}-\d{2}$/.test(month || '')) throw new BadRequestException('月份格式应为 YYYY-MM');
+    await this.completeDueSessions();
     const [year, mon] = month.split('-').map(Number);
     const start = `${month}-01`;
     const end = this.formatDate(new Date(year, mon, 0));
+    const open = await this.currentOpenSemester();
     const sessions = await this.prisma.courseSession.findMany({
       where: {
         date: { gte: start, lte: end },
+        ...(open ? { semesterId: open.id } : {}),
         ...(userId ? { course: { teacherId: userId } } : {}),
       },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
@@ -435,6 +662,7 @@ export class ScheduleService {
         teacherId: item.course.teacherId,
         isMine: !!userId && item.course.teacherId === userId,
         label: this.sessionLabel(item),
+        done: item.status === 'completed' || item.status === 'observe',
       })),
       marks: this.monthMarks(start, end),
     };
@@ -474,10 +702,26 @@ export class ScheduleService {
   }
 
   async teaching(userId: number) {
+    const open = await this.currentOpenSemester();
     return this.prisma.course.findMany({
-      where: { teacherId: userId, status: 1 },
+      where: {
+        teacherId: userId,
+        status: 1,
+        ...(open
+          ? { OR: [{ activeSemesterId: open.id }, { activeSemesterId: null }] }
+          : {}),
+      },
       orderBy: { id: 'desc' },
-      select: { id: true, title: true, school: true, weekday: true, startTime: true, endTime: true },
+      select: {
+        id: true,
+        title: true,
+        school: true,
+        gradeLabel: true,
+        weekday: true,
+        startTime: true,
+        endTime: true,
+        activeSemesterId: true,
+      },
     });
   }
 

@@ -7,7 +7,7 @@ Page({
   data: {
     origin: config.origin,
     signUrl: '',
-    paper: { title: '教师服务合同', status: 'none', signed: false },
+    paper: { title: '教师服务合同', status: 'none', signed: false, history: [] },
     html: '',
     agreed: false,
     drew: false,
@@ -32,7 +32,7 @@ Page({
     try {
       const paper = await userService.getContract();
       this.setData({
-        paper,
+        paper: { ...paper, history: paper.history || [] },
         signUrl: util.assetUrl(paper.sign || ''),
         html: renderMarkdown(paper.content),
         loaded: true,
@@ -97,6 +97,72 @@ Page({
 
   goCert() { wx.navigateTo({ url: '/pages/certify/certify' }); },
 
+  async exportPdf(e) {
+    const id = e?.currentTarget?.dataset?.id;
+    const token = wx.getStorageSync('token') || '';
+    const query = id ? `?id=${id}` : '';
+    wx.showLoading({ title: '导出中', mask: true });
+    wx.downloadFile({
+      url: `${config.baseUrl}/user/contract/export-file${query}`,
+      header: { Authorization: token ? `Bearer ${token}` : '' },
+      success: (res) => {
+        wx.hideLoading();
+        if (res.statusCode >= 400 || !res.tempFilePath) {
+          this.exportPdfFallback(id);
+          return;
+        }
+        const openPath = res.tempFilePath;
+        wx.openDocument({
+          filePath: openPath,
+          showMenu: true,
+          success: () => {
+            wx.showToast({ title: '可转发后用浏览器打开并另存 PDF', icon: 'none', duration: 2500 });
+          },
+          fail: () => {
+            if (typeof wx.shareFileMessage === 'function') {
+              wx.shareFileMessage({
+                filePath: openPath,
+                fileName: `教师服务合同-${id || 'export'}.html`,
+                fail: () => this.exportPdfFallback(id),
+              });
+            } else {
+              this.exportPdfFallback(id);
+            }
+          },
+        });
+      },
+      fail: () => {
+        wx.hideLoading();
+        this.exportPdfFallback(id);
+      },
+    });
+  },
+
+  async exportPdfFallback(id) {
+    try {
+      const data = await userService.exportContract(id);
+      const fs = wx.getFileSystemManager();
+      const path = `${wx.env.USER_DATA_PATH}/contract-${data.id || 'latest'}.html`;
+      fs.writeFileSync(path, data.html || '', 'utf8');
+      wx.openDocument({
+        filePath: path,
+        showMenu: true,
+        fail: () => {
+          wx.setClipboardData({
+            data: `${config.origin}/m/contract`,
+            success: () => wx.showToast({
+              title: '已复制手机版链接，浏览器打开后可导出 PDF',
+              icon: 'none',
+              duration: 2800,
+            }),
+          });
+        },
+      });
+    } catch (err) {
+      wx.showToast({ title: err.message || '导出失败', icon: 'none' });
+    }
+  },
+
   submit() {
     if (this.data.saving) return;
     if (this.data.paper.status !== 'approved') {
@@ -117,8 +183,8 @@ Page({
       fileType: 'png',
       success: async (res) => {
         try {
-          await userService.signContract(res.tempFilePath);
-          wx.showToast({ title: '合同已签订', icon: 'success' });
+          const result = await userService.signContract(res.tempFilePath);
+          wx.showToast({ title: result?.message || '已提交审核', icon: 'none' });
           await this.load();
         } catch (err) {
           wx.showToast({ title: err.message || '签订失败', icon: 'none' });

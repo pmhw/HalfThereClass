@@ -77,6 +77,18 @@ export class AuthService {
     return this.issueSession(user);
   }
 
+  /** 已登录的微信用户绑定手机号；若手机号已有 H5 账号则合并并保留认证 */
+  async bindPhone(
+    userId: number,
+    dto: { phone: string; code: string },
+    req?: { ip?: string; headers?: Record<string, any>; socket?: { remoteAddress?: string } },
+  ) {
+    rateLimit(`sms-bind:${clientIp(req)}`, 40, 15 * 60 * 1000);
+    const phone = this.smsService.consumeLoginCode(dto.phone, dto.code);
+    const user = await this.userService.bindPhoneAndMerge(userId, phone);
+    return this.issueSession(user);
+  }
+
   /** 设备号登录已停用 */
   async mobileLogin() {
     throw new BadRequestException('请使用手机号验证码登录');
@@ -101,6 +113,7 @@ export class AuthService {
         role: user.role,
         status: user.status,
       },
+      expiresIn: process.env.JWT_EXPIRES_IN || '30d',
     }));
   }
 

@@ -15,6 +15,8 @@
             <div v-if="cert?.status === 'approved' && cert?.contractSigned" class="badge on">
               认证教师 · {{ cert.teacherNo }}
             </div>
+            <div v-else-if="cert?.contractPending" class="badge">合同审核中</div>
+            <div v-else-if="cert?.status === 'approved' && cert?.contractDue" class="badge">需重签本学期合同</div>
             <div v-else-if="cert?.status === 'approved'" class="badge">认证已通过 · 待签合同</div>
             <div v-else-if="cert?.status === 'pending'" class="badge">认证审核中</div>
             <div v-else-if="cert?.status === 'rejected'" class="badge">认证未通过，可重新提交</div>
@@ -50,12 +52,21 @@
         <button type="button" class="item" @click="router.push('/profile')">编辑资料 ›</button>
         <button type="button" class="item" @click="goCert">认证资料 ›</button>
         <button
-          v-if="cert?.status === 'approved' && !cert?.contractSigned"
+          v-if="cert?.status === 'approved' && (cert?.contractDue || cert?.contractPending || !cert?.contractSigned)"
           type="button"
           class="item"
           @click="goContract"
         >
-          签订合同 <span class="need">未签订</span> ›
+          签订合同
+          <span class="need">{{ cert?.contractPending ? '审核中' : cert?.contractDue ? '需重签' : '未签订' }}</span> ›
+        </button>
+        <button
+          v-if="cert?.contractSigned || (cert?.history && cert.history.length)"
+          type="button"
+          class="item"
+          @click="goContract"
+        >
+          我的合同 / 导出 PDF ›
         </button>
       </div>
 

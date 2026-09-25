@@ -37,6 +37,8 @@ model User {
   subordinates User[]     @relation("TeacherSuperior")
   grants       TeacherCourseGrant[]
   incomes      SessionIncome[]
+  termTeachings CourseTermTeacher[]
+  contracts    TeacherContract[]
 
   @@map("users")
 }
@@ -73,7 +75,7 @@ model Course {
   province    String?   @map("province")
   city        String?   @map("city")
   classroom   String?   @map("classroom")
-  gradeLabel  String?   @map("grade_label")
+  gradeLabel  String?   @map("grade_label") // 年级（可选）
   weekday     Int?      @map("weekday")
   startTime   String?   @map("start_time")
   endTime     String?   @map("end_time")
@@ -89,6 +91,7 @@ model Course {
   isHot       Boolean   @default(false) @map("is_hot")
   sessionFee  Float?    @map("session_fee")
   grabAt      DateTime? @map("grab_at")
+  activeSemesterId Int? @map("active_semester_id") // 当前开放学期；列表只展示该学期课程
   ownerId     Int?      @map("owner_id")
   status      Int       @default(1) @map("status") // 1:上架 0:下架
   publishedAt DateTime? @map("published_at")
@@ -99,6 +102,7 @@ model Course {
   teacher     User?     @relation("TeachingCourses", fields: [teacherId], references: [id])
   campus      School?   @relation(fields: [schoolId], references: [id], onDelete: SetNull)
   owner       AdminAccount? @relation("SchoolCourses", fields: [ownerId], references: [id], onDelete: SetNull)
+  activeSemester Semester? @relation("CourseActiveSemester", fields: [activeSemesterId], references: [id], onDelete: SetNull)
   lessons     Lesson[]
   orders      Order[]
   comments    Comment[]
@@ -107,10 +111,12 @@ model Course {
   sessions    CourseSession[]
   grants      TeacherCourseGrant[]
   incomes     SessionIncome[]
+  termTeachers CourseTermTeacher[]
 
   @@index([categoryId])
   @@index([teacherId])
   @@index([ownerId])
+  @@index([activeSemesterId])
   @@map("courses")
 }
 
@@ -237,12 +243,19 @@ model TeacherCert {
   status      String   @default("pending") @map("status") // pending, approved, rejected, frozen
   idCard      String?  @map("id_card")
   idCardBack  String?  @map("id_card_back")
+  idNumber    String?  @map("id_number")
+  address     String?  @map("address")
+  email       String?  @map("email")
+  bankName    String?  @map("bank_name")
+  bankAccountName String? @map("bank_account_name")
+  bankAccount String?  @map("bank_account")
   diploma     String?  @map("diploma")
   clearance   String?  @map("clearance")
   clearanceStatus String @default("none") @map("clearance_status") // none, pending, approved, rejected
   clearanceSemesterId Int? @map("clearance_semester_id")
   certificate String?  @map("certificate")
-  contractStatus String @default("none") @map("contract_status") // none, signed
+  contractStatus String @default("none") @map("contract_status") // none, pending_review, signed
+  contractSemesterId Int? @map("contract_semester_id")
   contractSignedAt DateTime? @map("contract_signed_at")
   contractSign String? @map("contract_sign")
   bio         String?  @map("bio")
@@ -253,6 +266,7 @@ model TeacherCert {
 
   user        User     @relation(fields: [userId], references: [id])
 
+  @@index([status])
   @@map("teacher_certs")
 }
 
@@ -286,6 +300,9 @@ model Semester {
 
   holidays  Holiday[]
   sessions  CourseSession[]
+  activeCourses Course[] @relation("CourseActiveSemester")
+  termTeachers CourseTermTeacher[]
+  contracts TeacherContract[]
   owner     AdminAccount? @relation("SchoolSemesters", fields: [ownerId], references: [id], onDelete: SetNull)
 
   @@index([ownerId])
@@ -315,7 +332,9 @@ model CourseSession {
   endTime    String?  @map("end_time")
   weekday    Int      @map("weekday")
   kind       String   @default("normal") @map("kind") // normal, extra, makeup
-  status     String   @default("scheduled") @map("status") // scheduled, holiday, cancelled, rescheduled, observe
+  status     String   @default("scheduled") @map("status") // scheduled, completed, holiday, cancelled, rescheduled, observe
+  completionMode String @default("auto") @map("completion_mode") // auto: 过时默认已上; manual: 需特殊确认; exempt: 不计
+  completedAt DateTime? @map("completed_at")
   source     String   @default("generated") @map("source") // generated, teacher
   locked     Boolean  @default(false) @map("locked")
   note       String?  @map("note")
@@ -328,6 +347,24 @@ model CourseSession {
   @@index([courseId, date])
   @@index([semesterId, date])
   @@map("course_sessions")
+}
+
+// 一门课在某学期的任课老师（支持换老师与历史追溯）
+model CourseTermTeacher {
+  id         Int       @id @default(autoincrement())
+  courseId   Int       @map("course_id")
+  semesterId Int       @map("semester_id")
+  teacherId  Int       @map("teacher_id")
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  endedAt    DateTime? @map("ended_at")
+
+  course     Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  semester   Semester  @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  teacher    User      @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, semesterId])
+  @@index([teacherId])
+  @@map("course_term_teachers")
 }
 
 // 后台管理员。权限按功能分配，和学生账号分开
@@ -404,6 +441,7 @@ model TeacherCourseGrant {
   mode       String?  @map("mode") // percent, fixed；空则继承机构默认
   value      Float?   @map("value")
   visibility String?  @map("visibility") // full, final, hidden；空则继承机构
+  lockState  String   @default("active") @map("lock_state") // pending_contract: 预分配待签合同; active: 已解锁
   createdAt  DateTime @default(now()) @map("created_at")
 
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -411,6 +449,32 @@ model TeacherCourseGrant {
 
   @@unique([userId, courseId])
   @@map("teacher_course_grants")
+}
+
+// 合同签署历史（保留每一份，不覆盖删除，便于责任追溯）
+model TeacherContract {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  semesterId   Int?      @map("semester_id")
+  title        String    @map("title")
+  body         String    @map("body")
+  signPath     String    @map("sign_path")
+  exportHtml   String?   @map("export_html")
+  courseIds    String?   @map("course_ids") // JSON 数组：本合同附件中的预分配课程
+  courseAnnex  String?   @map("course_annex") // 附件课程清单文本
+  status       String    @default("pending") @map("status") // pending, approved, rejected, superseded, revoked
+  rejectReason String?   @map("reject_reason")
+  signedAt     DateTime  @default(now()) @map("signed_at")
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewedBy   Int?      @map("reviewed_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  semester     Semester? @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("teacher_contracts")
 }
 
 // 一节课结算后的收入。金额只在服务端写入

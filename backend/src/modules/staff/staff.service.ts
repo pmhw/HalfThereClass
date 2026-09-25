@@ -48,13 +48,32 @@ export class StaffService {
   async myCourses(userId: number) {
     const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
     if (cert?.status !== 'approved') return { certified: false, list: [] };
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, '0')}-${`${today.getDate()}`.padStart(2, '0')}`;
+    const open = await this.prisma.semester.findFirst({
+      where: { status: 1, startDate: { lte: todayKey }, endDate: { gte: todayKey } },
+      orderBy: { id: 'desc' },
+    });
+    const contractValid = cert.contractStatus === 'signed'
+      && !!open
+      && cert.contractSemesterId === open.id;
     const grants = await this.prisma.teacherCourseGrant.findMany({
-      where: { userId },
+      where: {
+        userId,
+        course: {
+          status: 1,
+          teacherId: userId,
+          ...(open
+            ? { OR: [{ activeSemesterId: open.id }, { activeSemesterId: null }] }
+            : {}),
+        },
+      },
       include: { course: true },
       orderBy: { id: 'desc' },
     });
     const list = [];
     for (const grant of grants) {
+      const locked = grant.lockState === 'pending_contract' || !contractValid;
       const quote = await this.quote(userId, grant.courseId);
       list.push({
         id: grant.course.id,
@@ -62,21 +81,23 @@ export class StaffService {
         school: grant.course.school,
         classroom: grant.course.classroom,
         gradeLabel: grant.course.gradeLabel,
-        startTime: grant.course.startTime,
-        endTime: grant.course.endTime,
-        weekday: grant.course.weekday,
+        startTime: locked ? null : grant.course.startTime,
+        endTime: locked ? null : grant.course.endTime,
+        weekday: locked ? null : grant.course.weekday,
+        locked,
+        lockTip: locked ? '课程未解锁，请签合同后解锁' : '',
         ...teacherFeeView(quote),
       });
     }
-    return { certified: true, list };
+    return { certified: true, contractValid, list };
   }
 
   async mySummary(userId: number) {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const [total, monthCount, courses] = await Promise.all([
-      this.prisma.checkIn.count({ where: { userId } }),
-      this.prisma.checkIn.count({ where: { userId, date: { startsWith: month } } }),
+      this.prisma.sessionIncome.count({ where: { userId } }),
+      this.prisma.sessionIncome.count({ where: { userId, date: { startsWith: month } } }),
       this.prisma.course.findMany({ where: { teacherId: userId }, select: { id: true } }),
     ]);
     const ids = courses.map((item) => item.id);
@@ -183,7 +204,7 @@ export class StaffService {
   async teacherDetail(id: number) {
     const user = await this.prisma.user.findUnique({ where: { id }, include: this.userCard() });
     if (!user) throw new NotFoundException('用户不存在');
-    const [grants, incomes, orgs, teachers] = await Promise.all([
+    const [grants, incomes, orgs, teachers, contracts, semester] = await Promise.all([
       this.prisma.teacherCourseGrant.findMany({ where: { userId: id }, include: { course: true } }),
       this.prisma.sessionIncome.findMany({ where: { userId: id }, include: { course: { select: { title: true, school: true } } }, orderBy: { date: 'desc' } }),
       this.prisma.organization.findMany({ where: { status: 1 }, select: { id: true, name: true } }),
@@ -191,14 +212,49 @@ export class StaffService {
         where: { teacherCert: { status: 'approved' }, NOT: { id } },
         select: { id: true, nickname: true, teacherCert: { select: { realName: true } } },
       }),
+      this.prisma.teacherContract.findMany({
+        where: { userId: id },
+        orderBy: { id: 'desc' },
+        include: { semester: { select: { id: true, name: true } } },
+      }),
+      this.openSemester(),
     ]);
     const grantViews = [];
     for (const grant of grants) {
-      grantViews.push({ id: grant.id, courseId: grant.courseId, title: grant.course.title, quote: await this.quote(id, grant.courseId) });
+      grantViews.push({
+        id: grant.id,
+        courseId: grant.courseId,
+        title: grant.course.title,
+        lockState: grant.lockState,
+        locked: grant.lockState === 'pending_contract',
+        quote: await this.quote(id, grant.courseId),
+      });
     }
+    const cert = user.teacherCert;
+    const contractValid = cert?.contractStatus === 'signed'
+      && !!semester
+      && cert.contractSemesterId === semester.id;
     return {
       ...this.presentUser(user),
+      idCard: cert?.idCard || '',
+      idCardBack: cert?.idCardBack || '',
+      idNumber: cert?.idNumber || '',
+      address: cert?.address || '',
+      email: cert?.email || '',
+      bankName: cert?.bankName || '',
+      bankAccountName: cert?.bankAccountName || '',
+      bankAccount: cert?.bankAccount || '',
+      diploma: cert?.diploma || '',
+      clearance: cert?.clearance || '',
+      certificate: cert?.certificate || '',
+      contractSign: cert?.contractSign || '',
+      contractStatus: cert?.contractStatus || 'none',
+      contractValid,
+      contractDue: cert?.status === 'approved' && cert?.contractStatus !== 'pending_review' && !contractValid,
+      contractPending: cert?.contractStatus === 'pending_review',
+      semesterName: semester?.name || '',
       grants: grantViews,
+      contracts,
       incomes,
       orgs,
       teachers: teachers.map((item) => ({ id: item.id, name: item.teacherCert?.realName || item.nickname })),
@@ -243,11 +299,206 @@ export class StaffService {
       orderBy: { updatedAt: 'desc' },
       include: { user: { select: { id: true, nickname: true, avatar: true, phone: true, status: true } } },
     });
-    return list.map((item) => ({
-      ...item,
+    return list.map((item) => {
+      const contractValid = item.contractStatus === 'signed'
+        && !!semester
+        && item.contractSemesterId === semester.id;
+      return {
+        ...item,
+        semesterName: semester?.name || '',
+        clearanceDue: item.status === 'approved' && !!semester && item.clearanceSemesterId !== semester.id && item.clearanceStatus !== 'pending',
+        contractValid,
+        contractDue: item.status === 'approved' && item.contractStatus !== 'pending_review' && !contractValid,
+        contractPending: item.contractStatus === 'pending_review',
+      };
+    });
+  }
+
+  async certsPendingCount() {
+    const semester = await this.openSemester();
+    const [certPending, clearancePending, contractPending] = await Promise.all([
+      this.prisma.teacherCert.count({ where: { status: 'pending' } }),
+      this.prisma.teacherCert.count({ where: { status: 'approved', clearanceStatus: 'pending' } }),
+      this.prisma.teacherContract.count({ where: { status: 'pending' } }),
+    ]);
+    const dueClearance = semester
+      ? await this.prisma.teacherCert.count({
+          where: {
+            status: 'approved',
+            clearanceStatus: { not: 'pending' },
+            OR: [{ clearanceSemesterId: null }, { clearanceSemesterId: { not: semester.id } }],
+          },
+        })
+      : 0;
+    const names = await this.prisma.teacherCert.findMany({
+      where: {
+        OR: [
+          { status: 'pending' },
+          { clearanceStatus: 'pending' },
+          { contractStatus: 'pending_review' },
+        ],
+      },
+      take: 3,
+      select: { realName: true, user: { select: { nickname: true } } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return {
+      count: certPending + clearancePending + contractPending,
+      certPending,
+      clearancePending,
+      contractPending,
+      dueClearance,
+      names: names.map((item) => item.realName || item.user?.nickname || '教师').join('、'),
       semesterName: semester?.name || '',
-      clearanceDue: item.status === 'approved' && !!semester && item.clearanceSemesterId !== semester.id && item.clearanceStatus !== 'pending',
-    }));
+    };
+  }
+
+  async listContracts(status?: string) {
+    const where: any = {};
+    if (status) where.status = status;
+    return this.prisma.teacherContract.findMany({
+      where,
+      orderBy: { id: 'desc' },
+      take: 200,
+      include: {
+        user: {
+          select: {
+            id: true,
+            nickname: true,
+            phone: true,
+            teacherCert: { select: { realName: true, teacherNo: true } },
+          },
+        },
+        semester: { select: { id: true, name: true, year: true, season: true } },
+      },
+    });
+  }
+
+  async reviewContract(id: number, action: string, reason?: string, adminId?: number) {
+    const row = await this.prisma.teacherContract.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('合同不存在');
+    if (row.status !== 'pending') throw new BadRequestException('该合同已处理');
+    const semester = await this.openSemester();
+    if (action === 'reject') {
+      await this.prisma.$transaction([
+        this.prisma.teacherContract.update({
+          where: { id },
+          data: {
+            status: 'rejected',
+            rejectReason: reason || '合同未通过',
+            reviewedAt: new Date(),
+            reviewedBy: adminId || null,
+          },
+        }),
+        this.prisma.teacherCert.update({
+          where: { userId: row.userId },
+          data: { contractStatus: 'none' },
+        }),
+      ]);
+      return { status: 'rejected' };
+    }
+    if (action !== 'approve') throw new BadRequestException('未知审核操作');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.teacherContract.updateMany({
+        where: { userId: row.userId, status: 'approved', id: { not: id } },
+        data: { status: 'superseded' },
+      });
+      await tx.teacherContract.update({
+        where: { id },
+        data: {
+          status: 'approved',
+          reviewedAt: new Date(),
+          reviewedBy: adminId || null,
+          semesterId: row.semesterId || semester?.id || null,
+        },
+      });
+      await tx.teacherCert.update({
+        where: { userId: row.userId },
+        data: {
+          contractStatus: 'signed',
+          contractSemesterId: row.semesterId || semester?.id || null,
+          contractSign: row.signPath,
+          contractSignedAt: row.signedAt,
+        },
+      });
+      await tx.teacherCourseGrant.updateMany({
+        where: { userId: row.userId, lockState: 'pending_contract' },
+        data: { lockState: 'active' },
+      });
+    });
+    return { status: 'approved' };
+  }
+
+  /** 手动撤销合同：历史保留为 revoked，教师需重新签字并审核；已授权课程重新锁定 */
+  async revokeContract(id: number, reason?: string, adminId?: number) {
+    const row = await this.prisma.teacherContract.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('合同不存在');
+    if (!['approved', 'pending'].includes(row.status)) {
+      throw new BadRequestException('只能撤销「已生效」或「待审核」的合同');
+    }
+    const tip = (reason || '').trim() || '管理员已撤销本合同，请重新签订本学期合同';
+    await this.prisma.$transaction(async (tx) => {
+      await tx.teacherContract.update({
+        where: { id },
+        data: {
+          status: 'revoked',
+          rejectReason: tip,
+          reviewedAt: new Date(),
+          reviewedBy: adminId || null,
+        },
+      });
+      // 同教师其它待审合同一并撤销，避免状态打架
+      await tx.teacherContract.updateMany({
+        where: { userId: row.userId, status: 'pending', id: { not: id } },
+        data: {
+          status: 'revoked',
+          rejectReason: tip,
+          reviewedAt: new Date(),
+          reviewedBy: adminId || null,
+        },
+      });
+      await tx.teacherCert.update({
+        where: { userId: row.userId },
+        data: {
+          contractStatus: 'none',
+          contractSemesterId: null,
+        },
+      });
+      await tx.teacherCourseGrant.updateMany({
+        where: { userId: row.userId, lockState: 'active' },
+        data: { lockState: 'pending_contract' },
+      });
+    });
+    return { status: 'revoked', message: '合同已撤销，教师需重新签字提交审核，课程已重新锁定' };
+  }
+
+  /** 按教师撤销当前有效/待审合同 */
+  async revokeTeacherContract(userId: number, reason?: string, adminId?: number) {
+    const current = await this.prisma.teacherContract.findFirst({
+      where: { userId, status: { in: ['approved', 'pending'] } },
+      orderBy: { id: 'desc' },
+    });
+    if (!current) {
+      // 仅清认证侧状态（例如学期切换后需强制重签）
+      const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
+      if (!cert) throw new NotFoundException('教师不存在');
+      if (cert.contractStatus === 'none' && !cert.contractSemesterId) {
+        throw new BadRequestException('该教师当前没有可撤销的合同');
+      }
+      await this.prisma.$transaction([
+        this.prisma.teacherCert.update({
+          where: { userId },
+          data: { contractStatus: 'none', contractSemesterId: null },
+        }),
+        this.prisma.teacherCourseGrant.updateMany({
+          where: { userId, lockState: 'active' },
+          data: { lockState: 'pending_contract' },
+        }),
+      ]);
+      return { status: 'revoked', message: '已清除合同状态，教师需重新签订' };
+    }
+    return this.revokeContract(current.id, reason, adminId);
   }
 
   async review(userId: number, action: string, reason?: string) {
@@ -352,8 +603,14 @@ export class StaffService {
     if (!course) throw new NotFoundException('课程不存在');
     const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
     if (cert?.status !== 'approved') throw new BadRequestException('只有认证教师可以授权课程');
-    if (data.primary && cert?.contractStatus !== 'signed') {
-      throw new BadRequestException('该老师尚未签订合同，不能安排课程');
+    const semester = await this.openSemester();
+    const contractValid = cert.contractStatus === 'signed'
+      && !!semester
+      && cert.contractSemesterId === semester.id;
+    // 已实名未签/未审合同：允许预分配，锁定到签合同审核通过
+    const lockState = contractValid ? 'active' : 'pending_contract';
+    if (data.primary && course.teacherId && course.teacherId !== userId) {
+      throw new BadRequestException('该课程已安排其他老师');
     }
     await this.prisma.teacherCourseGrant.upsert({
       where: { userId_courseId: { userId, courseId } },
@@ -362,6 +619,7 @@ export class StaffService {
         mode: data.mode || null,
         value: data.value == null || data.value === '' ? null : Number(data.value),
         visibility: data.visibility || null,
+        lockState,
       },
       create: {
         userId,
@@ -370,12 +628,17 @@ export class StaffService {
         mode: data.mode || null,
         value: data.value == null || data.value === '' ? null : Number(data.value),
         visibility: data.visibility || null,
+        lockState,
       },
     });
     if (data.primary) {
-      await this.prisma.course.update({ where: { id: courseId }, data: { teacherId: userId, seats: 0 } });
+      await this.prisma.course.update({
+        where: { id: courseId },
+        data: { teacherId: userId, seats: 0 },
+      });
     }
-    return this.quote(userId, courseId);
+    const quote = await this.quote(userId, courseId);
+    return { ...quote, lockState, locked: lockState === 'pending_contract' };
   }
 
   async incomes() {
@@ -436,6 +699,7 @@ export class StaffService {
       lastLoginAt: item.lastLoginAt,
       realName: cert?.realName || '',
       certStatus: cert?.status || 'none',
+      contractStatus: cert?.contractStatus || 'none',
       contractSigned: cert?.contractStatus === 'signed',
       teacherNo: cert?.teacherNo || '',
       gender: cert?.gender || item.gender || '',

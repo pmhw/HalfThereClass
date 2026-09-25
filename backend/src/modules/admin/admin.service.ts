@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import { tmpdir } from 'os';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '@/common/prisma/prisma.service';
+import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import {
   buildPaginationResult,
   getPaginationParams,
@@ -19,8 +20,13 @@ import {
 } from '@/common/agreement';
 import {
   CONTRACT_BODY_KEY,
+  CONTRACT_PARTY_A_KEY,
+  CONTRACT_TEMPLATE_VERSION,
   CONTRACT_TITLE_KEY,
   DEFAULT_CONTRACT,
+  DEFAULT_PARTY_A,
+  parsePartyA,
+  type ContractPartyA,
 } from '@/common/contract';
 import {
   assertStrongPassword,
@@ -67,6 +73,7 @@ function saveCaptchaStore(map: Map<string, CaptchaTicket>) {
 @Injectable()
 export class AdminService implements OnModuleInit {
   private updating = false;
+  private updatesCache: { at: number; data: any } | null = null;
   private updateJob: {
     running: boolean;
     percent: number;
@@ -107,6 +114,8 @@ export class AdminService implements OnModuleInit {
   async onModuleInit() {
     await this.ensureSuper();
     await this.rotateWeakDefaultPasswords();
+    await this.ensureContractTemplate().catch(() => undefined);
+    await this.ensurePartyASetting().catch(() => undefined);
   }
 
   createCaptcha(req?: any) {
@@ -230,6 +239,7 @@ export class AdminService implements OnModuleInit {
     const saved = id
       ? await this.prisma.adminAccount.update({ where: { id }, data: payload })
       : await this.prisma.adminAccount.create({ data: payload });
+    AdminPermissionGuard.invalidate(saved.id);
     return this.publicAdmin(saved);
   }
 
@@ -245,6 +255,7 @@ export class AdminService implements OnModuleInit {
     await this.prisma.category.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.semester.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.adminAccount.delete({ where: { id } });
+    AdminPermissionGuard.invalidate(id);
     return { id };
   }
 
@@ -351,6 +362,13 @@ export class AdminService implements OnModuleInit {
       console.warn('请立即登录并修改密码。');
       console.warn('============================================================');
     }
+  }
+
+  async getDashboardPendingCount() {
+    const pendingOrderCount = await this.prisma.order.count({
+      where: { status: 'pending' },
+    });
+    return { pendingOrderCount };
   }
 
   async getDashboardStats() {
@@ -544,15 +562,47 @@ export class AdminService implements OnModuleInit {
     isFree?: string,
     categoryId?: string,
     actor?: any,
+    semesterScope?: string,
+    semesterId?: number,
   ) {
     const pagination = getPaginationParams({ page, pageSize });
     const where: any = {};
     if (this.isSchool(actor)) where.ownerId = actor.id;
-    if (keyword) where.title = { contains: keyword };
     if (status === '0' || status === '1') where.status = Number(status);
     if (isFree === '1') where.isFree = true;
     if (isFree === '0') where.isFree = false;
     if (categoryId) where.categoryId = Number(categoryId);
+
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, '0')}-${`${today.getDate()}`.padStart(2, '0')}`;
+    const open = await this.prisma.semester.findFirst({
+      where: { status: 1, startDate: { lte: todayKey }, endDate: { gte: todayKey } },
+      orderBy: { id: 'desc' },
+    });
+
+    const and: any[] = [];
+    if (keyword) {
+      and.push({
+        OR: [
+          { title: { contains: keyword } },
+          { gradeLabel: { contains: keyword } },
+          { school: { contains: keyword } },
+        ],
+      });
+    }
+    if (semesterId) {
+      and.push({ activeSemesterId: semesterId });
+    } else if (semesterScope === 'history') {
+      and.push(open
+        ? { AND: [{ activeSemesterId: { not: null } }, { activeSemesterId: { not: open.id } }] }
+        : { activeSemesterId: { not: null } });
+    } else if (semesterScope !== 'all') {
+      and.push(open
+        ? { OR: [{ activeSemesterId: open.id }, { activeSemesterId: null }] }
+        : { activeSemesterId: null });
+    }
+    if (and.length) where.AND = and;
+
     const scope = this.isSchool(actor) ? { ownerId: actor.id } : {};
 
     const [list, total, all, published, free] = await Promise.all([
@@ -565,6 +615,7 @@ export class AdminService implements OnModuleInit {
           category: { select: { id: true, name: true } },
           teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
           owner: { select: { id: true, name: true } },
+          activeSemester: { select: { id: true, name: true, year: true, season: true } },
           _count: { select: { orders: true, userCourses: true, sessions: true } },
         },
       }),
@@ -577,6 +628,7 @@ export class AdminService implements OnModuleInit {
 
     return {
       ...buildPaginationResult(rows, total, pagination.page, pagination.pageSize),
+      openSemesterId: open?.id || null,
       stats: {
         all,
         published,
@@ -841,6 +893,7 @@ export class AdminService implements OnModuleInit {
   }
 
   async getContractConfig() {
+    await this.ensureContractTemplate();
     const rows = await this.prisma.appSetting.findMany({
       where: { key: { in: [CONTRACT_TITLE_KEY, CONTRACT_BODY_KEY] } },
     });
@@ -848,6 +901,7 @@ export class AdminService implements OnModuleInit {
     return {
       title: map[CONTRACT_TITLE_KEY]?.trim() || DEFAULT_CONTRACT.title,
       content: map[CONTRACT_BODY_KEY]?.trim() || DEFAULT_CONTRACT.content,
+      templateVersion: CONTRACT_TEMPLATE_VERSION,
     };
   }
 
@@ -857,7 +911,7 @@ export class AdminService implements OnModuleInit {
     if (!title) throw new BadRequestException('请填写合同标题');
     if (title.length > 30) throw new BadRequestException('合同标题不能超过 30 字');
     if (!content) throw new BadRequestException('请填写合同内容');
-    if (content.length > 20000) throw new BadRequestException('合同内容不能超过 20000 字');
+    if (content.length > 50000) throw new BadRequestException('合同内容不能超过 50000 字');
     await this.prisma.$transaction([
       this.prisma.appSetting.upsert({
         where: { key: CONTRACT_TITLE_KEY },
@@ -869,8 +923,78 @@ export class AdminService implements OnModuleInit {
         create: { key: CONTRACT_BODY_KEY, value: content },
         update: { value: content },
       }),
+      this.prisma.appSetting.upsert({
+        where: { key: 'contractTemplateVersion' },
+        create: { key: 'contractTemplateVersion', value: CONTRACT_TEMPLATE_VERSION },
+        update: { value: CONTRACT_TEMPLATE_VERSION },
+      }),
     ]);
-    return { title, content };
+    return { title, content, templateVersion: CONTRACT_TEMPLATE_VERSION };
+  }
+
+  async getPartyAConfig() {
+    await this.ensurePartyASetting();
+    const row = await this.prisma.appSetting.findUnique({ where: { key: CONTRACT_PARTY_A_KEY } });
+    return parsePartyA(row?.value);
+  }
+
+  async savePartyAConfig(data: Partial<ContractPartyA>) {
+    const next: ContractPartyA = {
+      name: String(data.name || '').trim() || DEFAULT_PARTY_A.name,
+      creditCode: String(data.creditCode || '').trim() || DEFAULT_PARTY_A.creditCode,
+      address: String(data.address || '').trim() || DEFAULT_PARTY_A.address,
+      legalRep: String(data.legalRep || '').trim(),
+      phone: String(data.phone || '').trim(),
+      email: String(data.email || '').trim(),
+    };
+    if (next.name.length > 80) throw new BadRequestException('甲方名称过长');
+    if (next.creditCode.length > 32) throw new BadRequestException('统一社会信用代码过长');
+    if (next.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next.email)) {
+      throw new BadRequestException('甲方电子邮箱格式不正确');
+    }
+    await this.prisma.appSetting.upsert({
+      where: { key: CONTRACT_PARTY_A_KEY },
+      create: { key: CONTRACT_PARTY_A_KEY, value: JSON.stringify(next) },
+      update: { value: JSON.stringify(next) },
+    });
+    return next;
+  }
+
+  /** 将内置劳务合同写入配置（版本号变化时自动覆盖） */
+  private async ensureContractTemplate() {
+    const verKey = 'contractTemplateVersion';
+    const ver = await this.prisma.appSetting.findUnique({ where: { key: verKey } });
+    if (ver?.value === CONTRACT_TEMPLATE_VERSION) {
+      const body = await this.prisma.appSetting.findUnique({ where: { key: CONTRACT_BODY_KEY } });
+      if (body?.value?.trim()) return;
+    }
+    await this.prisma.$transaction([
+      this.prisma.appSetting.upsert({
+        where: { key: CONTRACT_TITLE_KEY },
+        create: { key: CONTRACT_TITLE_KEY, value: DEFAULT_CONTRACT.title },
+        update: { value: DEFAULT_CONTRACT.title },
+      }),
+      this.prisma.appSetting.upsert({
+        where: { key: CONTRACT_BODY_KEY },
+        create: { key: CONTRACT_BODY_KEY, value: DEFAULT_CONTRACT.content },
+        update: { value: DEFAULT_CONTRACT.content },
+      }),
+      this.prisma.appSetting.upsert({
+        where: { key: verKey },
+        create: { key: verKey, value: CONTRACT_TEMPLATE_VERSION },
+        update: { value: CONTRACT_TEMPLATE_VERSION },
+      }),
+    ]);
+  }
+
+  private async ensurePartyASetting() {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: CONTRACT_PARTY_A_KEY } });
+    if (row?.value?.trim()) return;
+    await this.prisma.appSetting.upsert({
+      where: { key: CONTRACT_PARTY_A_KEY },
+      create: { key: CONTRACT_PARTY_A_KEY, value: JSON.stringify(DEFAULT_PARTY_A) },
+      update: { value: JSON.stringify(DEFAULT_PARTY_A) },
+    });
   }
 
   getAppVersion() {
@@ -959,7 +1083,7 @@ export class AdminService implements OnModuleInit {
       try {
         const response = await fetch(url, {
           ...init,
-          signal: init?.signal || AbortSignal.timeout(60_000),
+          signal: init?.signal || AbortSignal.timeout(5_000),
         });
         if (response.ok) return { response, url, lastStatus: response.status };
         lastStatus = response.status;
@@ -971,18 +1095,23 @@ export class AdminService implements OnModuleInit {
   }
 
   private async resolveRemoteVersion(repo: string) {
+    const bust = `t=${Date.now()}`;
     const urls = [
+      `https://raw.gitmirror.com/${repo}/main/VERSION?${bust}`,
+      this.wrapGithubUrl(`https://raw.githubusercontent.com/${repo}/main/VERSION`),
+      `https://raw.githubusercontent.com/${repo}/main/VERSION?${bust}`,
       `https://cdn.jsdelivr.net/gh/${repo}@main/VERSION`,
       `https://cdn.jsdelivr.net/gh/${repo}/VERSION`,
-      `https://raw.gitmirror.com/${repo}/main/VERSION`,
-      this.wrapGithubUrl(`https://raw.githubusercontent.com/${repo}/main/VERSION`),
-      `https://raw.githubusercontent.com/${repo}/main/VERSION`,
     ];
     for (const url of [...new Set(urls.filter(Boolean))]) {
       try {
         const response = await fetch(url, {
-          headers: { 'User-Agent': 'HalfThereClass-Admin' },
-          signal: AbortSignal.timeout(15_000),
+          headers: {
+            'User-Agent': 'HalfThereClass-Admin',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
+          signal: AbortSignal.timeout(4_000),
         });
         if (!response.ok) continue;
         const ver = (await response.text()).trim().replace(/^v/i, '').split(/\r?\n/)[0];
@@ -1019,7 +1148,11 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  async getSystemUpdates() {
+  async getSystemUpdates(force = false) {
+    if (!force && this.updatesCache && Date.now() - this.updatesCache.at < 60 * 1000) {
+      return this.updatesCache.data;
+    }
+    if (force) this.updatesCache = null;
     const current = this.getAppVersion();
     const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
     let releases: any[] = [];
@@ -1037,67 +1170,41 @@ export class AdminService implements OnModuleInit {
     }
 
     let list = (Array.isArray(releases) ? releases : [])
-      .filter((item) => !item.draft)
+      .filter((item) => !item.draft && !item.prerelease)
       .map((item) => this.mapReleaseItem(item, current));
 
-    // GitHub 偶发：releases 列表里 assets 为空，但 /releases/:id/assets 仍有包
-    list = await Promise.all(
-      list.map(async (item) => {
-        if (item.assetName && item.size > 0) return item;
-        try {
-          const releaseMeta = (Array.isArray(releases) ? releases : []).find((row) => row.tag_name === item.tag);
-          if (!releaseMeta?.id) return item;
-          const { response } = await this.fetchFirstOk(
-            [
-              this.wrapGithubUrl(`https://api.github.com/repos/${repo}/releases/${releaseMeta.id}/assets`),
-              `https://api.github.com/repos/${repo}/releases/${releaseMeta.id}/assets`,
-            ].filter(Boolean),
-            { headers: this.githubHeaders() },
-          );
-          if (!response) return item;
-          const assets = await response.json();
-          const asset = (Array.isArray(assets) ? assets : []).find((row: any) => /ubuntu22.*\.tar\.gz$/i.test(row.name || ''))
-            || (Array.isArray(assets) ? assets : []).find((row: any) => /\.tar\.gz$/i.test(row.name || ''));
-          if (!asset?.name) return item;
-          const candidates = this.releaseDownloadCandidates(repo, item.tag, asset.name);
-          return {
-            ...item,
-            assetName: asset.name,
-            size: asset.size || 0,
-            downloadUrl: candidates[0] || asset.browser_download_url || item.downloadUrl,
-            downloadCandidates: candidates,
-          };
-        } catch {
-          return item;
-        }
-      }),
-    );
-
-    if (!list.length) {
-      source = 'version-file';
-      const ver = await this.resolveRemoteVersion(repo);
-      if (ver) {
-        const tag = `v${ver}`;
-        const assetName = `HalfThereClass-v${ver}-ubuntu22.tar.gz`;
+    // API 失败 / 无附件时，用 VERSION 文件兜底（带 cache bust，避免 CDN 滞后）
+    const remoteVer = await this.resolveRemoteVersion(repo);
+    if (remoteVer) {
+      const tag = `v${remoteVer}`;
+      const hasRemote = list.some((item) => this.compareVersion(item.tag, remoteVer) >= 0);
+      if (!list.length || !hasRemote) {
+        if (!list.length) source = 'version-file';
+        else source = `${source}+version-file`;
+        const assetName = `HalfThereClass-v${remoteVer}-ubuntu22.tar.gz`;
         const candidates = this.releaseDownloadCandidates(repo, tag, assetName);
         list = [{
           tag,
           name: tag,
           publishedAt: null,
-          notes: '通过 VERSION 文件检测（未使用 GitHub API）',
+          notes: '通过 VERSION 文件检测',
           htmlUrl: `https://github.com/${repo}/releases/tag/${tag}`,
           downloadUrl: candidates[0],
           downloadCandidates: candidates,
           assetName,
           size: 0,
           newer: this.compareVersion(tag, current) > 0,
-        }];
+        }, ...list.filter((item) => this.compareVersion(item.tag, remoteVer) !== 0)];
       }
+    }
+
+    if (!list.length && remoteVer) {
+      source = 'version-file';
     }
 
     const updates = list.filter((item) => item.newer);
     const latest = updates[0] || list[0] || null;
-    return {
+    const data = {
       current,
       latest,
       hasUpdate: updates.length > 0,
@@ -1107,7 +1214,10 @@ export class AdminService implements OnModuleInit {
       checkedAt: new Date().toISOString(),
       source,
       cnMirror: this.cnMirrorEnabled(),
+      force: !!force,
     };
+    this.updatesCache = { at: Date.now(), data };
+    return data;
   }
 
   private installRoot() {
@@ -1492,9 +1602,11 @@ export class AdminService implements OnModuleInit {
     const teacherId = await this.normalizeTeacher(data.teacherId, null);
     const place = await this.schoolSnapshot(data);
     const ownerId = this.isSchool(actor) ? actor.id : await this.normalizeSchoolOwner(data.ownerId);
-    return this.prisma.course.create({
+    const created = await this.prisma.course.create({
       data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
     });
+    if (teacherId) await this.ensureTeacherGrantLock(teacherId, created.id);
+    return created;
   }
 
   async updateCourse(id: number, data: any, actor?: any) {
@@ -1513,6 +1625,16 @@ export class AdminService implements OnModuleInit {
     return this.prisma.course.update({
       where: { id },
       data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
+    }).then(async (saved) => {
+      if (teacherId) await this.ensureTeacherGrantLock(teacherId, id);
+      if (teacherId && saved.activeSemesterId) {
+        await this.prisma.courseTermTeacher.upsert({
+          where: { courseId_semesterId: { courseId: id, semesterId: saved.activeSemesterId } },
+          update: { teacherId, endedAt: null, assignedAt: new Date() },
+          create: { courseId: id, semesterId: saved.activeSemesterId, teacherId },
+        });
+      }
+      return saved;
     });
   }
 
@@ -1702,11 +1824,27 @@ export class AdminService implements OnModuleInit {
     if (!teacher || teacher.status !== 1 || teacher.teacherCert?.status !== 'approved') {
       throw new BadRequestException('只能安排认证通过的老师');
     }
-    const same = previousId != null && teacher.id === previousId;
-    if (!same && teacher.teacherCert?.contractStatus !== 'signed') {
-      throw new BadRequestException('该老师尚未签订合同，不能安排课程');
-    }
+    // 已实名未签合同允许预分配；由 saveGrant / ensureLockedGrant 写入 pending_contract
     return teacher.id;
+  }
+
+  /** 课程直接指定教师时，同步授权并按合同状态锁定 */
+  async ensureTeacherGrantLock(userId: number, courseId: number) {
+    const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
+    if (!cert || cert.status !== 'approved') return;
+    const semester = await this.prisma.semester.findFirst({
+      where: { status: 1 },
+      orderBy: { id: 'desc' },
+    });
+    const contractValid = cert.contractStatus === 'signed'
+      && !!semester
+      && cert.contractSemesterId === semester.id;
+    const lockState = contractValid ? 'active' : 'pending_contract';
+    await this.prisma.teacherCourseGrant.upsert({
+      where: { userId_courseId: { userId, courseId } },
+      update: { lockState },
+      create: { userId, courseId, lockState },
+    });
   }
 
   private daysAgo(days: number) {

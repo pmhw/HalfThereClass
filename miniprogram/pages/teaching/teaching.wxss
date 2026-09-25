@@ -58,6 +58,17 @@
   border-radius: 999rpx; font-size: 22rpx;
 }
 .tag.mine { color: #2563eb; background: #e8f0ff; }
+.tag.lock { color: #9a3412; background: #fff7ed; }
+.lock-banner {
+  margin: 16rpx 0 20rpx;
+  padding: 20rpx;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+.lock-banner .link { color: #2563eb; margin-left: 12rpx; }
 .tag.wait { color: #98a2b3; background: #f3f5f8; }
 .line { height: 1rpx; margin: 22rpx 0 18rpx; background: #eef2f6; }
 .bottom { display: flex; align-items: center; }

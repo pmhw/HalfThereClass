@@ -1,4 +1,5 @@
 {
   "navigationBarTitleText": "签订合同",
-  "disableScroll": true
+  "disableScroll": false,
+  "backgroundColor": "#eef2f7"
 }

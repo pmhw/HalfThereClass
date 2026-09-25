@@ -36,7 +36,20 @@ export function clearToken() {
   localStorage.removeItem(PROFILE_KEY);
 }
 
-export async function request(url, options = {}) {
+const inflightGet = new Map();
+const NETWORK_RE = /failed to fetch|networkerror|load failed|network request failed|aborterror|the operation was aborted|err_network|err_connection|err_name_not_resolved/i;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isNetworkError(err) {
+  const text = String(err?.message || err || '');
+  return NETWORK_RE.test(text) || err?.name === 'AbortError' || err?.name === 'TypeError';
+}
+
+async function rawFetch(url, options = {}, attempt = 0) {
+  const method = (options.method || 'GET').toUpperCase();
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
@@ -44,19 +57,36 @@ export async function request(url, options = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs || 25_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   let response;
   try {
     response = await fetch(url, {
-      method: options.method || 'GET',
+      method,
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
     });
   } catch (err) {
+    clearTimeout(timer);
+    if (attempt < 2 && isNetworkError(err) && method === 'GET') {
+      await sleep(300 * (attempt + 1) * (attempt + 1));
+      return rawFetch(url, options, attempt + 1);
+    }
     const text = String(err?.message || err || '');
-    if (/failed to fetch|networkerror|load failed|network request failed/i.test(text)) {
-      throw new Error('网络异常或服务未响应，请确认 halfthereclass 服务已启动后重试');
+    if (isNetworkError(err)) {
+      throw new Error('网络异常或服务未响应，请稍后重试（若持续出现请检查域名解析与 halfthereclass 服务）');
     }
     throw new Error(text || '网络请求失败');
+  }
+  clearTimeout(timer);
+
+  // 网关偶发 502/503/504：GET 自动重试
+  if ([502, 503, 504].includes(response.status) && attempt < 2 && method === 'GET') {
+    await sleep(400 * (attempt + 1));
+    return rawFetch(url, options, attempt + 1);
   }
 
   let payload;
@@ -64,6 +94,10 @@ export async function request(url, options = {}) {
   try {
     payload = raw ? JSON.parse(raw) : {};
   } catch {
+    if (attempt < 2 && method === 'GET' && !response.ok) {
+      await sleep(400 * (attempt + 1));
+      return rawFetch(url, options, attempt + 1);
+    }
     throw new Error(response.ok ? '响应格式错误' : `请求失败（HTTP ${response.status}）`);
   }
 
@@ -80,6 +114,19 @@ export async function request(url, options = {}) {
   }
   accountLock.message = '';
   return payload.data;
+}
+
+export async function request(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  // 相同 GET 合并为一次，避免路由切换时重复打点
+  if (method === 'GET' && !options.noDedupe) {
+    const key = url;
+    if (inflightGet.has(key)) return inflightGet.get(key);
+    const pending = rawFetch(url, options).finally(() => inflightGet.delete(key));
+    inflightGet.set(key, pending);
+    return pending;
+  }
+  return rawFetch(url, options);
 }
 
 function withQuery(url, params = {}) {
@@ -112,7 +159,13 @@ export const api = {
   freezeFaculty: (id, frozen) => request(`/api/admin/faculty/${id}/freeze`, { method: 'PUT', body: { frozen } }),
   saveGrant: (id, body) => request(`/api/admin/faculty/${id}/grants`, { method: 'POST', body }),
   certs: () => request('/api/admin/certs'),
+  certsPendingCount: () => request('/api/admin/certs/pending-count'),
+  contracts: (params) => request(withQuery('/api/admin/contracts', params)),
+  reviewContract: (id, body) => request(`/api/admin/contracts/${id}/review`, { method: 'POST', body }),
+  revokeContract: (id, body) => request(`/api/admin/contracts/${id}/revoke`, { method: 'POST', body: body || {} }),
+  revokeFacultyContract: (id, body) => request(`/api/admin/faculty/${id}/revoke-contract`, { method: 'POST', body: body || {} }),
   reviewCert: (userId, body) => request(`/api/admin/certs/${userId}/review`, { method: 'POST', body }),
+  dashboardPendingCount: () => request('/api/admin/dashboard/pending-count'),
   orgs: () => request('/api/admin/orgs'),
   org: (id) => request(`/api/admin/orgs/${id}`),
   createOrg: (body) => request('/api/admin/orgs', { method: 'POST', body }),
@@ -142,8 +195,10 @@ export const api = {
   saveSettingsAgreement: (body) => request('/api/admin/settings/agreement', { method: 'POST', body }),
   settingsContract: () => request('/api/admin/settings/contract'),
   saveSettingsContract: (body) => request('/api/admin/settings/contract', { method: 'POST', body }),
+  settingsPartyA: () => request('/api/admin/settings/party-a'),
+  saveSettingsPartyA: (body) => request('/api/admin/settings/party-a', { method: 'POST', body }),
   systemVersion: () => request('/api/admin/system/version'),
-  systemUpdates: () => request('/api/admin/system/updates'),
+  systemUpdates: (params) => request(withQuery('/api/admin/system/updates', params || {})),
   updateProgress: () => request('/api/admin/system/update-progress'),
   applyUpdate: (tag) => request('/api/admin/system/apply-update', { method: 'POST', body: tag ? { tag } : {} }),
   databaseInfo: () => request('/api/admin/system/database'),
@@ -208,6 +263,7 @@ export const api = {
   deleteSession: (id) => request(`/api/admin/sessions/${id}`, { method: 'DELETE' }),
   coursePlan: (id) => request(`/api/admin/courses/${id}/plan`),
   generateCourse: (id, body) => request(`/api/admin/courses/${id}/generate`, { method: 'POST', body }),
+  continueCourse: (id, body) => request(`/api/admin/courses/${id}/continue`, { method: 'POST', body }),
   createCourseSession: (id, body) => request(`/api/admin/courses/${id}/sessions`, { method: 'POST', body }),
   updateCourseSession: (courseId, id, body) => request(`/api/admin/courses/${courseId}/sessions/${id}`, { method: 'PUT', body }),
   deleteCourseSession: (courseId, id) => request(`/api/admin/courses/${courseId}/sessions/${id}`, { method: 'DELETE' }),

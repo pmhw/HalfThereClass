@@ -358,10 +358,15 @@ function formatTime(value) {
 
 async function refreshUpdates(forceOpen = false) {
   if (versionLoading.value) return;
+  // 路由切换不强制打 GitHub；仅打开浮层或定时器时检测
+  if (!forceOpen && !versionOpen.value && updates.value?.current) return;
   versionLoading.value = true;
   versionError.value = '';
   try {
-    const [info, list] = await Promise.all([api.systemVersion(), api.systemUpdates()]);
+    const [info, list] = await Promise.all([
+      api.systemVersion(),
+      api.systemUpdates({ force: forceOpen || versionOpen.value ? '1' : '' }),
+    ]);
     version.value = info;
     updates.value = {
       ...list,
@@ -404,7 +409,7 @@ function openVersion(check = false) {
   clearTimeout(versionTimer);
   placeVersionPop();
   versionOpen.value = true;
-  if (check) refreshUpdates();
+  if (check) refreshUpdates(true);
 }
 
 function closeVersion() {
@@ -457,28 +462,32 @@ function dismissCert() {
   sessionStorage.setItem('cert_notice_count', String(certCount.value));
 }
 
-async function loadHeaderNotices() {
+async function loadHeaderNotices(force = false) {
+  const now = Date.now();
+  if (!force && now - (loadHeaderNotices._at || 0) < 45_000) return;
+  loadHeaderNotices._at = now;
   if (profile.value?.role === 'school') return;
   if (allow(profile.value, 'overview')) {
     try {
-      const data = await api.dashboard();
+      const data = await api.dashboardPendingCount();
       pendingCount.value = data.pendingOrderCount || 0;
     } catch {
-      pendingCount.value = 0;
+      /* 角标失败不打断页面 */
     }
   }
   if (!canCert.value) return;
   try {
-    const list = await api.certs();
-    const rows = (Array.isArray(list) ? list : []).filter((item) => item.status === 'pending' || item.clearanceStatus === 'pending');
-    certCount.value = rows.length;
-    certNames.value = rows.slice(0, 3).map((item) => item.realName || item.user?.nickname || '教师').join('、');
+    const data = await api.certsPendingCount();
+    certCount.value = data.count || 0;
+    certNames.value = data.names || '';
   } catch {
-    certCount.value = 0;
-    certNames.value = '';
+    /* ignore */
   }
 }
-async function guardAccount() {
+async function guardAccount(force = false) {
+  const now = Date.now();
+  if (!force && now - (guardAccount._at || 0) < 60_000) return;
+  guardAccount._at = now;
   try {
     await api.session();
   } catch (err) {
@@ -488,18 +497,18 @@ async function guardAccount() {
 }
 watch(() => route.path, () => {
   syncOpen();
-  refreshUpdates();
-  loadHeaderNotices();
-  guardAccount();
+  // 路由切换只做轻量节流刷新，避免每次切页打满接口
+  loadHeaderNotices(false);
+  guardAccount(false);
 });
 onMounted(async () => {
   syncOpen();
   await nextTick();
-  refreshUpdates();
-  updateTimer = window.setInterval(() => refreshUpdates(), 10 * 60 * 1000);
+  refreshUpdates(false);
+  updateTimer = window.setInterval(() => refreshUpdates(true), 10 * 60 * 1000);
   window.addEventListener('resize', placeVersionPop);
-  loadHeaderNotices();
-  guardAccount();
+  loadHeaderNotices(true);
+  guardAccount(true);
 });
 
 onUnmounted(() => {

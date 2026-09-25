@@ -88,14 +88,9 @@ Page({
     wx.navigateTo({ url: `/pages/course-detail/course-detail?id=${next.id}` });
   },
 
-  goCheckin() {
-    const next = this.data.today && this.data.today.next;
-    if (!next) {
-      wx.showToast({ title: '今天没有待签到课程', icon: 'none' });
-      return;
-    }
+  goAdjust() {
     if (!util.requireLogin()) return;
-    wx.navigateTo({ url: `/pages/checkin/checkin?id=${next.id}` });
+    wx.navigateTo({ url: '/pages/adjust/adjust' });
   },
 
   goCourse() { wx.navigateTo({ url: '/pages/course-list/course-list' }); },

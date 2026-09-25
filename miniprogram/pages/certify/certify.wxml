@@ -22,7 +22,7 @@
   </view>
   <view class="hint">请填写真实信息并上传相关证明材料</view>
 
-  <view class="card done" wx:if="{{step === 3}}">
+  <view class="card done" wx:if="{{step === 3 && !cert.profileIncomplete}}">
     <view class="h">认证完成</view>
     <view class="sub">{{cert.realName}} · {{cert.teacherNo}}</view>
     <view class="sub" wx:if="{{cert.contractSigned}}">合同已签订，可以抢课，后台也可以安排课程</view>
@@ -38,7 +38,10 @@
     <view class="sub" wx:else>资料已提交，请等待后台审核。通过后即可授课</view>
   </view>
 
-  <block wx:elif="{{cert.status !== 'approved' || cert.clearanceDue}}">
+  <block wx:elif="{{cert.status !== 'approved' || cert.clearanceDue || cert.profileIncomplete}}">
+    <view class="card form" wx:if="{{cert.profileIncomplete && cert.status === 'approved'}}">
+      <view class="warn">请补全身份证号与住址，签署合同时将自动填入合同</view>
+    </view>
     <view class="card form" wx:if="{{cert.rejectReason && cert.status === 'rejected'}}">
       <view class="warn">上次未通过：{{cert.rejectReason}}</view>
     </view>
@@ -47,12 +50,38 @@
     </view>
 
     <view class="card form">
-      <block wx:if="{{cert.status !== 'approved'}}">
+      <block wx:if="{{cert.status !== 'approved' || cert.profileIncomplete}}">
         <view class="label">真实姓名<text class="req">*</text></view>
         <view class="input">
           <view class="person"></view>
           <input placeholder="请输入姓名" placeholder-class="ph" value="{{realName}}" bindinput="onName" />
         </view>
+        <view class="label gap">身份证号码<text class="req">*</text></view>
+        <view class="input">
+          <input placeholder="18位身份证号" placeholder-class="ph" value="{{idNumber}}" maxlength="18" bindinput="onIdNumber" />
+        </view>
+        <view class="label gap">身份证住址<text class="req">*</text></view>
+        <view class="input">
+          <input placeholder="与身份证住址一致" placeholder-class="ph" value="{{address}}" bindinput="onAddress" />
+        </view>
+        <view class="label gap">电子邮箱</view>
+        <view class="input">
+          <input placeholder="选填，用于合同送达" placeholder-class="ph" value="{{email}}" bindinput="onEmail" />
+        </view>
+        <view class="label gap">收款开户行</view>
+        <view class="input">
+          <input placeholder="选填，如中国银行某某支行" placeholder-class="ph" value="{{bankName}}" bindinput="onBankName" />
+        </view>
+        <view class="label gap">收款账户名</view>
+        <view class="input">
+          <input placeholder="默认与姓名一致" placeholder-class="ph" value="{{bankAccountName}}" bindinput="onBankAccountName" />
+        </view>
+        <view class="label gap">银行账号</view>
+        <view class="input">
+          <input placeholder="选填，劳务报酬收款账号" placeholder-class="ph" value="{{bankAccount}}" bindinput="onBankAccount" />
+        </view>
+      </block>
+      <block wx:if="{{cert.status !== 'approved'}}">
         <view class="label gap">上传证明材料<text class="req">*</text></view>
         <view class="desc">请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式</view>
 
@@ -112,7 +141,7 @@
         </view>
       </block>
 
-      <view class="row">
+      <view class="row" wx:if="{{cert.status !== 'approved' || cert.clearanceDue}}">
         <view class="badge law">
           <view class="doc"></view>
         </view>
@@ -124,7 +153,7 @@
       </view>
     </view>
 
-    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{cert.clearanceDue ? '提交本学期证明' : '提交认证'}}</button>
+    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{cert.profileIncomplete ? '保存身份信息' : (cert.clearanceDue ? '提交本学期证明' : '提交认证')}}</button>
     <view class="foot">提交后将进入审核流程，请耐心等待审核结果</view>
   </block>
 

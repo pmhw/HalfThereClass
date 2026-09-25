@@ -53,6 +53,12 @@ export class AdminController {
     return this.adminService.getDashboardStats();
   }
 
+  @Get('dashboard/pending-count')
+  @ApiOperation({ summary: '待处理订单角标（轻量）' })
+  getDashboardPendingCount() {
+    return this.adminService.getDashboardPendingCount();
+  }
+
   @Get('admins')
   @ApiOperation({ summary: '管理员列表' })
   getAdmins(
@@ -183,6 +189,24 @@ export class AdminController {
     return this.adminService.saveContractConfig(body || {});
   }
 
+  @Get('settings/party-a')
+  @ApiOperation({ summary: '读取合同甲方对公信息' })
+  getPartyASettings() {
+    return this.adminService.getPartyAConfig();
+  }
+
+  @Put('settings/party-a')
+  @ApiOperation({ summary: '保存合同甲方对公信息' })
+  savePartyASettingsPut(@Body() body: Record<string, string>) {
+    return this.adminService.savePartyAConfig(body || {});
+  }
+
+  @Post('settings/party-a')
+  @ApiOperation({ summary: '保存合同甲方对公信息' })
+  savePartyASettingsPost(@Body() body: Record<string, string>) {
+    return this.adminService.savePartyAConfig(body || {});
+  }
+
   @Get('system/version')
   @ApiOperation({ summary: '当前系统版本' })
   systemVersion() {
@@ -191,8 +215,8 @@ export class AdminController {
 
   @Get('system/updates')
   @ApiOperation({ summary: '可更新版本列表' })
-  systemUpdates() {
-    return this.adminService.getSystemUpdates();
+  systemUpdates(@Query('force') force?: string) {
+    return this.adminService.getSystemUpdates(force === '1' || force === 'true');
   }
 
   @Get('system/update-progress')
@@ -270,8 +294,20 @@ export class AdminController {
     @Query('status') status?: string,
     @Query('isFree') isFree?: string,
     @Query('categoryId') categoryId?: string,
+    @Query('semesterScope') semesterScope?: string,
+    @Query('semesterId') semesterId?: string,
   ) {
-    return this.adminService.getCourses(Number(page), Number(pageSize), keyword, status, isFree, categoryId, req.admin);
+    return this.adminService.getCourses(
+      Number(page),
+      Number(pageSize),
+      keyword,
+      status,
+      isFree,
+      categoryId,
+      req.admin,
+      semesterScope,
+      semesterId ? Number(semesterId) : undefined,
+    );
   }
 
   @Get('courses/:id/plan')
@@ -290,6 +326,12 @@ export class AdminController {
   @ApiOperation({ summary: '按每周时间为一门课生成课次' })
   generateCourse(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.scheduleService.generate(Number(body?.semesterId), [Number(id)], body?.slots, Number(body?.count), req.admin);
+  }
+
+  @Post('courses/:id/continue')
+  @ApiOperation({ summary: '课程延续到新学期（可换老师）' })
+  continueCourse(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.scheduleService.continueCourse(Number(id), body || {}, req.admin);
   }
 
   @Put('courses/:id/sessions/:sessionId')

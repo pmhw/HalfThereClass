@@ -25,7 +25,7 @@ function markOf(title) {
 
 function decorate(list, date) {
   const weekday = weekdayOf(date);
-  return (list || []).filter((item) => !item.weekday || item.weekday === weekday).map((item) => {
+  return (list || []).filter((item) => item.locked || !item.weekday || item.weekday === weekday).map((item) => {
     const mark = markOf(item.title);
     const when = [item.startTime, item.endTime].filter(Boolean).join(' - ');
     const place = [item.school, item.gradeLabel].filter(Boolean).join(' · ');
@@ -43,6 +43,8 @@ Page({
   data: {
     loggedIn: false,
     certified: false,
+    contractValid: true,
+    lockedCount: 0,
     list: [],
     shown: [],
     date: '',
@@ -70,12 +72,19 @@ Page({
     if (!loggedIn) return;
     get('/teacher/courses').then((data) => {
       const list = (data && data.list) || [];
+      const lockedCount = list.filter((item) => item.locked).length;
       this.setData({
         certified: !!(data && data.certified),
+        contractValid: !(data && data.contractValid === false),
+        lockedCount,
         list,
         shown: decorate(list, this.data.date || todayKey()),
       });
     }).catch(() => {});
+  },
+
+  goContract() {
+    wx.navigateTo({ url: '/pages/contract/contract' });
   },
 
   onAuthed() {
@@ -93,6 +102,11 @@ Page({
 
   open(e) {
     const id = e.currentTarget.dataset.id;
+    const locked = e.currentTarget.dataset.locked;
+    if (locked) {
+      wx.navigateTo({ url: '/pages/contract/contract' });
+      return;
+    }
     if (!id) return;
     wx.navigateTo({ url: `/pages/course-detail/course-detail?id=${id}` });
   },

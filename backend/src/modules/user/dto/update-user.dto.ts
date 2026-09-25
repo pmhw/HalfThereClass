@@ -12,9 +12,4 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   avatar?: string;
-
-  @ApiPropertyOptional({ description: '手机号' })
-  @IsOptional()
-  @IsString()
-  phone?: string;
 }

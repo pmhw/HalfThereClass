@@ -488,6 +488,7 @@ tr.on td { background: #eef4ff; }
 }
 .login-form .login-submit { height: 44px; border: 0; border-radius: 12px; background: var(--primary); color: #fff; }
 .error { color: var(--red); font-size: 13px; margin: 0; }
+.ok-tip { color: #067647; font-size: 13px; margin: 0; }
 .hint { margin-top: 16px; color: var(--faint); font-size: 12px; }
 .captcha-slot { position: relative; }
 .login-form .captcha-trigger {

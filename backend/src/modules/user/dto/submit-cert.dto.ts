@@ -8,6 +8,42 @@ export class SubmitCertDto {
   @MaxLength(30)
   realName?: string;
 
+  @ApiPropertyOptional({ description: '身份证号码' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(18)
+  idNumber?: string;
+
+  @ApiPropertyOptional({ description: '身份证住址' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  address?: string;
+
+  @ApiPropertyOptional({ description: '电子邮箱' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  email?: string;
+
+  @ApiPropertyOptional({ description: '收款开户行' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  bankName?: string;
+
+  @ApiPropertyOptional({ description: '收款账户名' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  bankAccountName?: string;
+
+  @ApiPropertyOptional({ description: '银行账号' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  bankAccount?: string;
+
   @ApiPropertyOptional({ description: '身份证正面' })
   @IsOptional()
   @IsString()

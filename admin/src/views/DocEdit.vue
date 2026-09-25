@@ -4,7 +4,8 @@
       <div>
         <p class="crumb">系统 / 设置 / {{ title }}</p>
         <h1>{{ title }}</h1>
-        <p>左边编写，右边预览。保存后返回系统设置。</p>
+        <p v-if="kind === 'contract'">左边编写，右边预览。占位符如 <code>&#123;&#123;甲方名称&#125;&#125;</code>、<code>&#123;&#123;乙方身份证号&#125;&#125;</code> 会在签署时自动替换。</p>
+        <p v-else>左边编写，右边预览。保存后返回系统设置。</p>
       </div>
       <div class="actions">
         <button class="btn" type="button" @click="back">返回</button>

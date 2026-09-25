@@ -13,33 +13,42 @@
       </div>
 
       <div v-if="!certified" class="empty">认证通过后才能查看自己的课程和课时费</div>
-      <div v-else-if="!shown.length" class="empty">这一天还没有授课安排</div>
-      <div v-else class="lessons">
-        <article v-for="item in shown" :key="item.id" class="lesson card" @click="open(item.id)">
-          <div class="top">
-            <div class="mark" :class="item.tone">{{ item.initial }}</div>
-            <div class="info">
-              <div class="title">{{ item.title }}</div>
-              <div class="meta">{{ item.place }}</div>
-              <div class="place">📍 {{ item.room }}</div>
+      <template v-else>
+        <div v-if="lockedCount" class="lock-banner">
+          有 {{ lockedCount }} 门预分配课程未解锁，请签订本学期合同后查看时间安排
+          <button type="button" class="link" @click="router.push('/contract')">去签合同</button>
+        </div>
+        <div v-if="!shown.length" class="empty">这一天还没有授课安排</div>
+        <div v-else class="lessons">
+          <article v-for="item in shown" :key="item.id" class="lesson card" @click="open(item)">
+            <div class="top">
+              <div class="mark" :class="item.tone">{{ item.initial }}</div>
+              <div class="info">
+                <div class="title">{{ item.title }}</div>
+                <div class="meta">{{ item.place }}</div>
+                <div class="place">📍 {{ item.room }}</div>
+              </div>
+              <span class="tag" :class="item.locked ? 'lock' : item.showFee ? 'mine' : 'wait'">
+                {{ item.locked ? '未解锁' : item.showFee ? '我的课' : '已排课' }}
+              </span>
             </div>
-            <span class="tag" :class="item.showFee ? 'mine' : 'wait'">{{ item.showFee ? '我的课' : '已排课' }}</span>
-          </div>
-          <div class="line" />
-          <div class="bottom">
-            <div class="cell">
-              <div class="label">上课时间</div>
-              <div class="value">{{ item.when }}</div>
+            <div class="line" />
+            <div class="bottom">
+              <div class="cell">
+                <div class="label">上课时间</div>
+                <div v-if="item.locked" class="value off">{{ item.lockTip || '课程未解锁，请签合同后解锁' }}</div>
+                <div v-else class="value">{{ item.when }}</div>
+              </div>
+              <div class="vline" />
+              <div class="cell">
+                <div class="label">课时费</div>
+                <div v-if="item.showFee" class="value fee">¥{{ item.teacherFee }} / 节</div>
+                <div v-else class="value off">课时费未开放</div>
+              </div>
             </div>
-            <div class="vline" />
-            <div class="cell">
-              <div class="label">课时费</div>
-              <div v-if="item.showFee" class="value fee">¥{{ item.teacherFee }} / 节</div>
-              <div v-else class="value off">课时费未开放</div>
-            </div>
-          </div>
-        </article>
-      </div>
+          </article>
+        </div>
+      </template>
 
       <p class="foot">认真授课，点亮更多孩子的未来</p>
     </div>
@@ -57,6 +66,7 @@ import { todayKey } from '../utils/helpers';
 const router = useRouter();
 const loggedIn = ref(isLoggedIn());
 const certified = ref(false);
+const contractValid = ref(true);
 const list = ref([]);
 const date = ref(todayKey());
 
@@ -64,6 +74,7 @@ const dateLabel = computed(() =>
   date.value === todayKey() ? '今日' : `${date.value.slice(5, 7)}月${date.value.slice(8)}日`,
 );
 
+const lockedCount = computed(() => (list.value || []).filter((item) => item.locked).length);
 const shown = computed(() => decorate(list.value, date.value));
 
 onMounted(() => {
@@ -105,7 +116,7 @@ function markOf(title) {
 function decorate(courses, d) {
   const weekday = weekdayOf(d);
   return (courses || [])
-    .filter((item) => !item.weekday || item.weekday === weekday)
+    .filter((item) => item.locked || !item.weekday || item.weekday === weekday)
     .map((item) => {
       const mark = markOf(item.title);
       const when = [item.startTime, item.endTime].filter(Boolean).join(' - ');
@@ -124,6 +135,7 @@ async function load() {
   try {
     const data = await getTeacherCourses();
     certified.value = !!data?.certified;
+    contractValid.value = data?.contractValid !== false;
     list.value = data?.list || [];
   } catch {
     list.value = [];
@@ -134,8 +146,12 @@ function onDateChange() {
   /* shown is computed */
 }
 
-function open(id) {
-  router.push(`/course/${id}`);
+function open(item) {
+  if (item?.locked) {
+    router.push('/contract');
+    return;
+  }
+  router.push(`/course/${item.id}`);
 }
 </script>
 
@@ -195,6 +211,23 @@ function open(id) {
 }
 .tag.mine { background: #e8f0ff; color: #2563eb; }
 .tag.wait { background: #f3f5f8; color: #98a2b3; }
+.tag.lock { background: #fff7ed; color: #9a3412; }
+.lock-banner {
+  margin: 0 calc(28 * var(--r)) calc(20 * var(--r));
+  padding: calc(16 * var(--r));
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: calc(12 * var(--r));
+  font-size: calc(24 * var(--r));
+  line-height: 1.5;
+}
+.lock-banner .link {
+  display: inline;
+  margin-left: 8px;
+  color: #2563eb;
+  border: 0;
+  background: transparent;
+}
 .line { height: 1px; background: #f0f0f0; margin: calc(20 * var(--r)) 0; }
 .bottom { display: flex; align-items: stretch; }
 .cell { flex: 1; }

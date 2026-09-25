@@ -24,6 +24,12 @@ Page({
   data: {
     origin: config.origin,
     realName: '',
+    idNumber: '',
+    address: '',
+    email: '',
+    bankName: '',
+    bankAccountName: '',
+    bankAccount: '',
     files: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     sources: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     previews: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
@@ -75,7 +81,7 @@ Page({
   async load() {
     try {
       const cert = await userService.getCert();
-      const step = cert.status === 'approved' && !cert.clearanceDue && !cert.clearancePending
+      const step = cert.status === 'approved' && !cert.clearanceDue && !cert.clearancePending && !cert.profileIncomplete
         ? 3
         : (cert.status === 'pending' || cert.clearancePending ? 2 : 1);
       const keep = this.data.files || {};
@@ -91,6 +97,12 @@ Page({
         cert,
         step,
         realName: cert.realName || this.data.realName,
+        idNumber: cert.idNumber || this.data.idNumber,
+        address: cert.address || this.data.address,
+        email: cert.email || this.data.email,
+        bankName: cert.bankName || this.data.bankName,
+        bankAccountName: cert.bankAccountName || this.data.bankAccountName,
+        bankAccount: cert.bankAccount || this.data.bankAccount,
         files,
         sources: {
           idCard: util.assetUrl(files.idCard),
@@ -110,6 +122,12 @@ Page({
   },
 
   onName(e) { this.setData({ realName: e.detail.value }); },
+  onIdNumber(e) { this.setData({ idNumber: e.detail.value }); },
+  onAddress(e) { this.setData({ address: e.detail.value }); },
+  onEmail(e) { this.setData({ email: e.detail.value }); },
+  onBankName(e) { this.setData({ bankName: e.detail.value }); },
+  onBankAccountName(e) { this.setData({ bankAccountName: e.detail.value }); },
+  onBankAccount(e) { this.setData({ bankAccount: e.detail.value }); },
 
   choose(e) {
     const key = e.currentTarget.dataset.key;
@@ -237,21 +255,32 @@ Page({
 
   async submit() {
     if (this.data.saving) return;
-    const { realName, files, cert } = this.data;
+    const {
+      realName, idNumber, address, email, bankName, bankAccountName, bankAccount, files, cert,
+    } = this.data;
     const onlyClearance = cert.status === 'approved' && cert.clearanceDue;
+    const onlyProfile = cert.status === 'approved' && cert.profileIncomplete && !onlyClearance;
     if (!onlyClearance && !realName.trim()) {
       wx.showToast({ title: '请填写姓名', icon: 'none' });
       return;
     }
-    if (!onlyClearance && (!files.idCard || !files.idCardBack)) {
+    if (!onlyClearance && !/^[0-9]{17}[0-9Xx]$/.test(String(idNumber || '').trim())) {
+      wx.showToast({ title: '请填写正确身份证号', icon: 'none' });
+      return;
+    }
+    if (!onlyClearance && !String(address || '').trim()) {
+      wx.showToast({ title: '请填写身份证住址', icon: 'none' });
+      return;
+    }
+    if (!onlyClearance && !onlyProfile && (!files.idCard || !files.idCardBack)) {
       wx.showToast({ title: '请上传身份证正反面', icon: 'none' });
       return;
     }
-    if (!onlyClearance && !files.diploma) {
+    if (!onlyClearance && !onlyProfile && !files.diploma) {
       wx.showToast({ title: '请上传学历证明', icon: 'none' });
       return;
     }
-    if (!files.clearance) {
+    if (!onlyProfile && !files.clearance) {
       wx.showToast({ title: '请上传无犯罪证明', icon: 'none' });
       return;
     }
@@ -259,13 +288,19 @@ Page({
     try {
       await userService.submitCert({
         realName: realName.trim(),
+        idNumber: String(idNumber || '').trim(),
+        address: String(address || '').trim(),
+        email: String(email || '').trim(),
+        bankName: String(bankName || '').trim(),
+        bankAccountName: String(bankAccountName || '').trim() || realName.trim(),
+        bankAccount: String(bankAccount || '').trim(),
         idCard: files.idCard,
         idCardBack: files.idCardBack,
         diploma: files.diploma,
         clearance: files.clearance,
         certificate: files.certificate,
       });
-      wx.showToast({ title: onlyClearance ? '已提交，等待审核' : '已提交，等待审核', icon: 'none' });
+      wx.showToast({ title: onlyProfile ? '已保存' : '已提交，等待审核', icon: 'none' });
       await this.load();
     } catch (err) {
       console.error(err);

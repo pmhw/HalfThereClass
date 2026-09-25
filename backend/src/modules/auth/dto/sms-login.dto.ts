@@ -23,3 +23,13 @@ export class SmsLoginDto {
   @IsString()
   avatar?: string;
 }
+
+export class BindPhoneDto {
+  @IsString()
+  @Matches(/^1[3-9]\d{9}$/, { message: '请输入正确的手机号' })
+  phone: string;
+
+  @IsString()
+  @MinLength(4, { message: '请输入验证码' })
+  code: string;
+}

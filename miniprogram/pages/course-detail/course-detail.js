@@ -1,4 +1,5 @@
 const courseService = require('../../services/course.js');
+const authService = require('../../services/auth.js');
 const util = require('../../utils/util.js');
 
 function countdownText(ms) {
@@ -29,6 +30,22 @@ Page({
 
   onUnload() {
     this.stopClock();
+  },
+
+  onShareAppMessage() {
+    const course = this.data.course || {};
+    return {
+      title: course.title ? `${course.title} · 来抢课` : '来抢课',
+      path: `/pages/course-detail/course-detail?id=${this.courseId}`,
+    };
+  },
+
+  copyLink() {
+    const url = authService.courseShareUrl(this.courseId);
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: '链接已复制', icon: 'none' }),
+    });
   },
 
   async load() {
@@ -113,10 +130,6 @@ Page({
   goContract() {
     if (!util.requireLogin()) return;
     wx.navigateTo({ url: '/pages/contract/contract' });
-  },
-
-  goCheckin() {
-    wx.navigateTo({ url: `/pages/checkin/checkin?id=${this.courseId}` });
   },
 
   goAdjust() {

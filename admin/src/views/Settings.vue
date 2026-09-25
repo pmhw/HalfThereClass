@@ -49,6 +49,14 @@
         </span>
         <em :class="contract.title ? 'ok' : 'wait'">{{ contract.title || '未配置' }}</em>
       </router-link>
+      <button type="button" class="settings-card" @click="openPartyA">
+        <span class="settings-icon corp">甲</span>
+        <span class="settings-copy">
+          <strong>合同甲方对公</strong>
+          <small>自动填入合同的机构名称、信用代码、住所与联系方式</small>
+        </span>
+        <em :class="partyA.name ? 'ok' : 'wait'">{{ partyA.name || '未配置' }}</em>
+      </button>
       <button type="button" class="settings-card" @click="openDatabase">
         <span class="settings-icon db"><Icon name="layers" /></span>
         <span class="settings-copy">
@@ -142,6 +150,40 @@
       </div>
     </div>
 
+    <div v-if="dialog === 'partyA'" class="modal-mask">
+      <div class="modal narrow" role="dialog">
+        <header>
+          <h3>合同甲方对公信息</h3>
+          <button class="modal-close" type="button" @click="close">×</button>
+        </header>
+        <form class="form" @submit.prevent="savePartyA">
+          <p class="muted">保存后，教师查看/签署合同时会自动替换模板中的甲方占位符。</p>
+          <label>机构名称
+            <input v-model="draft.name" required placeholder="上海御炎川科技有限公司" autocomplete="off" />
+          </label>
+          <label>统一社会信用代码
+            <input v-model="draft.creditCode" required placeholder="18位信用代码" autocomplete="off" />
+          </label>
+          <label>住所地
+            <input v-model="draft.address" required placeholder="注册地址" autocomplete="off" />
+          </label>
+          <label>法定代表人/授权代表
+            <input v-model="draft.legalRep" placeholder="可留空" autocomplete="off" />
+          </label>
+          <label>联系电话
+            <input v-model="draft.phone" placeholder="对公联系电话" autocomplete="off" />
+          </label>
+          <label>电子邮箱
+            <input v-model="draft.email" type="email" placeholder="送达邮箱" autocomplete="off" />
+          </label>
+          <p v-if="dialogError" class="error">{{ dialogError }}</p>
+          <div class="form-actions">
+            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div v-if="dialog === 'database'" class="modal-mask">
       <div class="modal narrow" role="dialog">
         <header>
@@ -191,6 +233,7 @@ const sms = ref({
 });
 const agreement = ref({ title: '', content: '' });
 const contract = ref({ title: '', content: '' });
+const partyA = ref({ name: '', creditCode: '', address: '', legalRep: '', phone: '', email: '' });
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
 const draft = ref({});
 const dialog = ref('');
@@ -218,11 +261,12 @@ function formatTime(value) {
 
 async function load() {
   try {
-    const [mini, amap, text, paper, db, smsCfg] = await Promise.all([
+    const [mini, amap, text, paper, corp, db, smsCfg] = await Promise.all([
       api.settingsWx(),
       api.settingsAmap(),
       api.settingsAgreement(),
       api.settingsContract(),
+      api.settingsPartyA().catch(() => ({ name: '', creditCode: '', address: '', legalRep: '', phone: '', email: '' })),
       api.databaseInfo().catch(() => ({ exists: false, size: 0, updatedAt: null, hasInit: false })),
       api.settingsSms().catch(() => ({ enabled: false, ready: false })),
     ]);
@@ -230,6 +274,7 @@ async function load() {
     form.value = amap;
     agreement.value = text;
     contract.value = paper;
+    partyA.value = corp;
     database.value = db;
     sms.value = smsCfg;
   } catch (err) {
@@ -263,6 +308,12 @@ function openAmap() {
   showSecret.value = false;
   dialogError.value = '';
   dialog.value = 'amap';
+}
+
+function openPartyA() {
+  draft.value = { ...partyA.value };
+  dialogError.value = '';
+  dialog.value = 'partyA';
 }
 
 async function openDatabase() {
@@ -320,6 +371,26 @@ async function saveAmap() {
   dialogError.value = '';
   try {
     form.value = await api.saveSettingsAmap(draft.value);
+    close();
+  } catch (err) {
+    dialogError.value = err.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function savePartyA() {
+  saving.value = true;
+  dialogError.value = '';
+  try {
+    partyA.value = await api.saveSettingsPartyA({
+      name: String(draft.value.name || '').trim(),
+      creditCode: String(draft.value.creditCode || '').trim(),
+      address: String(draft.value.address || '').trim(),
+      legalRep: String(draft.value.legalRep || '').trim(),
+      phone: String(draft.value.phone || '').trim(),
+      email: String(draft.value.email || '').trim(),
+    });
     close();
   } catch (err) {
     dialogError.value = err.message;
@@ -422,6 +493,7 @@ onMounted(load);
 .settings-icon.map { background: #eef4ff; color: #2563eb; }
 .settings-icon.doc { background: #ecfdf3; color: #059669; }
 .settings-icon.file { background: #fff7ed; color: #c2410c; }
+.settings-icon.corp { background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 16px; }
 .settings-icon.db { background: #f5f3ff; color: #7c3aed; }
 .form label.check {
   display: flex;

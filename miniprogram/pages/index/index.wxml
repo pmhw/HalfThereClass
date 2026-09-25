@@ -8,7 +8,7 @@
   <view class="hello">
     <view class="hello-main">
       <view class="hello-title">{{greet}}，{{name}}</view>
-      <view class="hello-sub">今天的课、签到和可抢课程</view>
+      <view class="hello-sub">今天的课、授课安排和可抢课程</view>
     </view>
     <view class="hello-side">
       <view class="slogan">好的教育<text>从每一堂课开始</text></view>
@@ -90,7 +90,7 @@
         <view class="clock"></view>
         <text>{{remain}}</text>
       </view>
-      <view wx:if="{{today.next.isMine}}" class="go" bindtap="goCheckin">{{today.checkedIn ? '已签到' : '去签到'}} ›</view>
+      <view wx:if="{{today.next.isMine}}" class="go" bindtap="goNext">{{today.checkedIn || today.sessionDone ? '已上课' : '查看课程'}} ›</view>
       <view wx:else class="go" bindtap="goNext">查看课程 ›</view>
     </view>
   </view>
@@ -138,9 +138,9 @@
         <view class="qicon teach"><view class="head"></view><view class="cap"></view><view class="shoulder"></view></view>
         <text>授课</text>
       </view>
-      <view class="quick-item" bindtap="goCheckin" hover-class="q-press" hover-stay-time="80">
+      <view class="quick-item" bindtap="goAdjust" hover-class="q-press" hover-stay-time="80">
         <view class="qicon check"><view class="tick"></view></view>
-        <text>签到</text>
+        <text>调课</text>
       </view>
       <view class="quick-item" bindtap="goCert" hover-class="q-press" hover-stay-time="80">
         <view class="qicon badge"><view class="seal"></view></view>

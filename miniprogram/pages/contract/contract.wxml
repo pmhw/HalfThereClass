@@ -1,14 +1,41 @@
 <view class="page">
-  <view class="card done" wx:if="{{paper.signed}}">
-    <view class="badge">已签订</view>
+  <view class="tip" wx:if="{{paper.tip && loaded}}">{{paper.tip}}</view>
+
+  <view class="card wait" wx:if="{{paper.contractPending}}">
+    <view class="badge amber">审核中</view>
+    <view class="h">签名已提交</view>
+    <view class="sub">管理员审核通过后，本学期合同生效，预分配课程将自动解锁。</view>
+    <button class="btn btn-block" bindtap="exportPdf">导出已提交合同</button>
+  </view>
+
+  <view class="card done" wx:elif="{{paper.signed}}">
+    <view class="badge">本学期已生效</view>
     <view class="h">{{paper.title || '教师服务合同'}}</view>
-    <view class="sub">现在可以抢课，后台也可以把课程安排给你</view>
+    <view class="sub">{{paper.tip || '本合同在本学期内有效，下学期需重新签订。'}}</view>
+    <view wx:if="{{paper.courseAnnex}}" class="annex">
+      <view class="annex-title">课程附件（预分配）</view>
+      <text class="annex-body">{{paper.courseAnnex}}</text>
+    </view>
     <scroll-view scroll-y class="body signed-body" enhanced="{{true}}" show-scrollbar="{{true}}">
       <rich-text nodes="{{html}}"></rich-text>
     </scroll-view>
     <view wx:if="{{signUrl}}" class="sign-box">
       <view class="sign-label">我的签名</view>
       <image class="sign-img" src="{{signUrl}}" mode="aspectFit"></image>
+    </view>
+    <button class="btn btn-primary btn-block" bindtap="exportPdf">导出 PDF</button>
+    <view wx:if="{{paper.history.length}}" class="history">
+      <view class="annex-title">历史已签合同</view>
+      <view
+        class="hist-row"
+        wx:for="{{paper.history}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="exportPdf"
+      >
+        <text>{{item.status}} · {{item.signedAt || ''}}</text>
+        <text class="link">导出</text>
+      </view>
     </view>
   </view>
 
@@ -19,19 +46,25 @@
   </view>
 
   <block wx:elif="{{loaded}}">
+    <view class="card annex" wx:if="{{paper.courseAnnex}}">
+      <view class="annex-title">将写入合同的预分配课程</view>
+      <text class="annex-body">{{paper.courseAnnex}}</text>
+    </view>
+
     <view class="card paper">
       <view class="paper-head">
         <view class="seal">合同</view>
         <view class="title">{{paper.title}}</view>
       </view>
+      <view class="body-label">合同正文（可在框内上下滑动阅读）</view>
       <scroll-view scroll-y class="body" enhanced="{{true}}" show-scrollbar="{{true}}">
         <rich-text nodes="{{html}}"></rich-text>
       </scroll-view>
     </view>
 
-    <view class="card sign-card">
+    <view class="card sign-card" id="signArea">
       <view class="label">手写签名<text class="req">*</text></view>
-      <view class="hint">请在框内签名，签名会随合同一起保存</view>
+      <view class="hint">请下滑到此处签名；在框内书写，提交后需管理员审核</view>
       <view class="pad-wrap">
         <canvas canvas-id="sign" class="pad" disable-scroll="{{true}}"
           bindtouchstart="touchStart" bindtouchmove="touchMove" bindtouchend="touchEnd"></canvas>
@@ -44,7 +77,7 @@
       <view class="box {{agreed ? 'on' : ''}}"></view>
       <text>我已阅读并同意《{{paper.title}}》</text>
     </view>
-    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">确认签订</button>
-    <view class="foot">签订后才能抢课，后台也才能安排课程</view>
+    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">确认签订并提交审核</button>
+    <view class="foot">审核通过后本学期合同生效；历史合同永久保留备查。</view>
   </block>
 </view>

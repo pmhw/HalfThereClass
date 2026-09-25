@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
@@ -47,6 +47,43 @@ export class StaffAdminController {
   @Get('certs')
   certs() {
     return this.staff.certs();
+  }
+
+  @Get('certs/pending-count')
+  certsPendingCount() {
+    return this.staff.certsPendingCount();
+  }
+
+  @Get('contracts')
+  contracts(@Query('status') status?: string) {
+    return this.staff.listContracts(status);
+  }
+
+  @Post('contracts/:id/review')
+  reviewContract(
+    @Param('id') id: string,
+    @Body() body: { action: string; reason?: string },
+    @Req() req: any,
+  ) {
+    return this.staff.reviewContract(Number(id), body.action, body.reason, Number(req.user?.adminId) || undefined);
+  }
+
+  @Post('contracts/:id/revoke')
+  revokeContract(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    return this.staff.revokeContract(Number(id), body.reason, Number(req.user?.adminId) || undefined);
+  }
+
+  @Post('faculty/:id/revoke-contract')
+  revokeFacultyContract(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    return this.staff.revokeTeacherContract(Number(id), body.reason, Number(req.user?.adminId) || undefined);
   }
 
   @Post('certs/:userId/review')

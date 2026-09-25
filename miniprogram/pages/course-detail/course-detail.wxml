@@ -1,4 +1,7 @@
 <view class="page" wx:if="{{course}}">
+  <view class="top-actions">
+    <button class="link-btn" bindtap="copyLink">复制抢课链接</button>
+  </view>
   <view class="banner">{{initial}}</view>
   <view class="main card">
     <view class="title">{{course.title}}</view>
@@ -23,7 +26,7 @@
     <button wx:elif="{{course.canGrab}}" class="btn btn-primary btn-block" bindtap="onGrab">立即抢课</button>
     <view wx:elif="{{course.isMine}}" class="bar-row">
       <button class="btn btn-block" bindtap="goAdjust">登记调课</button>
-      <button class="btn btn-primary btn-block" bindtap="goCheckin">去签到</button>
+      <button class="btn btn-block" disabled>过时默认已上</button>
     </view>
     <button wx:elif="{{course.teacherId}}" class="btn btn-block" disabled>已安排老师</button>
     <button wx:elif="{{course.certified && !course.contractSigned}}" class="btn btn-primary btn-block" bindtap="goContract">签订合同后抢课</button>

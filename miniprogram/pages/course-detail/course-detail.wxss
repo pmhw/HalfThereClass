@@ -1,4 +1,20 @@
 .page { padding-bottom: 260rpx; }
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8rpx 24rpx 0;
+}
+.link-btn {
+  margin: 0;
+  padding: 0 8rpx;
+  background: transparent;
+  border: 0;
+  color: #2563eb;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.link-btn::after { border: 0; }
 .banner {
   height: 280rpx;
   margin: 24rpx;

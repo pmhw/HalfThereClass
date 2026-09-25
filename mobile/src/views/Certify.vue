@@ -5,7 +5,7 @@
       <span>教师认证</span>
     </header>
 
-    <div v-if="cert.status === 'approved' && !cert.clearanceDue && !cert.clearancePending" class="card ok">
+    <div v-if="cert.status === 'approved' && !cert.clearanceDue && !cert.clearancePending && !cert.profileIncomplete" class="card ok">
       认证已通过 · 教师编号 {{ cert.teacherNo || '—' }}
       <button v-if="!cert.contractSigned" type="button" class="link" @click="router.push('/contract')">去签订合同</button>
     </div>
@@ -16,12 +16,42 @@
         <span :class="{ on: step >= 2 }">审核</span>
         <span :class="{ on: step >= 3 }">完成</span>
       </div>
+      <p v-if="cert.profileIncomplete" class="hint">请补全身份证号与住址，签署合同时将自动填入合同。</p>
       <label v-if="!onlyClearance" class="field">
         <span>真实姓名</span>
         <input v-model="realName" type="text" placeholder="与身份证一致" />
       </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>身份证号码</span>
+        <input v-model="idNumber" type="text" maxlength="18" placeholder="18位身份证号" />
+      </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>身份证住址</span>
+        <input v-model="address" type="text" placeholder="与身份证住址一致" />
+      </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>电子邮箱（选填）</span>
+        <input v-model="email" type="email" placeholder="合同送达邮箱" />
+      </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>收款开户行（选填）</span>
+        <input v-model="bankName" type="text" placeholder="如中国银行某某支行" />
+      </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>收款账户名（选填）</span>
+        <input v-model="bankAccountName" type="text" placeholder="默认与姓名一致" />
+      </label>
+      <label v-if="!onlyClearance" class="field">
+        <span>银行账号（选填）</span>
+        <input v-model="bankAccount" type="text" placeholder="劳务报酬收款账号" />
+      </label>
 
-      <div v-for="item in uploadFields" :key="item.key" class="upload">
+      <div
+        v-for="item in uploadFields"
+        :key="item.key"
+        class="upload"
+        v-show="!onlyProfile && (!onlyClearance || item.key === 'clearance')"
+      >
         <div class="label">
           {{ item.label }}
           <router-link
@@ -40,7 +70,7 @@
       </div>
 
       <button class="btn btn-primary btn-block" type="button" :disabled="saving" @click="submit">
-        {{ saving ? '提交中…' : '提交认证' }}
+        {{ saving ? '提交中…' : (onlyProfile ? '保存身份信息' : '提交认证') }}
       </button>
     </div>
   </div>
@@ -61,6 +91,12 @@ const router = useRouter();
 const cert = ref({ status: 'none' });
 const step = ref(1);
 const realName = ref('');
+const idNumber = ref('');
+const address = ref('');
+const email = ref('');
+const bankName = ref('');
+const bankAccountName = ref('');
+const bankAccount = ref('');
 const files = reactive({
   idCard: '',
   idCardBack: '',
@@ -89,6 +125,9 @@ const uploadFields = [
 const onlyClearance = computed(
   () => cert.value.status === 'approved' && cert.value.clearanceDue,
 );
+const onlyProfile = computed(
+  () => cert.value.status === 'approved' && cert.value.profileIncomplete && !onlyClearance.value,
+);
 
 onMounted(async () => {
   if (!requireLogin(router)) return;
@@ -107,12 +146,18 @@ async function load() {
     const data = await getCert();
     cert.value = data;
     step.value =
-      data.status === 'approved' && !data.clearanceDue && !data.clearancePending
+      data.status === 'approved' && !data.clearanceDue && !data.clearancePending && !data.profileIncomplete
         ? 3
         : data.status === 'pending' || data.clearancePending
           ? 2
           : 1;
     realName.value = data.realName || realName.value;
+    idNumber.value = data.idNumber || idNumber.value;
+    address.value = data.address || address.value;
+    email.value = data.email || email.value;
+    bankName.value = data.bankName || bankName.value;
+    bankAccountName.value = data.bankAccountName || bankAccountName.value;
+    bankAccount.value = data.bankAccount || bankAccount.value;
     files.idCard = files.idCard || data.idCard || '';
     files.idCardBack = files.idCardBack || data.idCardBack || '';
     files.diploma = files.diploma || data.diploma || '';
@@ -168,15 +213,23 @@ async function submit() {
     showToast('请填写姓名');
     return;
   }
-  if (!onlyClearance.value && (!files.idCard || !files.idCardBack)) {
+  if (!onlyClearance.value && !/^[0-9]{17}[0-9Xx]$/.test(idNumber.value.trim())) {
+    showToast('请填写正确身份证号');
+    return;
+  }
+  if (!onlyClearance.value && !address.value.trim()) {
+    showToast('请填写身份证住址');
+    return;
+  }
+  if (!onlyClearance.value && !onlyProfile.value && (!files.idCard || !files.idCardBack)) {
     showToast('请上传身份证正反面');
     return;
   }
-  if (!onlyClearance.value && !files.diploma) {
+  if (!onlyClearance.value && !onlyProfile.value && !files.diploma) {
     showToast('请上传学历证明');
     return;
   }
-  if (!files.clearance) {
+  if (!onlyProfile.value && !files.clearance) {
     showToast('请上传无犯罪证明');
     return;
   }
@@ -184,13 +237,19 @@ async function submit() {
   try {
     await submitCert({
       realName: realName.value.trim(),
+      idNumber: idNumber.value.trim(),
+      address: address.value.trim(),
+      email: email.value.trim(),
+      bankName: bankName.value.trim(),
+      bankAccountName: bankAccountName.value.trim() || realName.value.trim(),
+      bankAccount: bankAccount.value.trim(),
       idCard: files.idCard,
       idCardBack: files.idCardBack,
       diploma: files.diploma,
       clearance: files.clearance,
       certificate: files.certificate,
     });
-    showToast('已提交，等待审核');
+    showToast(onlyProfile.value ? '已保存' : '已提交，等待审核');
     await load();
   } catch (err) {
     showToast(err.message || '提交失败');
@@ -205,6 +264,7 @@ async function submit() {
 .nav { display: flex; align-items: center; gap: calc(16 * var(--r)); margin-bottom: calc(24 * var(--r)); font-weight: 650; }
 .back { color: #2563eb; }
 .ok { margin-bottom: calc(20 * var(--r)); line-height: 1.6; }
+.hint { color: #b45309; margin-bottom: calc(16 * var(--r)); font-size: calc(24 * var(--r)); line-height: 1.5; }
 .link { color: #2563eb; margin-left: calc(12 * var(--r)); }
 .steps {
   display: flex;

@@ -52,6 +52,8 @@ const uploadCertFile = (filePath) => {
 const getCert = () => get('/user/cert');
 const submitCert = (data) => post('/user/cert', data);
 const getContract = () => get('/user/contract');
+const exportContract = (id) => get('/user/contract/export', id ? { id } : {});
+const listContracts = () => get('/user/contracts');
 const signContract = (filePath) => {
   return new Promise((resolve, reject) => {
     const token = wx.getStorageSync('token');
@@ -82,5 +84,7 @@ module.exports = {
   submitCert,
   uploadCertFile,
   getContract,
+  exportContract,
+  listContracts,
   signContract,
 };

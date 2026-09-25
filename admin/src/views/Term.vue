@@ -151,15 +151,19 @@
         </div>
       </div>
       <table v-if="currentRecord" style="margin-top: 16px">
-        <thead><tr><th>{{ currentRecord.label }} 课程</th><th>课次</th><th>上课</th><th>停课/调出</th></tr></thead>
+        <thead><tr><th>{{ currentRecord.label }} 课程</th><th>任课老师</th><th>课次</th><th>已上</th><th>停课/调出</th></tr></thead>
         <tbody>
           <tr v-for="item in currentRecord.courses" :key="item.courseId">
             <td>{{ item.title }}</td>
+            <td>
+              <router-link v-if="item.teacherId" class="link" :to="`/faculty/${item.teacherId}`">{{ item.teacherName || '老师' }}</router-link>
+              <span v-else>—</span>
+            </td>
             <td>{{ item.total }}</td>
             <td>{{ item.held }}</td>
             <td>{{ item.stopped }}</td>
           </tr>
-          <tr v-if="!currentRecord.courses.length"><td colspan="4" class="empty">这个学期还没有课次</td></tr>
+          <tr v-if="!currentRecord.courses.length"><td colspan="5" class="empty">这个学期还没有课次</td></tr>
         </tbody>
       </table>
     </article>
