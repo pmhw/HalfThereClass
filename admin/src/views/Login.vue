@@ -6,7 +6,28 @@
       <p class="muted">登录课程平台管理后台</p>
       <form class="login-form" @submit.prevent="submit">
         <input v-model="username" placeholder="账号" autocomplete="username" />
-        <input v-model="password" type="password" placeholder="密码" autocomplete="current-password" />
+        <div class="password-field">
+          <input
+            v-model="password"
+            :type="showPassword ? 'text' : 'password'"
+            placeholder="密码"
+            autocomplete="current-password"
+            @keydown="onPasswordKey"
+            @keyup="onPasswordKey"
+            @focus="onPasswordKey"
+            @blur="capsOn = false"
+          />
+          <button
+            class="password-toggle"
+            type="button"
+            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            :title="showPassword ? '隐藏密码' : '显示密码'"
+            @click="showPassword = !showPassword"
+          >
+            {{ showPassword ? '隐藏' : '显示' }}
+          </button>
+        </div>
+        <p v-if="capsOn" class="caps-tip">已开启大写锁定（Caps Lock）</p>
         <div class="captcha-slot">
           <button type="button" class="captcha-trigger" :class="{ ok: passed }" @click="toggleCaptcha">
             <span class="captcha-mark">{{ passed ? '✓' : '›' }}</span>
@@ -45,6 +66,8 @@ import { landingPath } from '../access';
 const router = useRouter();
 const username = ref('');
 const password = ref('');
+const showPassword = ref(false);
+const capsOn = ref(false);
 const error = ref('');
 const loading = ref(false);
 const open = ref(false);
@@ -56,6 +79,14 @@ const captcha = ref({ token: '', image: '', width: 280, piece: 42 });
 const offset = ref(0);
 let snapId = 0;
 let dragId = 0;
+
+function onPasswordKey(event) {
+  try {
+    capsOn.value = !!event.getModifierState?.('CapsLock');
+  } catch {
+    capsOn.value = false;
+  }
+}
 
 async function loadCaptcha() {
   snapId += 1;

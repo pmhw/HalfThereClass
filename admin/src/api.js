@@ -44,12 +44,29 @@ export async function request(url, options = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  const payload = await response.json();
+  let response;
+  try {
+    response = await fetch(url, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (err) {
+    const text = String(err?.message || err || '');
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(text)) {
+      throw new Error('网络异常或服务未响应，请确认 halfthereclass 服务已启动后重试');
+    }
+    throw new Error(text || '网络请求失败');
+  }
+
+  let payload;
+  const raw = await response.text();
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(response.ok ? '响应格式错误' : `请求失败（HTTP ${response.status}）`);
+  }
+
   if (payload.code !== 0) {
     if (payload.code === 401) {
       clearToken();
@@ -116,15 +133,15 @@ export const api = {
   schools: () => request('/api/admin/schools'),
   amapConfig: () => request('/api/admin/schools/amap-config'),
   settingsAmap: () => request('/api/admin/settings/amap'),
-  saveSettingsAmap: (body) => request('/api/admin/settings/amap', { method: 'PUT', body }),
+  saveSettingsAmap: (body) => request('/api/admin/settings/amap', { method: 'POST', body }),
   settingsWx: () => request('/api/admin/settings/wx'),
-  saveSettingsWx: (body) => request('/api/admin/settings/wx', { method: 'PUT', body }),
+  saveSettingsWx: (body) => request('/api/admin/settings/wx', { method: 'POST', body }),
   settingsSms: () => request('/api/admin/settings/sms'),
-  saveSettingsSms: (body) => request('/api/admin/settings/sms', { method: 'PUT', body }),
+  saveSettingsSms: (body) => request('/api/admin/settings/sms', { method: 'POST', body }),
   settingsAgreement: () => request('/api/admin/settings/agreement'),
-  saveSettingsAgreement: (body) => request('/api/admin/settings/agreement', { method: 'PUT', body }),
+  saveSettingsAgreement: (body) => request('/api/admin/settings/agreement', { method: 'POST', body }),
   settingsContract: () => request('/api/admin/settings/contract'),
-  saveSettingsContract: (body) => request('/api/admin/settings/contract', { method: 'PUT', body }),
+  saveSettingsContract: (body) => request('/api/admin/settings/contract', { method: 'POST', body }),
   systemVersion: () => request('/api/admin/system/version'),
   systemUpdates: () => request('/api/admin/system/updates'),
   updateProgress: () => request('/api/admin/system/update-progress'),

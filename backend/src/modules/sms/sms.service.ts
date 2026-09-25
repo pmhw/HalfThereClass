@@ -241,21 +241,55 @@ export class SmsService {
       endpoint: 'https://dysmsapi.aliyuncs.com',
       apiVersion: '2017-05-25',
     });
-    const paramKey = cfg.templateParam || 'code';
-    const result = (await client.request(
-      'SendSms',
-      {
-        PhoneNumbers: phone,
-        SignName: cfg.signName,
-        TemplateCode: cfg.templateCode,
-        TemplateParam: JSON.stringify({ [paramKey]: code }),
-      },
-      { method: 'POST' },
-    )) as { Code?: string; Message?: string };
+    // 签名不要带【】；模板变量名须与控制台完全一致（常见 code）
+    const signName = String(cfg.signName || '')
+      .trim()
+      .replace(/^[【\[]+/, '')
+      .replace(/[】\]]+$/, '');
+    const paramKey = String(cfg.templateParam || 'code').trim() || 'code';
+    const templateCode = String(cfg.templateCode || '').trim();
 
-    if (String(result?.Code || '').toUpperCase() !== 'OK') {
-      const message = result?.Message || '短信发送失败';
-      throw new BadRequestException(message.includes('频率') ? '发送太频繁，请稍后再试' : `短信发送失败：${message}`);
+    let result: { Code?: string; Message?: string; BizId?: string; RequestId?: string };
+    try {
+      result = (await client.request(
+        'SendSms',
+        {
+          PhoneNumbers: phone,
+          SignName: signName,
+          TemplateCode: templateCode,
+          TemplateParam: JSON.stringify({ [paramKey]: code }),
+        },
+        { method: 'POST' },
+      )) as typeof result;
+    } catch (err: any) {
+      const message = String(err?.data?.Message || err?.message || err || '短信发送失败');
+      const codeName = String(err?.data?.Code || err?.code || '');
+      console.error(`[sms] 调用阿里云失败 phone=${phone} code=${codeName} msg=${message}`);
+      throw new BadRequestException(this.mapAliyunError(codeName, message));
     }
+
+    const ok = String(result?.Code || '').toUpperCase() === 'OK';
+    if (!ok) {
+      console.error(`[sms] 阿里云拒绝 phone=${phone} code=${result?.Code} msg=${result?.Message} req=${result?.RequestId}`);
+      throw new BadRequestException(this.mapAliyunError(result?.Code, result?.Message));
+    }
+
+    // Code=OK 只表示受理成功；是否送达看控制台「发送记录」+ BizId
+    console.warn(
+      `[sms] 已受理 phone=${phone} bizId=${result?.BizId || '-'} requestId=${result?.RequestId || '-'} sign=${signName} template=${templateCode} param=${paramKey}`,
+    );
+  }
+
+  private mapAliyunError(code?: string, message?: string) {
+    const c = String(code || '');
+    const m = String(message || '短信发送失败');
+    if (/FREQUENCY|限流|频率/i.test(c + m)) return '发送太频繁，请稍后再试';
+    if (/MOBILE_NUMBER_ILLEGAL|手机号/i.test(c + m)) return '手机号格式不正确或无法发送';
+    if (/AMOUNT|BALANCE|余额|欠费/i.test(c + m)) return '阿里云短信余额不足，请先充值';
+    if (/SIGNATURE|签名/i.test(c + m)) return '短信签名未通过或不匹配，请核对后台「短信签名」（不要加【】）';
+    if (/TEMPLATE|模板/i.test(c + m)) return '短信模板未通过、CODE 错误或变量名不匹配（默认变量名 code）';
+    if (/PERMISSION|Unauthorized|无权限/i.test(c + m)) return 'AccessKey 无短信发送权限，请授权 AliyunDysmsFullAccess';
+    if (/InvalidAccessKey|SignatureDoesNotMatch/i.test(c + m)) return 'AccessKey ID 或 Secret 不正确';
+    return m.includes('短信发送失败') ? m : `短信发送失败：${m}`;
   }
 }

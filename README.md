@@ -55,7 +55,7 @@ sudo journalctl -u halfthereclass -f
 sudo nano /opt/HalfThereClass/backend/.env
 ```
 
-更完整的部署说明见 [DEPLOY.md](./DEPLOY.md)。
+更完整的部署说明见 [DEPLOY.md](./DEPLOY.md)（含**忘记后台密码重置**）。
 
 ## 项目结构
 

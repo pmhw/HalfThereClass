@@ -55,7 +55,7 @@
     <div v-if="showAgreement" class="mask" @click.self="showAgreement = false">
       <div class="sheet">
         <h3>{{ agreementTitle }}</h3>
-        <pre>{{ agreementContent }}</pre>
+        <div class="md" v-html="agreementHtml"></div>
         <button class="btn btn-primary btn-block" type="button" @click="showAgreement = false">知道了</button>
       </div>
     </div>
@@ -68,6 +68,7 @@ import { getAgreement, getSmsStatus, sendSmsCode, smsLogin, updateProfile, uploa
 import { assetUrl, setSession, getUser } from '../store';
 import { lock as freezeLock } from '../utils/freeze';
 import { showToast } from '../api/request';
+import { renderMarkdown } from '../utils/markdown';
 
 const props = defineProps({
   slogan: { type: String, default: '教师端登录' },
@@ -89,6 +90,8 @@ const agreementContent = ref('');
 const showAgreement = ref(false);
 const smsReady = ref(false);
 let timer = 0;
+
+const agreementHtml = computed(() => renderMarkdown(agreementContent.value || ''));
 
 const statusHint = computed(() =>
   smsReady.value
@@ -338,11 +341,33 @@ async function onProfile() {
   padding: calc(32 * var(--r));
 }
 .sheet h3 { margin: 0 0 calc(16 * var(--r)); }
-.sheet pre {
-  white-space: pre-wrap;
+.sheet .md {
+  max-height: 48vh;
+  overflow: auto;
   margin: 0 0 calc(24 * var(--r));
   color: #475467;
-  font-family: inherit;
   font-size: calc(26 * var(--r));
+  line-height: 1.7;
+  -webkit-overflow-scrolling: touch;
 }
+.sheet .md :deep(h1),
+.sheet .md :deep(h2),
+.sheet .md :deep(h3) {
+  color: #111827;
+  font-weight: 700;
+  margin: 0.9em 0 0.4em;
+  line-height: 1.35;
+}
+.sheet .md :deep(p) { margin: 0 0 0.7em; color: #344054; }
+.sheet .md :deep(ul),
+.sheet .md :deep(ol) { margin: 0 0 0.7em; padding-left: 1.2em; }
+.sheet .md :deep(blockquote) {
+  margin: 0 0 0.8em;
+  padding: 0.6em 0.8em;
+  border-left: 3px solid #93c5fd;
+  background: #f8fbff;
+  border-radius: 0 8px 8px 0;
+}
+.sheet .md :deep(blockquote p) { margin: 0; }
+.sheet .md :deep(a) { color: #2563eb; }
 </style>

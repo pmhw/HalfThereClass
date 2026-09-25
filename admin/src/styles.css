@@ -459,6 +459,33 @@ tr.on td { background: #eef4ff; }
 .login-card h1 { margin: 12px 0 6px; font-size: 28px; }
 .login-form { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
 .login-form input { height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; }
+.login-form .password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.login-form .password-field input {
+  width: 100%;
+  padding-right: 64px;
+}
+.login-form .password-toggle {
+  position: absolute;
+  right: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.login-form .password-toggle:hover { color: var(--text); background: #f3f6fb; }
+.login-form .caps-tip {
+  margin: -4px 0 0;
+  color: #b45309;
+  font-size: 12px;
+}
 .login-form .login-submit { height: 44px; border: 0; border-radius: 12px; background: var(--primary); color: #fff; }
 .error { color: var(--red); font-size: 13px; margin: 0; }
 .hint { margin-top: 16px; color: var(--faint); font-size: 12px; }

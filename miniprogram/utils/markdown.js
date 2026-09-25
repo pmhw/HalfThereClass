@@ -8,8 +8,8 @@ function escapeHtml(value) {
 
 function inline(value) {
   return escapeHtml(value)
-    .replace(/`([^`]+)`/g, '<code style="padding:0 4px;background:#f3f5f8;border-radius:4px;">$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="padding:0 4px;background:#f3f5f8;border-radius:4px;font-size:0.92em;">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#111827;font-weight:700;">$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" style="color:#2563eb;">$1</a>');
 }
@@ -19,12 +19,12 @@ function renderMarkdown(source) {
   const html = [];
   let index = 0;
   const block = {
-    h1: 'font-size:20px;font-weight:700;margin:16px 0 8px;color:#111827;',
-    h2: 'font-size:17px;font-weight:700;margin:14px 0 8px;color:#111827;',
-    h3: 'font-size:15px;font-weight:700;margin:12px 0 6px;color:#111827;',
-    p: 'margin:0 0 10px;line-height:1.7;color:#344054;',
-    quote: 'margin:0 0 10px;padding:8px 12px;border-left:3px solid #bfd3fe;background:#f8fbff;color:#475467;',
-    list: 'margin:0 0 10px;padding-left:18px;color:#344054;line-height:1.7;',
+    h1: 'font-size:19px;font-weight:700;margin:18px 0 8px;color:#111827;line-height:1.35;',
+    h2: 'font-size:16px;font-weight:700;margin:16px 0 8px;color:#111827;line-height:1.35;',
+    h3: 'font-size:15px;font-weight:700;margin:14px 0 6px;color:#111827;line-height:1.35;',
+    p: 'margin:0 0 12px;line-height:1.75;color:#344054;font-size:15px;',
+    quote: 'margin:0 0 12px;padding:10px 12px;border-left:3px solid #93c5fd;background:#f8fbff;color:#475467;border-radius:0 8px 8px 0;line-height:1.65;font-size:14px;',
+    list: 'margin:0 0 12px;padding-left:20px;color:#344054;line-height:1.75;font-size:15px;',
   };
   while (index < lines.length) {
     const line = lines[index];
@@ -51,7 +51,7 @@ function renderMarkdown(source) {
     if (/^[-*]\s+/.test(line)) {
       const bits = [];
       while (index < lines.length && /^[-*]\s+/.test(lines[index])) {
-        bits.push(`<li>${inline(lines[index].replace(/^[-*]\s+/, ''))}</li>`);
+        bits.push(`<li style="margin:4px 0;">${inline(lines[index].replace(/^[-*]\s+/, ''))}</li>`);
         index += 1;
       }
       html.push(`<ul style="${block.list}">${bits.join('')}</ul>`);
@@ -60,7 +60,7 @@ function renderMarkdown(source) {
     if (/^\d+\.\s+/.test(line)) {
       const bits = [];
       while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
-        bits.push(`<li>${inline(lines[index].replace(/^\d+\.\s+/, ''))}</li>`);
+        bits.push(`<li style="margin:4px 0;">${inline(lines[index].replace(/^\d+\.\s+/, ''))}</li>`);
         index += 1;
       }
       html.push(`<ol style="${block.list}">${bits.join('')}</ol>`);

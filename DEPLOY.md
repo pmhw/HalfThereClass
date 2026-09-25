@@ -106,6 +106,60 @@ sudo bash scripts/server-ctl.sh logs
 sudo bash scripts/server-ctl.sh env
 sudo bash scripts/server-ctl.sh url
 ```
+
+## 忘记后台密码如何重置
+
+管理后台密码存在 SQLite（`backend/prisma/dev.db`）里，用 bcrypt 哈希存储。忘记后在**服务器上**重置即可（不要用弱口令；至少 10 位）。
+
+```bash
+# 1. 先停服务（可选，避免写入冲突）
+sudo systemctl stop halfthereclass
+
+# 2. 进入程序目录
+cd /opt/HalfThereClass/backend
+
+# 3. 设置新密码与账号（默认账号 admin）
+export NEW_PASS='你的新强密码至少10位'
+export ADMIN_USER=admin
+
+# 4. 用运行用户执行重置（同时解开输错冻结）
+sudo -u halfthere env NEW_PASS="$NEW_PASS" ADMIN_USER="$ADMIN_USER" node -e '
+const {PrismaClient}=require("@prisma/client");
+const bcrypt=require("bcryptjs");
+const p=new PrismaClient();
+(async()=>{
+  const username=process.env.ADMIN_USER||"admin";
+  const password=process.env.NEW_PASS||"";
+  if(password.length<10) throw new Error("密码至少10位");
+  const hash=await bcrypt.hash(password,12);
+  const row=await p.adminAccount.findUnique({where:{username}});
+  if(!row) throw new Error("账号不存在: "+username);
+  await p.adminAccount.update({
+    where:{id:row.id},
+    data:{password:hash, failCount:0, lockedUntil:null, status:1},
+  });
+  console.log("已重置密码:", username);
+  await p.$disconnect();
+})().catch(async e=>{
+  console.error(e.message||e);
+  await p.$disconnect();
+  process.exit(1);
+});
+'
+
+# 5. 清掉环境变量里的明文密码，再启动
+unset NEW_PASS
+sudo systemctl start halfthereclass
+sudo systemctl status halfthereclass --no-pager
+```
+
+说明：
+
+- 若账号不是 `admin`，改 `ADMIN_USER` 即可
+- 连续输错 5 次会冻结 15 分钟；上面脚本会把 `lockedUntil` 清空
+- 重置后用新密码登录后台；旧登录态可能仍有效到 token 过期，不放心可改 `JWT_SECRET` 后重启（会让所有人重新登录）
+- 首次安装若生成过 `INITIAL_ADMIN.txt`，也可先看该文件里的初始密码
+
 ## 本地打包发布
 
 ```bash

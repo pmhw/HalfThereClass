@@ -108,11 +108,9 @@ async function bootstrap() {
       },
       credentials: true,
     });
-  } else if (process.env.NODE_ENV === 'production') {
-    // 生产默认同源：无 Origin 的服务端/小程序请求放行，浏览器跨域需配置 CORS_ORIGIN
-    app.enableCors({ origin: false });
   } else {
-    app.enableCors();
+    // 反射请求 Origin；无 Origin（同源/服务端）一律放行。避免生产 origin:false 导致跨域 Failed to fetch
+    app.enableCors({ origin: true, credentials: true });
   }
 
   const version = resolveVersion();

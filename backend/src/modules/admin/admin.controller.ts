@@ -101,7 +101,13 @@ export class AdminController {
 
   @Put('settings/sms')
   @ApiOperation({ summary: '保存阿里云短信配置' })
-  saveSmsSettings(@Body() body: any) {
+  saveSmsSettingsPut(@Body() body: any) {
+    return this.adminService.saveSmsConfig(body || {});
+  }
+
+  @Post('settings/sms')
+  @ApiOperation({ summary: '保存阿里云短信配置' })
+  saveSmsSettingsPost(@Body() body: any) {
     return this.adminService.saveSmsConfig(body || {});
   }
 
@@ -113,7 +119,13 @@ export class AdminController {
 
   @Put('settings/wx')
   @ApiOperation({ summary: '保存小程序配置' })
-  saveWxSettings(@Body() body: { appId?: string; secret?: string }) {
+  saveWxSettingsPut(@Body() body: { appId?: string; secret?: string }) {
+    return this.adminService.saveWxConfig(body || {});
+  }
+
+  @Post('settings/wx')
+  @ApiOperation({ summary: '保存小程序配置' })
+  saveWxSettingsPost(@Body() body: { appId?: string; secret?: string }) {
     return this.adminService.saveWxConfig(body || {});
   }
 
@@ -125,7 +137,13 @@ export class AdminController {
 
   @Put('settings/amap')
   @ApiOperation({ summary: '保存高德密钥' })
-  saveAmapSettings(@Body() body: { key?: string; security?: string }) {
+  saveAmapSettingsPut(@Body() body: { key?: string; security?: string }) {
+    return this.adminService.saveAmapConfig(body || {});
+  }
+
+  @Post('settings/amap')
+  @ApiOperation({ summary: '保存高德密钥' })
+  saveAmapSettingsPost(@Body() body: { key?: string; security?: string }) {
     return this.adminService.saveAmapConfig(body || {});
   }
 
@@ -137,7 +155,13 @@ export class AdminController {
 
   @Put('settings/agreement')
   @ApiOperation({ summary: '保存用户协议' })
-  saveAgreementSettings(@Body() body: { title?: string; content?: string }) {
+  saveAgreementSettingsPut(@Body() body: { title?: string; content?: string }) {
+    return this.adminService.saveAgreementConfig(body || {});
+  }
+
+  @Post('settings/agreement')
+  @ApiOperation({ summary: '保存用户协议' })
+  saveAgreementSettingsPost(@Body() body: { title?: string; content?: string }) {
     return this.adminService.saveAgreementConfig(body || {});
   }
 
@@ -149,7 +173,13 @@ export class AdminController {
 
   @Put('settings/contract')
   @ApiOperation({ summary: '保存教师服务合同' })
-  saveContractSettings(@Body() body: { title?: string; content?: string }) {
+  saveContractSettingsPut(@Body() body: { title?: string; content?: string }) {
+    return this.adminService.saveContractConfig(body || {});
+  }
+
+  @Post('settings/contract')
+  @ApiOperation({ summary: '保存教师服务合同' })
+  saveContractSettingsPost(@Body() body: { title?: string; content?: string }) {
     return this.adminService.saveContractConfig(body || {});
   }
 

@@ -89,7 +89,8 @@
           <button class="modal-close" type="button" @click="close">×</button>
         </header>
         <form class="form" @submit.prevent="saveSms">
-          <p class="muted">用于手机网页端（/m/）验证码注册登录。请在阿里云短信服务开通国内短信，创建签名与验证码模板（模板变量建议为 code）。</p>
+          <p class="muted">用于手机网页端（/m/）验证码注册登录。请在阿里云短信控制台开通国内短信，并使用<strong>已审核通过</strong>的签名与「验证码」类模板。</p>
+          <p class="muted">注意：接口提示成功只代表阿里云已受理；若手机收不到，请到阿里云控制台「国内消息 → 发送记录」用手机号查询，并核对：①签名不要加【】②模板 CODE 正确③模板变量名与下方一致（多为 <code>code</code>）④账户有余额⑤签名已关联该模板。</p>
           <label class="check">
             <input v-model="draft.enabled" type="checkbox" />
             <span>启用短信登录</span>
@@ -101,13 +102,13 @@
             <input v-model="draft.accessKeySecret" :required="draft.enabled && !sms.hasSecret" :placeholder="sms.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 Secret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
           </label>
           <label>短信签名
-            <input v-model="draft.signName" :required="draft.enabled" placeholder="控制台审核通过的签名" autocomplete="off" />
+            <input v-model="draft.signName" :required="draft.enabled" placeholder="控制台里的签名，不要写【】" autocomplete="off" />
           </label>
           <label>模板 CODE
             <input v-model="draft.templateCode" :required="draft.enabled" placeholder="SMS_…" autocomplete="off" />
           </label>
           <label>模板变量名
-            <input v-model="draft.templateParam" placeholder="默认 code" autocomplete="off" />
+            <input v-model="draft.templateParam" placeholder="须与模板一致，默认 code" autocomplete="off" />
           </label>
           <p v-if="dialogError" class="error">{{ dialogError }}</p>
           <div class="form-actions">
@@ -298,7 +299,14 @@ async function saveSms() {
   saving.value = true;
   dialogError.value = '';
   try {
-    sms.value = await api.saveSettingsSms(draft.value);
+    sms.value = await api.saveSettingsSms({
+      enabled: !!draft.value.enabled,
+      accessKeyId: String(draft.value.accessKeyId || '').trim(),
+      accessKeySecret: String(draft.value.accessKeySecret || '').trim(),
+      signName: String(draft.value.signName || '').trim(),
+      templateCode: String(draft.value.templateCode || '').trim(),
+      templateParam: String(draft.value.templateParam || 'code').trim() || 'code',
+    });
     close();
   } catch (err) {
     dialogError.value = err.message;

@@ -1,8 +1,15 @@
 <view class="page">
   <view class="card done" wx:if="{{paper.signed}}">
-    <view class="h">合同已签订</view>
+    <view class="badge">已签订</view>
+    <view class="h">{{paper.title || '教师服务合同'}}</view>
     <view class="sub">现在可以抢课，后台也可以把课程安排给你</view>
-    <image wx:if="{{paper.sign}}" class="sign-img" src="{{signUrl}}" mode="aspectFit"></image>
+    <scroll-view scroll-y class="body signed-body" enhanced="{{true}}" show-scrollbar="{{true}}">
+      <rich-text nodes="{{html}}"></rich-text>
+    </scroll-view>
+    <view wx:if="{{signUrl}}" class="sign-box">
+      <view class="sign-label">我的签名</view>
+      <image class="sign-img" src="{{signUrl}}" mode="aspectFit"></image>
+    </view>
   </view>
 
   <view class="card wait" wx:elif="{{paper.status && paper.status !== 'approved' && loaded}}">
@@ -13,8 +20,11 @@
 
   <block wx:elif="{{loaded}}">
     <view class="card paper">
-      <view class="title">{{paper.title}}</view>
-      <scroll-view scroll-y class="body">
+      <view class="paper-head">
+        <view class="seal">合同</view>
+        <view class="title">{{paper.title}}</view>
+      </view>
+      <scroll-view scroll-y class="body" enhanced="{{true}}" show-scrollbar="{{true}}">
         <rich-text nodes="{{html}}"></rich-text>
       </scroll-view>
     </view>
