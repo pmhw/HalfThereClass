@@ -1,6 +1,14 @@
 <template>
   <section>
     <div class="page-head"><div><h1>订单管理</h1><p>微信支付产生的课程订单</p></div></div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="7"
+      filters
+      @retry="load"
+    >
     <div class="filters">
       <button v-for="item in options" :key="item.value" class="chip" :class="{ on: status === item.value }" @click="setStatus(item.value)">{{ item.label }}</button>
     </div>
@@ -30,23 +38,24 @@
       </table>
       <Pager :page="result.pagination.page" :total-pages="result.pagination.totalPages" :total="result.pagination.total" @change="changePage" />
     </article>
-    <div v-if="detail" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>{{ detail.orderNo }}</h3>
-          <button class="modal-close" type="button" @click="detail = null">×</button>
-        </header>
-        <div class="kv">
-          <span>用户</span><div>{{ detail.user?.nickname || '—' }}</div>
-          <span>课程</span><div>{{ detail.course?.title || '—' }}</div>
-          <span>应付</span><div>{{ money(detail.amount) }}</div>
-          <span>实付</span><div>{{ detail.payAmount == null ? '—' : money(detail.payAmount) }}</div>
-          <span>方式</span><div>{{ detail.payType === 'wechat' ? '微信支付' : '—' }}</div>
-          <span>交易号</span><div>{{ detail.transactionId || '—' }}</div>
-          <span>下单时间</span><div>{{ dateTime(detail.createdAt) }}</div>
-        </div>
+    </PageLoad>
+    <PageModal
+      :open="!!detail"
+      size="narrow"
+      :title="detail?.orderNo || '订单详情'"
+      icon="receipt"
+      @close="detail = null"
+    >
+      <div class="kv">
+        <span>用户</span><div>{{ detail.user?.nickname || '—' }}</div>
+        <span>课程</span><div>{{ detail.course?.title || '—' }}</div>
+        <span>应付</span><div>{{ money(detail.amount) }}</div>
+        <span>实付</span><div>{{ detail.payAmount == null ? '—' : money(detail.payAmount) }}</div>
+        <span>方式</span><div>{{ detail.payType === 'wechat' ? '微信支付' : '—' }}</div>
+        <span>交易号</span><div>{{ detail.transactionId || '—' }}</div>
+        <span>下单时间</span><div>{{ dateTime(detail.createdAt) }}</div>
       </div>
-    </div>
+    </PageModal>
   </section>
 </template>
 
@@ -57,12 +66,16 @@ import { api } from '../api';
 import { dateTime, money, orderStatusText } from '../format';
 import Pager from '../components/Pager.vue';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const route = useRoute();
 const keyword = ref('');
 const status = ref(route.query.status || '');
 const page = ref(1);
 const detail = ref(null);
+const { loading, ready, error, run } = usePageLoad();
 const result = ref({ list: [], pagination: { page: 1, totalPages: 1, total: 0 } });
 const options = [
   { label: '全部', value: '' },
@@ -73,7 +86,9 @@ const options = [
 ];
 
 async function load() {
-  result.value = await api.orders({ page: page.value, pageSize: 8, keyword: keyword.value, status: status.value });
+  await run(async () => {
+    result.value = await api.orders({ page: page.value, pageSize: 8, keyword: keyword.value, status: status.value });
+  });
 }
 function reload() { page.value = 1; load(); }
 function setStatus(value) { status.value = value; reload(); }

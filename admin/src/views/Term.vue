@@ -17,6 +17,15 @@
         </span>
       </div>
     </div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="5"
+      kpis
+      :kpi-count="4"
+      @retry="load"
+    >
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="muted">{{ notice }}</p>
 
@@ -101,30 +110,6 @@
       </div>
     </article>
 
-    <div v-if="dayDetail" class="modal-mask">
-      <div class="modal" role="dialog">
-        <header>
-          <div>
-            <h3>{{ dayDetail.date }}</h3>
-            <p class="muted">{{ daySummary(dayDetail) }}</p>
-          </div>
-          <button class="modal-close" type="button" @click="dayDate = ''">×</button>
-        </header>
-        <div class="form">
-          <p v-if="dayDetail.holiday" class="muted">{{ dayDetail.holiday.name }}，生成课表时会跳过这一天。</p>
-          <p v-else-if="dayDetail.weekend" class="muted">周末，生成课表时会跳过。</p>
-          <div v-if="!dayDetail.sessions.length" class="empty">这一天没有排课</div>
-          <div v-for="item in dayDetail.sessions" :key="item.id" class="day-row">
-            <div>
-              <strong>{{ item.course?.title || '课程' }}</strong>
-              <p>{{ item.startTime }}<template v-if="item.endTime"> - {{ item.endTime }}</template> · {{ hoursText(item) }}</p>
-            </div>
-            <ActionBtn v-if="!ended" icon="pencil" tip="调整" @click="openSession(item)" />
-          </div>
-        </div>
-      </div>
-    </div>
-
     <article class="card panel" style="margin-top: 16px">
       <h2><Icon name="chart" /> 学期记录</h2>
       <p class="muted">结束后按年份和学期留存，例如 26秋、27春。有课次的学期不能删除。</p>
@@ -167,109 +152,126 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
 
-    <div v-if="form" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>{{ form.id ? '编辑学期' : '新增学期' }}</h3>
-          <button class="modal-close" type="button" @click="form = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveSemester">
-          <label>名称<input v-model="form.name" required /></label>
-          <div class="form-row">
-            <label>年份<input v-model.number="form.year" type="number" required /></label>
-            <label>季节
-              <select v-model="form.season">
-                <option value="autumn">秋季（排到放寒假前）</option>
-                <option value="spring">春季（排到放暑假前）</option>
-              </select>
-            </label>
+    <PageModal
+      :open="!!dayDetail"
+      :title="dayDetail?.date || ''"
+      :desc="dayDetail ? daySummary(dayDetail) : ''"
+      @close="dayDate = ''"
+    >
+      <div class="form">
+        <p v-if="dayDetail.holiday" class="muted">{{ dayDetail.holiday.name }}，生成课表时会跳过这一天。</p>
+        <p v-else-if="dayDetail.weekend" class="muted">周末，生成课表时会跳过。</p>
+        <div v-if="!dayDetail.sessions.length" class="empty">这一天没有排课</div>
+        <div v-for="item in dayDetail.sessions" :key="item.id" class="day-row">
+          <div>
+            <strong>{{ item.course?.title || '课程' }}</strong>
+            <p>{{ item.startTime }}<template v-if="item.endTime"> - {{ item.endTime }}</template> · {{ hoursText(item) }}</p>
           </div>
-          <div class="form-row">
-            <label>开始<input v-model="form.startDate" type="date" required /></label>
-            <label>结束<input v-model="form.endDate" type="date" required /></label>
-          </div>
-          <p class="muted">结束日期就是生成截止日。秋季请设成放寒假的前一天。</p>
-          <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">保存</button>
-            <button class="btn" type="button" @click="form = null">取消</button>
-          </div>
-        </form>
+          <ActionBtn v-if="!ended" icon="pencil" tip="调整" @click="openSession(item)" />
+        </div>
       </div>
-    </div>
-    <Confirm :open="!!pending" :message="pending ? `确定删除「${pending.label || pending.name}」？没有课次的空学期才会被删除。` : ''" @cancel="pending = null" @ok="doRemoveSemester" />
+    </PageModal>
 
-    <div v-if="slotForm" class="modal-mask">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>生成课表</h3>
-          <button class="modal-close" type="button" @click="slotForm = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="generate">
-          <p class="muted">按分类、学校逐级筛出课程，再给这一门课设置每周上课时间。周末和节假日不计入次数。</p>
-          <div class="form-row">
-            <label>分类
-              <select v-model="pickCategory" @change="onPickCategory">
-                <option value="">全部分类</option>
-                <option v-for="item in categories" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
-              </select>
-            </label>
-            <label>学校
-              <select v-model="pickSchool" @change="onPickSchool">
-                <option value="">全部学校</option>
-                <option v-for="item in schoolOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
-              </select>
-            </label>
-          </div>
-          <label>课程
-            <select v-model="slotForm.courseId" required>
-              <option disabled value="">请选择课程</option>
-              <option v-for="item in filteredCourses" :key="item.id" :value="String(item.id)">{{ item.title }}</option>
+    <PageModal
+      :open="!!form"
+      size="narrow"
+      :title="form?.id ? '编辑学期' : '新增学期'"
+      @close="form = null"
+    >
+      <form class="form" @submit.prevent="saveSemester">
+        <label>名称<input v-model="form.name" required /></label>
+        <div class="form-row">
+          <label>年份<input v-model.number="form.year" type="number" required /></label>
+          <label>季节
+            <select v-model="form.season">
+              <option value="autumn">秋季（排到放寒假前）</option>
+              <option value="spring">春季（排到放暑假前）</option>
             </select>
           </label>
-          <label>生成次数<input v-model.number="slotForm.count" type="number" min="1" max="200" required /></label>
-          <div v-for="(slot, index) in slotForm.slots" :key="index" class="slot-row">
-            <label>星期
-              <select v-model="slot.weekday">
-                <option v-for="day in 5" :key="day" :value="String(day)">{{ weekNames[day] }}</option>
-              </select>
-            </label>
-            <label>开始<input v-model="slot.startTime" type="time" required /></label>
-            <label>结束<input v-model="slot.endTime" type="time" /></label>
-            <button class="btn" type="button" :disabled="slotForm.slots.length === 1" @click="slotForm.slots.splice(index, 1)">删除</button>
-          </div>
-          <button class="btn" type="button" @click="slotForm.slots.push({ weekday: '3', startTime: '19:00', endTime: '20:00' })">再加一节</button>
-          <p v-if="!filteredCourses.length" class="muted">这个分类和学校下还没有上架课程</p>
-          <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="!!generatingId">{{ generatingId ? '生成中' : '按次数生成' }}</button>
-            <button class="btn" type="button" @click="slotForm = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        <div class="form-row">
+          <label>开始<input v-model="form.startDate" type="date" required /></label>
+          <label>结束<input v-model="form.endDate" type="date" required /></label>
+        </div>
+        <p class="muted">结束日期就是生成截止日。秋季请设成放寒假的前一天。</p>
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <button class="btn" type="button" @click="form = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
+    <Confirm :open="!!pending" :message="pending ? `确定删除「${pending.label || pending.name}」？没有课次的空学期才会被删除。` : ''" @cancel="pending = null" @ok="doRemoveSemester" />
 
-    <div v-if="editing" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>调整「{{ editing.title }}」</h3>
-          <button class="modal-close" type="button" @click="editing = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveSession">
-          <label>日期<input v-model="editing.date" type="date" required /></label>
-          <div class="form-row">
-            <label>开始<input v-model="editing.startTime" type="time" required /></label>
-            <label>结束<input v-model="editing.endTime" type="time" /></label>
-          </div>
-          <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">保存这一节</button>
-            <button class="btn danger" type="button" @click="removeSession">删除这一节</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PageModal
+      :open="!!slotForm"
+      title="生成课表"
+      @close="slotForm = null"
+    >
+      <form class="form" @submit.prevent="generate">
+        <p class="muted">按分类、学校逐级筛出课程，再给这一门课设置每周上课时间。周末和节假日不计入次数。</p>
+        <div class="form-row">
+          <label>分类
+            <select v-model="pickCategory" @change="onPickCategory">
+              <option value="">全部分类</option>
+              <option v-for="item in categories" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
+            </select>
+          </label>
+          <label>学校
+            <select v-model="pickSchool" @change="onPickSchool">
+              <option value="">全部学校</option>
+              <option v-for="item in schoolOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+        </div>
+        <label>课程
+          <select v-model="slotForm.courseId" required>
+            <option disabled value="">请选择课程</option>
+            <option v-for="item in filteredCourses" :key="item.id" :value="String(item.id)">{{ item.title }}</option>
+          </select>
+        </label>
+        <label>生成次数<input v-model.number="slotForm.count" type="number" min="1" max="200" required /></label>
+        <div v-for="(slot, index) in slotForm.slots" :key="index" class="slot-row">
+          <label>星期
+            <select v-model="slot.weekday">
+              <option v-for="day in 5" :key="day" :value="String(day)">{{ weekNames[day] }}</option>
+            </select>
+          </label>
+          <label>开始<input v-model="slot.startTime" type="time" required /></label>
+          <label>结束<input v-model="slot.endTime" type="time" /></label>
+          <button class="btn" type="button" :disabled="slotForm.slots.length === 1" @click="slotForm.slots.splice(index, 1)">删除</button>
+        </div>
+        <button class="btn" type="button" @click="slotForm.slots.push({ weekday: '3', startTime: '19:00', endTime: '20:00' })">再加一节</button>
+        <p v-if="!filteredCourses.length" class="muted">这个分类和学校下还没有上架课程</p>
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="!!generatingId">{{ generatingId ? '生成中' : '按次数生成' }}</button>
+          <button class="btn" type="button" @click="slotForm = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
+
+    <PageModal
+      :open="!!editing"
+      size="narrow"
+      :title="editing ? `调整「${editing.title}」` : ''"
+      @close="editing = null"
+    >
+      <form class="form" @submit.prevent="saveSession">
+        <label>日期<input v-model="editing.date" type="date" required /></label>
+        <div class="form-row">
+          <label>开始<input v-model="editing.startTime" type="time" required /></label>
+          <label>结束<input v-model="editing.endTime" type="time" /></label>
+        </div>
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">保存这一节</button>
+          <button class="btn danger" type="button" @click="removeSession">删除这一节</button>
+        </div>
+      </form>
+    </PageModal>
   </section>
 </template>
 
@@ -280,6 +282,9 @@ import { api } from '../api';
 import Icon from '../components/Icon.vue';
 import Confirm from '../components/Confirm.vue';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const semesters = ref([]);
 const holidays = ref([]);
@@ -288,7 +293,7 @@ const categories = ref([]);
 const pickCategory = ref('');
 const pickSchool = ref('');
 const currentId = ref(null);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const form = ref(null);
 const formError = ref('');
@@ -617,8 +622,8 @@ async function removeSession() {
   }
 }
 
-onMounted(async () => {
-  try {
+async function load() {
+  await run(async () => {
     const [data, categoryList] = await Promise.all([
       api.courses({ page: 1, pageSize: 100, status: '1' }),
       api.categories(),
@@ -633,8 +638,8 @@ onMounted(async () => {
     if (item && !ended.value) openGenerate(item);
     else if (!item) notice.value = '这门课还没上架，上架后才能生成课表';
     else notice.value = '当前学期已结束，不能再生成';
-  } catch (err) {
-    error.value = err.message;
-  }
-});
+  });
+}
+
+onMounted(load);
 </script>

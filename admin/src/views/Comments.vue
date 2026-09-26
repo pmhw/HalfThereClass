@@ -1,6 +1,14 @@
 <template>
   <section>
     <div class="page-head"><div><h1>评价管理</h1><p>学员购买课程后提交的评分和评价</p></div></div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="6"
+      filters
+      @retry="load"
+    >
     <div class="toolbar">
       <div class="field"><input v-model="keyword" placeholder="搜索评价、课程或用户" @keyup.enter="reload" /></div>
       <button class="btn" @click="reload">搜索</button>
@@ -22,6 +30,7 @@
       </table>
       <Pager :page="result.pagination.page" :total-pages="result.pagination.totalPages" :total="result.pagination.total" @change="changePage" />
     </article>
+    </PageLoad>
   </section>
 </template>
 
@@ -30,12 +39,18 @@ import { onMounted, ref } from 'vue';
 import { api } from '../api';
 import { dateTime } from '../format';
 import Pager from '../components/Pager.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const keyword = ref('');
 const page = ref(1);
+const { loading, ready, error, run } = usePageLoad();
 const result = ref({ list: [], pagination: { page: 1, totalPages: 1, total: 0 } });
+
 async function load() {
-  result.value = await api.comments({ page: page.value, pageSize: 8, keyword: keyword.value });
+  await run(async () => {
+    result.value = await api.comments({ page: page.value, pageSize: 8, keyword: keyword.value });
+  });
 }
 function reload() { page.value = 1; load(); }
 function changePage(next) { page.value = next; load(); }

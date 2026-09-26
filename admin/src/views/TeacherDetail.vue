@@ -1,18 +1,19 @@
 <template>
-  <section v-if="detail">
+  <section>
     <div class="page-head">
       <div>
         <p class="crumb">师资管理 / 教师资料</p>
-        <h1>
+        <h1 v-if="detail">
           {{ detail.realName || detail.nickname }}
           <span v-if="detail.certStatus === 'approved'" class="tag green">认证教师</span>
           <span v-if="detail.contractValid" class="tag green">合同有效</span>
           <span v-else-if="detail.contractPending" class="tag amber">合同待审</span>
           <span v-else-if="detail.contractDue" class="tag amber">需重签合同</span>
         </h1>
-        <p>{{ detail.phone || '未留手机号' }} · {{ detail.organization?.name || '未绑定机构' }} · {{ detail.semesterName || '未设学期' }}</p>
+        <h1 v-else>教师资料</h1>
+        <p v-if="detail">{{ detail.phone || '未留手机号' }} · {{ detail.organization?.name || '未绑定机构' }} · {{ detail.semesterName || '未设学期' }}</p>
       </div>
-      <div class="actions">
+      <div v-if="detail" class="actions">
         <router-link class="btn" to="/faculty">返回列表</router-link>
         <button
           v-if="detail.contractValid || detail.contractPending"
@@ -23,6 +24,15 @@
         <button class="btn" type="button" @click="freeze">{{ detail.status === 1 ? '冻结账号' : '解除冻结' }}</button>
       </div>
     </div>
+
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="3"
+      :rows="4"
+      @retry="load"
+    >
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="ok-tip">{{ notice }}</p>
 
@@ -152,35 +162,31 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
 
-    <div v-if="preview" class="modal-mask" @click.self="preview = null">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>{{ preview.label }}</h3>
-          <button class="modal-close" type="button" @click="preview = null">×</button>
-        </header>
-        <div class="form files">
-          <a v-if="preview.url" :href="preview.url" target="_blank" rel="noreferrer">新窗口打开</a>
-          <img v-if="preview.url && !preview.pdf" :src="preview.url" alt="" />
-        </div>
+    <PageModal
+      :open="!!preview"
+      :title="preview?.label || ''"
+      @close="preview = null"
+    >
+      <div class="form files">
+        <a v-if="preview.url" :href="preview.url" target="_blank" rel="noreferrer">新窗口打开</a>
+        <img v-if="preview.url && !preview.pdf" :src="preview.url" alt="" />
       </div>
-    </div>
+    </PageModal>
 
-    <div v-if="contractView" class="modal-mask" @click.self="contractView = null">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>{{ contractView.title }}</h3>
-          <button class="modal-close" type="button" @click="contractView = null">×</button>
-        </header>
-        <div class="form">
-          <pre class="contract-body">{{ contractView.body }}</pre>
-          <div v-if="contractView.courseAnnex" class="muted">附件课程：{{ contractView.courseAnnex }}</div>
-          <img v-if="contractView.signPath" class="sign-preview" :src="asset(contractView.signPath)" alt="签名" />
-        </div>
+    <PageModal
+      :open="!!contractView"
+      :title="contractView?.title || ''"
+      @close="contractView = null"
+    >
+      <div class="form">
+        <pre class="contract-body">{{ contractView.body }}</pre>
+        <div v-if="contractView.courseAnnex" class="muted">附件课程：{{ contractView.courseAnnex }}</div>
+        <img v-if="contractView.signPath" class="sign-preview" :src="asset(contractView.signPath)" alt="签名" />
       </div>
-    </div>
+    </PageModal>
   </section>
-  <div v-else class="empty">{{ error || '加载中…' }}</div>
 </template>
 
 <script setup>
@@ -188,10 +194,13 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const route = useRoute();
 const detail = ref(null);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const tab = ref('基本资料');
 const tabs = ['基本资料', '认证资料', '合同记录', '所属机构', '上级关系', '课程授权', '收入记录'];
@@ -234,14 +243,11 @@ function contractStatusText(status) {
   })[status] || status;
 }
 async function load() {
-  error.value = '';
-  try {
+  await run(async () => {
     detail.value = await api.facultyDetail(route.params.id);
     orgId.value = detail.value.organization ? String(detail.value.organization.id) : '';
     parentId.value = detail.value.parent ? String(detail.value.parent.id) : '';
-  } catch (err) {
-    error.value = err.message;
-  }
+  });
 }
 async function saveOrg() {
   try {

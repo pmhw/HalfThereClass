@@ -376,6 +376,24 @@ export class AdminController {
     return this.adminService.deleteCourses(body?.ids || [], req.admin);
   }
 
+  @Post('courses/batch-update')
+  @ApiOperation({ summary: '批量更新课程字段（年级/分类/状态）' })
+  patchCourses(@Req() req: any, @Body() body: any) {
+    return this.adminService.patchCourses(body?.ids || [], body || {}, req.admin);
+  }
+
+  @Post('courses/batch-generate')
+  @ApiOperation({ summary: '按年级批量生成课程' })
+  generateCourses(@Req() req: any, @Body() body: any) {
+    return this.adminService.generateCourses(body || {}, req.admin);
+  }
+
+  @Post('courses/batch-copy')
+  @ApiOperation({ summary: '批量复制课程' })
+  copyCourses(@Req() req: any, @Body() body: { ids?: number[] }) {
+    return this.adminService.copyCourses(body?.ids || [], req.admin);
+  }
+
   @Get('teachers')
   @ApiOperation({ summary: '可选老师' })
   getTeachers() {

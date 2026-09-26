@@ -50,13 +50,17 @@ model Category {
   icon        String?   @map("icon")
   sort        Int       @default(0) @map("sort")
   status      Int       @default(1) @map("status")
+  parentId    Int?      @map("parent_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   ownerId     Int?      @map("owner_id")
 
   courses     Course[]
   owner       AdminAccount? @relation("SchoolCategories", fields: [ownerId], references: [id], onDelete: SetNull)
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryTree")
 
   @@index([ownerId])
+  @@index([parentId])
   @@map("categories")
 }
 

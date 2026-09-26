@@ -6,6 +6,13 @@
         <p>实名材料、无犯罪证明与每学期合同审核。合同按学期生效，历史签名全部保留。</p>
       </div>
     </div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="6"
+      @retry="load"
+    >
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="ok-tip">{{ notice }}</p>
 
@@ -85,70 +92,64 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
 
-    <div v-if="viewing" class="modal-mask" @click.self="viewing = null">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>{{ viewing.realName }}的材料</h3>
-          <button class="modal-close" type="button" @click="viewing = null">×</button>
-        </header>
-        <div class="form files">
-          <p class="muted">教师资格证不是必填。无犯罪证明按当前学期审核，{{ viewing.semesterName || '未设置学期时不强制更新' }}。</p>
-          <div class="file-grid">
-            <button v-for="file in filesOf(viewing)" :key="file.label" type="button" class="file-card" @click="previewFile = file">
-              <strong>{{ file.label }}</strong>
-              <img v-if="file.url && !file.pdf" :src="file.url" alt="" />
-              <span v-else-if="file.url" class="muted">PDF 文件 · 点击预览</span>
-              <span v-else class="muted">未上传</span>
-            </button>
-          </div>
+    <PageModal
+      :open="!!viewing"
+      :title="viewing ? `${viewing.realName}的材料` : ''"
+      @close="viewing = null"
+    >
+      <div class="form files">
+        <p class="muted">教师资格证不是必填。无犯罪证明按当前学期审核，{{ viewing.semesterName || '未设置学期时不强制更新' }}。</p>
+        <div class="file-grid">
+          <button v-for="file in filesOf(viewing)" :key="file.label" type="button" class="file-card" @click="previewFile = file">
+            <strong>{{ file.label }}</strong>
+            <img v-if="file.url && !file.pdf" :src="file.url" alt="" />
+            <span v-else-if="file.url" class="muted">PDF 文件 · 点击预览</span>
+            <span v-else class="muted">未上传</span>
+          </button>
         </div>
       </div>
-    </div>
+    </PageModal>
 
-    <div v-if="previewFile" class="modal-mask" @click.self="previewFile = null">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>{{ previewFile.label }}</h3>
-          <button class="modal-close" type="button" @click="previewFile = null">×</button>
-        </header>
-        <div class="form files">
-          <a v-if="previewFile.url" :href="previewFile.url" target="_blank" rel="noreferrer">新窗口打开</a>
-          <img v-if="previewFile.url && !previewFile.pdf" :src="previewFile.url" alt="" />
+    <PageModal
+      :open="!!previewFile"
+      :title="previewFile?.label || ''"
+      @close="previewFile = null"
+    >
+      <div class="form files">
+        <a v-if="previewFile.url" :href="previewFile.url" target="_blank" rel="noreferrer">新窗口打开</a>
+        <img v-if="previewFile.url && !previewFile.pdf" :src="previewFile.url" alt="" />
+      </div>
+    </PageModal>
+
+    <PageModal
+      :open="!!contractView"
+      :title="contractView?.title || ''"
+      @close="contractView = null"
+    >
+      <div class="form">
+        <pre class="contract-body">{{ contractView.body }}</pre>
+        <div v-if="contractView.courseAnnex" class="muted">附件课程：{{ contractView.courseAnnex }}</div>
+        <div v-if="contractView.rejectReason" class="muted">备注：{{ contractView.rejectReason }}</div>
+        <img v-if="contractView.signPath" class="sign-preview" :src="protectedAssetUrl(contractView.signPath)" alt="签名" />
+      </div>
+    </PageModal>
+
+    <PageModal
+      :open="!!rejecting"
+      size="narrow"
+      title="驳回认证"
+      @close="rejecting = null"
+    >
+      <form class="form" @submit.prevent="review(rejecting, 'reject')">
+        <label>驳回原因<textarea v-model="reason" required placeholder="请填写驳回原因"></textarea></label>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">确认驳回</button>
+          <button class="btn" type="button" @click="rejecting = null">取消</button>
         </div>
-      </div>
-    </div>
-
-    <div v-if="contractView" class="modal-mask" @click.self="contractView = null">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>{{ contractView.title }}</h3>
-          <button class="modal-close" type="button" @click="contractView = null">×</button>
-        </header>
-        <div class="form">
-          <pre class="contract-body">{{ contractView.body }}</pre>
-          <div v-if="contractView.courseAnnex" class="muted">附件课程：{{ contractView.courseAnnex }}</div>
-          <div v-if="contractView.rejectReason" class="muted">备注：{{ contractView.rejectReason }}</div>
-          <img v-if="contractView.signPath" class="sign-preview" :src="protectedAssetUrl(contractView.signPath)" alt="签名" />
-        </div>
-      </div>
-    </div>
-
-    <div v-if="rejecting" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>驳回认证</h3>
-          <button class="modal-close" type="button" @click="rejecting = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="review(rejecting, 'reject')">
-          <label>驳回原因<textarea v-model="reason" required placeholder="请填写驳回原因"></textarea></label>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">确认驳回</button>
-            <button class="btn" type="button" @click="rejecting = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </PageModal>
   </section>
 </template>
 
@@ -156,10 +157,13 @@
 import { computed, onMounted, ref } from 'vue';
 import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const list = ref([]);
 const contracts = ref([]);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const rejecting = ref(null);
 const reason = ref('资料不完整');
@@ -214,14 +218,12 @@ function filesOf(item) {
 }
 function openReject(item) { rejecting.value = item; reason.value = '资料不完整'; }
 async function load() {
-  try {
+  await run(async () => {
     const [certs, rows] = await Promise.all([api.certs(), api.contracts()]);
     list.value = certs;
     contracts.value = rows;
     if (pendingContracts.value.length) tab.value = tab.value || 'contracts';
-  } catch (err) {
-    error.value = err.message;
-  }
+  });
 }
 async function review(item, action) {
   if (action === 'reject' && !reason.value.trim()) return;

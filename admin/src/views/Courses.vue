@@ -11,6 +11,15 @@
         <button class="btn primary" @click="openForm()">+ 新增课程</button>
       </div>
     </div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="schoolAccount ? 8 : 11"
+      kpis
+      filters
+      @retry="load"
+    >
     <div class="course-kpis">
       <article v-for="item in summary" :key="item.label" class="card course-kpi">
         <span :class="['kpi-icon', item.tone]"><Icon :name="item.icon" /></span>
@@ -59,22 +68,36 @@
       <button class="btn" type="button" @click="resetFilters">重置</button>
       <button class="btn primary" type="button" @click="reload"><Icon name="search" />搜索</button>
       <button class="btn danger" :disabled="!selected.length" @click="askRemoveSelected">批量删除{{ selected.length ? `（${selected.length}）` : '' }}</button>
+      <button class="btn" type="button" @click="openGenerate">批量生成</button>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="ok-tip">{{ notice }}</p>
+    <div v-if="selected.length" class="batch-bar">
+      <strong>已选择 {{ selected.length }} 门课程</strong>
+      <button class="btn" type="button" @click="openBatchGrade">批量设置年级</button>
+      <button class="btn" type="button" @click="openBatchCategory">批量设置分类</button>
+      <button class="btn" type="button" @click="openBatchStatus">批量设置状态</button>
+      <button class="btn" type="button" @click="doBatchCopy">批量复制</button>
+      <button class="btn" type="button" @click="selected = []">取消选择</button>
+    </div>
     <article class="card">
       <table>
         <thead>
-          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>年级</th><th>分类</th><th>老师</th><th>学期</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th class="col-actions">操作</th></tr>
+          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!result.list.length" @change="toggleAll" /></th><th>课程</th><th>年级</th><th>分类</th><th>老师</th><th>学期</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th class="col-actions">操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
-            <td class="check-col"><input type="checkbox" :disabled="!canDelete(item)" :checked="selected.includes(item.id)" :title="lockReason(item)" @change="toggle(item)" /></td>
+            <td class="check-col"><input type="checkbox" :checked="selected.includes(item.id)" @change="toggle(item)" /></td>
             <td>
               <div class="course-cell"><span class="thumb">课</span><span>{{ item.title }}</span></div>
             </td>
-            <td>{{ item.gradeLabel || '—' }}</td>
-            <td>{{ item.category?.name || '—' }}</td>
+            <td class="cell-edit">
+              <GradePicker :model-value="item.gradeLabel || ''" @change="(v) => saveQuick(item, { gradeLabel: v })" />
+            </td>
+            <td class="cell-edit">
+              <select class="inline-select" :value="item.categoryId" @change="saveQuick(item, { categoryId: Number($event.target.value) })">
+                <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+              </select>
+            </td>
             <td>
               <router-link
                 v-if="item.teacher?.id"
@@ -87,7 +110,12 @@
             <td v-if="!schoolAccount">{{ item.owner?.name || '—' }}</td>
             <td>{{ item.isFree ? '免费' : money(item.price) }}</td>
             <td v-if="!schoolAccount">{{ item.sessionFee == null ? '—' : money(item.sessionFee) }}</td>
-            <td><span :class="['tag', item.status === 1 ? 'green' : '']">{{ item.status === 1 ? '上架' : '下架' }}</span></td>
+            <td class="cell-edit">
+              <select class="inline-select" :value="item.status" @change="saveQuick(item, { status: Number($event.target.value) })">
+                <option :value="1">上架</option>
+                <option :value="0">下架</option>
+              </select>
+            </td>
             <td class="col-actions">
               <div class="row-actions">
                 <ActionBtn
@@ -132,199 +160,267 @@
       </table>
       <Pager :page="result.pagination.page" :total-pages="result.pagination.totalPages" :total="result.pagination.total" :page-size="pageSize" :sizes="[10, 20, 50]" @change="changePage" @size="changeSize" />
     </article>
+    </PageLoad>
 
-    <div v-if="form" class="modal-mask">
-      <div class="modal course-dialog" role="dialog">
-        <header class="course-head">
-          <div class="course-head-main">
-            <span class="course-mark"><Icon name="book" /></span>
-            <div>
-              <h3>{{ form.id ? '编辑课程' : '新增课程' }}</h3>
-              <p>{{ form.id ? '修改课程信息，设置课程内容与授课安排' : '创建新的课程信息，设置课程内容与授课安排' }}</p>
-            </div>
+    <PageModal
+      :open="!!form"
+      size="wide"
+      @close="form = null"
+    >
+      <template #title>
+        <div class="course-head-main">
+          <span class="course-mark"><Icon name="book" /></span>
+          <div>
+            <h3>{{ form.id ? '编辑课程' : '新增课程' }}</h3>
+            <p>{{ form.id ? '修改课程信息，设置课程内容与授课安排' : '创建新的课程信息，设置课程内容与授课安排' }}</p>
           </div>
-          <button class="modal-close" type="button" @click="form = null">×</button>
-        </header>
-        <form id="course-form" class="form course-form" @submit.prevent="save">
-          <div class="course-sec blue"><i></i><Icon name="clock" /><span>基础信息</span></div>
-          <div class="course-grid">
-            <label class="course-field">
-              <span>课程名称<em>*</em></span>
-              <div class="course-control">
-                <Icon name="book" />
-                <input v-model="form.title" placeholder="请输入课程名称" required />
-              </div>
-            </label>
-            <label class="course-field">
-              <span>课程分类<em>*</em></span>
-              <div class="course-control">
-                <Icon name="layers" />
-                <select v-model.number="form.categoryId" required>
-                  <option disabled value="">请选择</option>
-                  <option v-for="item in categories" :key="item.id" :value="item.id">{{ item.name }}</option>
-                </select>
-                <Icon name="chevron" />
-              </div>
-            </label>
-            <label class="course-field">
-              <span>难度等级<em>*</em></span>
-              <div class="course-control">
-                <Icon name="signal" />
-                <select v-model="form.level" required>
-                  <option value="beginner">入门</option>
-                  <option value="intermediate">进阶</option>
-                  <option value="advanced">高级</option>
-                </select>
-                <Icon name="chevron" />
-              </div>
-            </label>
-            <label class="course-field">
-              <span>校方价格<em>*</em></span>
-              <div class="course-control">
-                <b class="yen">¥</b>
-                <input v-model="form.price" type="number" min="0" step="0.01" placeholder="请输入校方价格" required />
-                <em class="unit">元/课时</em>
-              </div>
-            </label>
-            <label v-if="!schoolAccount" class="course-field">
-              <span>课时费<em>*</em></span>
-              <div class="course-control">
-                <b class="yen">¥</b>
-                <input v-model="form.sessionFee" type="number" min="0" step="0.01" placeholder="请输入教师结算费用" required />
-                <em class="unit">元/课时</em>
-              </div>
-            </label>
-            <label class="course-field">
-              <span>开抢时间</span>
-              <div class="course-control">
-                <Icon name="clock" />
-                <input v-model="form.grabAt" type="datetime-local" />
-              </div>
-              <small class="region-note">不填则认证并签合同后即可抢。到点前小程序按钮显示倒计时，老师可写入日历提醒。</small>
-            </label>
-            <label class="course-field">
-              <span>课程封面</span>
-              <button class="cover-box" type="button" @click="pickCover">
-                <img v-if="form.cover" :src="form.cover" alt="" />
-                <span v-else>
-                  <Icon name="image" />
-                  <strong>点击上传课程封面</strong>
-                  <small>支持 jpg、png 格式，建议尺寸 750 × 420</small>
-                </span>
-              </button>
-              <input ref="coverInput" class="cover-file" type="file" accept="image/jpeg,image/png" @change="onCover" />
-            </label>
-          </div>
-
-          <div class="course-sec green"><i></i><Icon name="cal" /><span>授课信息</span></div>
-          <div class="course-grid">
-            <label class="course-field">
-              <span>学校</span>
-              <div class="course-control">
-                <Icon name="building" />
-                <select v-model="form.schoolId" @change="pickSchool">
-                  <option value="">请选择学校</option>
-                  <option v-for="item in schools" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
-                </select>
-                <Icon name="chevron" />
-              </div>
-              <small v-if="form.schoolId" class="region-note">已记录 {{ form.province || '未设置省份' }} · {{ form.city || '未设置城市' }}</small>
-            </label>
-            <label class="course-field">
-              <span>教室</span>
-              <div class="course-control">
-                <Icon name="pin" />
-                <input v-model="form.classroom" placeholder="请输入教室名称" />
-              </div>
-            </label>
-            <label class="course-field">
-              <span>年级（可选）</span>
-              <div class="course-control">
-                <Icon name="users" />
-                <input v-model="form.gradeLabel" placeholder="如一年级 / 初一，可不填" />
-              </div>
-            </label>
-            <label v-if="!schoolAccount" class="course-field">
-              <span>所属校企业</span>
-              <div class="course-control">
-                <Icon name="building" />
-                <select v-model="form.ownerId">
-                  <option value="">不分配</option>
-                  <option v-for="item in schoolAccounts" :key="item.id" :value="String(item.id)">{{ item.name }} · {{ item.username }}</option>
-                </select>
-                <Icon name="chevron" />
-              </div>
-            </label>
-            <label class="course-field">
-              <span>安排老师</span>
-              <div class="course-control">
-                <Icon name="user" />
-                <div class="select-search" ref="teacherBox">
-                  <button type="button" class="select-search-trigger" @click="toggleTeacherMenu">
-                    <span>{{ pickedLabel }}</span>
-                    <Icon name="chevron" />
-                  </button>
-                </div>
-              </div>
-            </label>
-          </div>
-          <div class="course-note">
-            <Icon name="info" />
-            <span>上课时间不在这里填。一门课每周可以上多节，到学期排课里生成时再设置。</span>
-          </div>
-
-          <div class="course-sec orange"><i></i><Icon name="pencil" /><span>课程简介</span></div>
+        </div>
+      </template>
+      <form id="course-form" class="form course-form" @submit.prevent="save">
+        <div class="course-sec blue"><i></i><Icon name="clock" /><span>基础信息</span></div>
+        <div class="course-grid">
           <label class="course-field">
-            <span>课程简介</span>
-            <div class="course-area">
-              <Icon name="pencil" />
-              <textarea v-model="form.description" maxlength="500" placeholder="请输入课程简介、课程目标、适合人群等信息..."></textarea>
-              <small>{{ descriptionCount }}/500</small>
+            <span>课程名称<em>*</em></span>
+            <div class="course-control">
+              <Icon name="book" />
+              <input v-model="form.title" placeholder="请输入课程名称" required />
             </div>
           </label>
+          <label class="course-field">
+            <span>课程分类<em>*</em></span>
+            <div class="course-control">
+              <Icon name="layers" />
+              <select v-model.number="form.categoryId" required>
+                <option disabled value="">请选择</option>
+                <option v-for="item in categories" :key="item.id" :value="item.id">{{ item.name }}</option>
+              </select>
+              <Icon name="chevron" />
+            </div>
+          </label>
+          <label class="course-field">
+            <span>难度等级<em>*</em></span>
+            <div class="course-control">
+              <Icon name="signal" />
+              <select v-model="form.level" required>
+                <option value="beginner">入门</option>
+                <option value="intermediate">进阶</option>
+                <option value="advanced">高级</option>
+              </select>
+              <Icon name="chevron" />
+            </div>
+          </label>
+          <label class="course-field">
+            <span>校方价格<em>*</em></span>
+            <div class="course-control">
+              <b class="yen">¥</b>
+              <input v-model="form.price" type="number" min="0" step="0.01" placeholder="请输入校方价格" required />
+              <em class="unit">元/课时</em>
+            </div>
+          </label>
+          <label v-if="!schoolAccount" class="course-field">
+            <span>课时费<em>*</em></span>
+            <div class="course-control">
+              <b class="yen">¥</b>
+              <input v-model="form.sessionFee" type="number" min="0" step="0.01" placeholder="请输入教师结算费用" required />
+              <em class="unit">元/课时</em>
+            </div>
+          </label>
+          <label class="course-field">
+            <span>开抢时间</span>
+            <div class="course-control">
+              <Icon name="clock" />
+              <input v-model="form.grabAt" type="datetime-local" />
+            </div>
+            <small class="region-note">不填则认证并签合同后即可抢。到点前小程序按钮显示倒计时，老师可写入日历提醒。</small>
+          </label>
+          <label class="course-field">
+            <span>课程封面</span>
+            <button class="cover-box" type="button" @click="pickCover">
+              <img v-if="form.cover" :src="form.cover" alt="" />
+              <span v-else>
+                <Icon name="image" />
+                <strong>点击上传课程封面</strong>
+                <small>支持 jpg、png 格式，建议尺寸 750 × 420</small>
+              </span>
+            </button>
+            <input ref="coverInput" class="cover-file" type="file" accept="image/jpeg,image/png" @change="onCover" />
+          </label>
+        </div>
 
-          <div class="course-sec slate"><i></i><Icon name="gear" /><span>其他设置</span></div>
-          <div class="course-settings">
-            <div>
-              <span>课程状态</span>
-              <div class="set-line">
-                <button class="switch" :class="{ on: form.published }" type="button" @click="form.published = !form.published" :aria-pressed="form.published"></button>
-                <div>
-                  <strong>{{ form.published ? '启用' : '停用' }}</strong>
-                  <small>关闭后，课程将不在前台显示</small>
-                </div>
+        <div class="course-sec green"><i></i><Icon name="cal" /><span>授课信息</span></div>
+        <div class="course-grid">
+          <label class="course-field">
+            <span>学校</span>
+            <div class="course-control">
+              <Icon name="building" />
+              <select v-model="form.schoolId" @change="pickSchool">
+                <option value="">请选择学校</option>
+                <option v-for="item in schools" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
+              </select>
+              <Icon name="chevron" />
+            </div>
+            <small v-if="form.schoolId" class="region-note">已记录 {{ form.province || '未设置省份' }} · {{ form.city || '未设置城市' }}</small>
+          </label>
+          <label class="course-field">
+            <span>教室</span>
+            <div class="course-control">
+              <Icon name="pin" />
+              <input v-model="form.classroom" placeholder="请输入教室名称" />
+            </div>
+          </label>
+          <label class="course-field">
+            <span>年级（可选）</span>
+            <div class="course-control grade-field-wrap">
+              <GradePicker v-model="form.gradeLabel" placeholder="点击设置年级" />
+            </div>
+          </label>
+          <label v-if="!schoolAccount" class="course-field">
+            <span>所属校企业</span>
+            <div class="course-control">
+              <Icon name="building" />
+              <select v-model="form.ownerId">
+                <option value="">不分配</option>
+                <option v-for="item in schoolAccounts" :key="item.id" :value="String(item.id)">{{ item.name }} · {{ item.username }}</option>
+              </select>
+              <Icon name="chevron" />
+            </div>
+          </label>
+          <label class="course-field">
+            <span>安排老师</span>
+            <div class="course-control">
+              <Icon name="user" />
+              <div class="select-search" ref="teacherBox">
+                <button type="button" class="select-search-trigger" @click="toggleTeacherMenu">
+                  <span>{{ pickedLabel }}</span>
+                  <Icon name="chevron" />
+                </button>
               </div>
             </div>
-            <label>
-              <span>允许报名</span>
-              <div class="set-line">
-                <input v-model="form.allowEnroll" type="checkbox" />
-                <div>
-                  <strong>允许报名</strong>
-                  <small>教师可申请/抢课</small>
-                </div>
-              </div>
-            </label>
-            <label>
-              <span>推荐课程</span>
-              <div class="set-line">
-                <input v-model="form.isRecommend" type="checkbox" />
-                <div>
-                  <strong>推荐课程</strong>
-                  <small>在课程列表中优先展示</small>
-                </div>
-              </div>
-            </label>
+          </label>
+        </div>
+        <div class="course-note">
+          <Icon name="info" />
+          <span>上课时间不在这里填。一门课每周可以上多节，到学期排课里生成时再设置。</span>
+        </div>
+
+        <div class="course-sec orange"><i></i><Icon name="pencil" /><span>课程简介</span></div>
+        <label class="course-field">
+          <span>课程简介</span>
+          <div class="course-area">
+            <Icon name="pencil" />
+            <textarea v-model="form.description" maxlength="500" placeholder="请输入课程简介、课程目标、适合人群等信息..."></textarea>
+            <small>{{ descriptionCount }}/500</small>
           </div>
-          <p v-if="formError" class="error">{{ formError }}</p>
-        </form>
-        <div class="course-foot">
-          <button class="btn" type="button" @click="form = null">取消</button>
-          <button class="btn primary" type="submit" form="course-form" :disabled="saving"><Icon name="check" />{{ saving ? '保存中' : '保存' }}</button>
+        </label>
+
+        <div class="course-sec slate"><i></i><Icon name="gear" /><span>其他设置</span></div>
+        <div class="course-settings">
+          <div>
+            <span>课程状态</span>
+            <div class="set-line">
+              <button class="switch" :class="{ on: form.published }" type="button" @click="form.published = !form.published" :aria-pressed="form.published"></button>
+              <div>
+                <strong>{{ form.published ? '启用' : '停用' }}</strong>
+                <small>关闭后，课程将不在前台显示</small>
+              </div>
+            </div>
+          </div>
+          <label>
+            <span>允许报名</span>
+            <div class="set-line">
+              <input v-model="form.allowEnroll" type="checkbox" />
+              <div>
+                <strong>允许报名</strong>
+                <small>教师可申请/抢课</small>
+              </div>
+            </div>
+          </label>
+          <label>
+            <span>推荐课程</span>
+            <div class="set-line">
+              <input v-model="form.isRecommend" type="checkbox" />
+              <div>
+                <strong>推荐课程</strong>
+                <small>在课程列表中优先展示</small>
+              </div>
+            </div>
+          </label>
+        </div>
+        <p v-if="formError" class="error">{{ formError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn" type="button" @click="form = null">取消</button>
+        <button class="btn primary" type="submit" form="course-form" :disabled="saving"><Icon name="check" />{{ saving ? '保存中' : '保存' }}</button>
+      </template>
+    </PageModal>
+    <Confirm :open="!!pending.length" :message="confirmText" @cancel="pending = []" @ok="remove" />
+
+    <PageModal :open="!!genForm" title="批量生成课程" icon="layers" @close="genForm = null">
+      <form class="form" @submit.prevent="doGenerate">
+        <p class="muted">按年级自动生成多门课程，例如「数学思维-一年级」…「数学思维-六年级」。生成后可在表格内继续改。</p>
+        <label>课程名称前缀<input v-model="genForm.title" required placeholder="如：数学思维" /></label>
+        <label>分类
+          <select v-model.number="genForm.categoryId" required>
+            <option disabled value="">请选择</option>
+            <option v-for="item in categories" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </label>
+        <label>校方价格<input v-model="genForm.price" type="number" min="0" step="0.01" required /></label>
+        <label v-if="!schoolAccount">课时费<input v-model="genForm.sessionFee" type="number" min="0" step="0.01" /></label>
+        <div>
+          <span class="muted" style="display:block;margin-bottom:6px">年级范围</span>
+          <GradePicker v-model="genForm.gradeLabel" placeholder="选择年级或范围" />
+        </div>
+        <p v-if="genError" class="error">{{ genError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="genSaving">{{ genSaving ? '生成中' : '生成课程' }}</button>
+          <button class="btn" type="button" @click="genForm = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
+
+    <PageModal :open="!!batchGrade" title="批量设置年级" @close="batchGrade = null">
+      <div class="form">
+        <p class="muted">将应用到已选的 {{ selected.length }} 门课程</p>
+        <GradePicker v-model="batchGrade.value" placeholder="选择年级" />
+        <div class="form-actions">
+          <button class="btn primary" type="button" @click="applyBatchGrade">确定</button>
+          <button class="btn" type="button" @click="batchGrade = null">取消</button>
         </div>
       </div>
-    </div>
-    <Confirm :open="!!pending.length" :message="confirmText" @cancel="pending = []" @ok="remove" />
+    </PageModal>
+
+    <PageModal :open="!!batchCategory" title="批量设置分类" size="narrow" @close="batchCategory = null">
+      <div class="form">
+        <p class="muted">将应用到已选的 {{ selected.length }} 门课程</p>
+        <label>分类
+          <select v-model.number="batchCategory.value">
+            <option v-for="item in categories" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button class="btn primary" type="button" @click="applyBatchCategory">确定</button>
+          <button class="btn" type="button" @click="batchCategory = null">取消</button>
+        </div>
+      </div>
+    </PageModal>
+
+    <PageModal :open="!!batchStatus" title="批量设置状态" size="narrow" @close="batchStatus = null">
+      <div class="form">
+        <p class="muted">将应用到已选的 {{ selected.length }} 门课程</p>
+        <label>状态
+          <select v-model.number="batchStatus.value">
+            <option :value="1">上架</option>
+            <option :value="0">下架</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button class="btn primary" type="button" @click="applyBatchStatus">确定</button>
+          <button class="btn" type="button" @click="batchStatus = null">取消</button>
+        </div>
+      </div>
+    </PageModal>
+
     <Teleport to="body">
       <div v-if="form && teacherOpen" ref="teacherMenu" class="select-search-menu" :style="menuStyle">
         <input v-model="teacherQuery" placeholder="搜索姓名、工号或手机号" autocomplete="off" />
@@ -343,138 +439,137 @@
       </div>
     </Teleport>
 
-    <div v-if="plan" class="modal-mask">
-      <div class="modal plan-dialog" role="dialog">
-        <header>
+    <PageModal
+      :open="!!plan"
+      size="plan"
+      @close="closePlan"
+    >
+      <template #title>
+        <div class="row-between" style="width:100%;gap:12px;align-items:flex-start">
           <div>
             <h3>{{ plan.course.title }}</h3>
             <p class="muted">点某一节可改日期和时间，也可以加一节或删掉。</p>
           </div>
           <div class="plan-head-actions">
             <button v-if="!planEnded" class="btn primary" type="button" @click="openQuick">快捷生成</button>
-            <button class="modal-close" type="button" @click="closePlan">×</button>
           </div>
-        </header>
-        <div class="form">
-          <label v-if="plan.semesters.length > 1">学期
-            <select v-model="planSemesterId" @change="focusPlanMonth">
-              <option v-for="item in plan.semesters" :key="item.id" :value="item.id">{{ item.label }} {{ item.name }}</option>
-            </select>
-          </label>
-          <div class="cal-nav">
-            <button type="button" class="btn" @click="shiftPlanMonth(-1)">上个月</button>
-            <strong class="plan-month">{{ planYear }}年{{ planMonth }}月</strong>
-            <button type="button" class="btn" @click="shiftPlanMonth(1)">下个月</button>
-          </div>
-          <p v-if="planEnded" class="muted">这个学期已结束，课表只读。</p>
-          <div class="cal-week"><span v-for="name in weekNames.slice(1)" :key="name">{{ name }}</span></div>
-          <div class="cal-grid">
-            <div
-              v-for="cell in planCells"
-              :key="cell.key"
-              class="cal-cell plan-cell"
-              :class="{ empty: cell.empty, weekend: cell.weekend, holiday: cell.holiday, off: cell.inTerm === false }"
-            >
-              <b v-if="!cell.empty">{{ cell.day }}</b>
-              <button
-                v-for="item in cell.sessions"
-                :key="item.id"
-                type="button"
-                class="cal-chip"
-                :disabled="planEnded"
-                @click="openSession(item)"
-              >{{ item.startTime }}{{ item.endTime ? `-${item.endTime}` : '' }}</button>
-              <button v-if="!cell.empty && !planEnded && cell.inTerm !== false" type="button" class="cal-add" @click="openAdd(cell.date)">+</button>
-            </div>
-          </div>
-          <p v-if="planError" class="error">{{ planError }}</p>
         </div>
+      </template>
+      <div class="form">
+        <label v-if="plan.semesters.length > 1">学期
+          <select v-model="planSemesterId" @change="focusPlanMonth">
+            <option v-for="item in plan.semesters" :key="item.id" :value="item.id">{{ item.label }} {{ item.name }}</option>
+          </select>
+        </label>
+        <div class="cal-nav">
+          <button type="button" class="btn" @click="shiftPlanMonth(-1)">上个月</button>
+          <strong class="plan-month">{{ planYear }}年{{ planMonth }}月</strong>
+          <button type="button" class="btn" @click="shiftPlanMonth(1)">下个月</button>
+        </div>
+        <p v-if="planEnded" class="muted">这个学期已结束，课表只读。</p>
+        <div class="cal-week"><span v-for="name in weekNames.slice(1)" :key="name">{{ name }}</span></div>
+        <div class="cal-grid">
+          <div
+            v-for="cell in planCells"
+            :key="cell.key"
+            class="cal-cell plan-cell"
+            :class="{ empty: cell.empty, weekend: cell.weekend, holiday: cell.holiday, off: cell.inTerm === false }"
+          >
+            <b v-if="!cell.empty">{{ cell.day }}</b>
+            <button
+              v-for="item in cell.sessions"
+              :key="item.id"
+              type="button"
+              class="cal-chip"
+              :disabled="planEnded"
+              @click="openSession(item)"
+            >{{ item.startTime }}{{ item.endTime ? `-${item.endTime}` : '' }}</button>
+            <button v-if="!cell.empty && !planEnded && cell.inTerm !== false" type="button" class="cal-add" @click="openAdd(cell.date)">+</button>
+          </div>
+        </div>
+        <p v-if="planError" class="error">{{ planError }}</p>
       </div>
-    </div>
+    </PageModal>
 
-    <div v-if="quickForm" class="modal-mask">
-      <div class="modal" role="dialog">
-        <header>
-          <h3>快捷生成「{{ plan?.course?.title }}」</h3>
-          <button class="modal-close" type="button" @click="quickForm = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="runQuick">
-          <p class="muted">按下面的每周时间继续排。没改过的生成课次会按新时间重排，单独改过的课次会保留。</p>
-          <label>生成次数<input v-model.number="quickForm.count" type="number" min="1" max="200" required /></label>
-          <div v-for="(slot, index) in quickForm.slots" :key="index" class="slot-row">
-            <label>星期
-              <select v-model="slot.weekday">
-                <option v-for="day in 5" :key="day" :value="String(day)">{{ weekNames[day] }}</option>
-              </select>
-            </label>
-            <label>开始<input v-model="slot.startTime" type="time" required /></label>
-            <label>结束<input v-model="slot.endTime" type="time" /></label>
-            <button class="btn" type="button" :disabled="quickForm.slots.length === 1" @click="quickForm.slots.splice(index, 1)">删除</button>
-          </div>
-          <button class="btn" type="button" @click="quickForm.slots.push({ weekday: '3', startTime: '19:00', endTime: '20:00' })">再加一节</button>
-          <p v-if="planError" class="error">{{ planError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="planSaving">{{ planSaving ? '生成中' : '按次数生成' }}</button>
-            <button class="btn" type="button" @click="quickForm = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    <div v-if="sessionForm" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>{{ sessionForm.id ? '调整这一节' : '加一节' }}</h3>
-          <button class="modal-close" type="button" @click="sessionForm = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveSession">
-          <label>日期<input v-model="sessionForm.date" type="date" required /></label>
-          <div class="form-row">
-            <label>开始<input v-model="sessionForm.startTime" type="time" required /></label>
-            <label>结束<input v-model="sessionForm.endTime" type="time" /></label>
-          </div>
-          <p v-if="sessionError" class="error">{{ sessionError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="planSaving">保存</button>
-            <button v-if="sessionForm.id" class="btn danger" type="button" :disabled="planSaving" @click="removeSession">删除这一节</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    <div v-if="continueForm" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>延续到新学期</h3>
-          <button class="modal-close" type="button" @click="continueForm = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveContinue">
-          <p class="muted">「{{ continueForm.title }}」会切到新学期展示；上学期课次保留可在历史里查看。可清空老师重新抢课，或直接指定新老师。</p>
-          <label>目标学期
-            <select v-model="continueForm.semesterId" required>
-              <option value="">请选择</option>
-              <option v-for="item in semesters.filter((row) => row.phase !== 'ended')" :key="item.id" :value="String(item.id)">
-                {{ item.label }} {{ item.name }}
-              </option>
+    <PageModal
+      :open="!!quickForm"
+      :title="plan?.course?.title ? `快捷生成「${plan.course.title}」` : '快捷生成'"
+      @close="quickForm = null"
+    >
+      <form class="form" @submit.prevent="runQuick">
+        <p class="muted">按下面的每周时间继续排。没改过的生成课次会按新时间重排，单独改过的课次会保留。</p>
+        <label>生成次数<input v-model.number="quickForm.count" type="number" min="1" max="200" required /></label>
+        <div v-for="(slot, index) in quickForm.slots" :key="index" class="slot-row">
+          <label>星期
+            <select v-model="slot.weekday">
+              <option v-for="day in 5" :key="day" :value="String(day)">{{ weekNames[day] }}</option>
             </select>
           </label>
-          <label class="check-line">
-            <input v-model="continueForm.clearTeacher" type="checkbox" />
-            <span>清空老师，重新开放抢课</span>
-          </label>
-          <label v-if="!continueForm.clearTeacher">指定老师
-            <select v-model="continueForm.teacherId">
-              <option value="">沿用原老师</option>
-              <option v-for="item in teachers" :key="item.id" :value="String(item.id)">{{ teacherLabel(item) }}</option>
-            </select>
-          </label>
-          <label>开抢时间（可选）<input v-model="continueForm.grabAt" type="datetime-local" /></label>
-          <p v-if="continueError" class="error">{{ continueError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="continueSaving">{{ continueSaving ? '处理中' : '确认延续' }}</button>
-            <button class="btn" type="button" @click="continueForm = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
+          <label>开始<input v-model="slot.startTime" type="time" required /></label>
+          <label>结束<input v-model="slot.endTime" type="time" /></label>
+          <button class="btn" type="button" :disabled="quickForm.slots.length === 1" @click="quickForm.slots.splice(index, 1)">删除</button>
+        </div>
+        <button class="btn" type="button" @click="quickForm.slots.push({ weekday: '3', startTime: '19:00', endTime: '20:00' })">再加一节</button>
+        <p v-if="planError" class="error">{{ planError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="planSaving">{{ planSaving ? '生成中' : '按次数生成' }}</button>
+          <button class="btn" type="button" @click="quickForm = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
+    <PageModal
+      :open="!!sessionForm"
+      size="narrow"
+      :title="sessionForm?.id ? '调整这一节' : '加一节'"
+      @close="sessionForm = null"
+    >
+      <form class="form" @submit.prevent="saveSession">
+        <label>日期<input v-model="sessionForm.date" type="date" required /></label>
+        <div class="form-row">
+          <label>开始<input v-model="sessionForm.startTime" type="time" required /></label>
+          <label>结束<input v-model="sessionForm.endTime" type="time" /></label>
+        </div>
+        <p v-if="sessionError" class="error">{{ sessionError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="planSaving">保存</button>
+          <button v-if="sessionForm.id" class="btn danger" type="button" :disabled="planSaving" @click="removeSession">删除这一节</button>
+        </div>
+      </form>
+    </PageModal>
+    <PageModal
+      :open="!!continueForm"
+      size="narrow"
+      title="延续到新学期"
+      @close="continueForm = null"
+    >
+      <form class="form" @submit.prevent="saveContinue">
+        <p class="muted">「{{ continueForm.title }}」会切到新学期展示；上学期课次保留可在历史里查看。可清空老师重新抢课，或直接指定新老师。</p>
+        <label>目标学期
+          <select v-model="continueForm.semesterId" required>
+            <option value="">请选择</option>
+            <option v-for="item in semesters.filter((row) => row.phase !== 'ended')" :key="item.id" :value="String(item.id)">
+              {{ item.label }} {{ item.name }}
+            </option>
+          </select>
+        </label>
+        <label class="check-line">
+          <input v-model="continueForm.clearTeacher" type="checkbox" />
+          <span>清空老师，重新开放抢课</span>
+        </label>
+        <label v-if="!continueForm.clearTeacher">指定老师
+          <select v-model="continueForm.teacherId">
+            <option value="">沿用原老师</option>
+            <option v-for="item in teachers" :key="item.id" :value="String(item.id)">{{ teacherLabel(item) }}</option>
+          </select>
+        </label>
+        <label>开抢时间（可选）<input v-model="continueForm.grabAt" type="datetime-local" /></label>
+        <p v-if="continueError" class="error">{{ continueError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="continueSaving">{{ continueSaving ? '处理中' : '确认延续' }}</button>
+          <button class="btn" type="button" @click="continueForm = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
   </section>
 </template>
 
@@ -487,6 +582,11 @@ import Pager from '../components/Pager.vue';
 import Confirm from '../components/Confirm.vue';
 import Icon from '../components/Icon.vue';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import GradePicker from '../components/GradePicker.vue';
+import { usePageLoad } from '../composables/usePageLoad';
+import { parseGrades } from '../grades';
 
 const router = useRouter();
 const schoolAccount = getProfile()?.role === 'school';
@@ -500,7 +600,7 @@ const page = ref(1);
 const pageSize = ref(10);
 const categoryId = ref('');
 const semesterScope = ref('current');
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const continueForm = ref(null);
 const continueError = ref('');
@@ -663,27 +763,147 @@ function lockReason(item) {
   return '';
 }
 const selectable = computed(() => result.value.list.filter(canDelete));
-const allChecked = computed(() => selectable.value.length > 0 && selectable.value.every((item) => selected.value.includes(item.id)));
+const allChecked = computed(() => result.value.list.length > 0 && result.value.list.every((item) => selected.value.includes(item.id)));
 const confirmText = computed(() => {
   if (pending.value.length === 1) return `确定删除「${pending.value[0].title}」？`;
   if (pending.value.length > 1) return `确定删除选中的 ${pending.value.length} 门课程？已安排老师的不会删除。`;
   return '';
 });
 function toggle(item) {
-  if (!canDelete(item)) return;
   selected.value = selected.value.includes(item.id)
     ? selected.value.filter((id) => id !== item.id)
     : [...selected.value, item.id];
 }
 function toggleAll(event) {
-  const ids = selectable.value.map((item) => item.id);
+  const ids = result.value.list.map((item) => item.id);
   selected.value = event.target.checked
     ? [...new Set([...selected.value, ...ids])]
     : selected.value.filter((id) => !ids.includes(id));
 }
-async function load() {
-  error.value = '';
+
+const genForm = ref(null);
+const genError = ref('');
+const genSaving = ref(false);
+const batchGrade = ref(null);
+const batchCategory = ref(null);
+const batchStatus = ref(null);
+
+async function saveQuick(item, patch) {
+  notice.value = '';
   try {
+    await api.patchCourses({ ids: [item.id], ...patch });
+    Object.assign(item, patch);
+    if (patch.categoryId) {
+      item.category = categories.value.find((c) => c.id === patch.categoryId) || item.category;
+    }
+    notice.value = '已保存';
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+
+function openGenerate() {
+  genError.value = '';
+  genForm.value = {
+    title: '',
+    categoryId: categories.value[0]?.id || '',
+    price: '0',
+    sessionFee: '',
+    gradeLabel: '一年级、二年级、三年级、四年级、五年级、六年级',
+    published: true,
+    status: 1,
+  };
+}
+async function doGenerate() {
+  genError.value = '';
+  const grades = parseGrades(genForm.value.gradeLabel);
+  if (!grades.length) {
+    genError.value = '请选择年级';
+    return;
+  }
+  genSaving.value = true;
+  try {
+    const data = await api.generateCourses({
+      title: genForm.value.title,
+      categoryId: genForm.value.categoryId,
+      price: genForm.value.price,
+      sessionFee: genForm.value.sessionFee,
+      grades,
+      status: 1,
+      published: true,
+      allowEnroll: true,
+    });
+    genForm.value = null;
+    notice.value = `已生成 ${data.count} 门课程`;
+    await load();
+  } catch (err) {
+    genError.value = err.message;
+  } finally {
+    genSaving.value = false;
+  }
+}
+
+function openBatchGrade() {
+  batchGrade.value = { value: '' };
+}
+async function applyBatchGrade() {
+  try {
+    await api.patchCourses({ ids: selected.value, gradeLabel: batchGrade.value.value });
+    batchGrade.value = null;
+    notice.value = '年级已批量更新';
+    await load();
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+function openBatchCategory() {
+  batchCategory.value = { value: categories.value[0]?.id || '' };
+}
+async function applyBatchCategory() {
+  try {
+    await api.patchCourses({ ids: selected.value, categoryId: batchCategory.value.value });
+    batchCategory.value = null;
+    notice.value = '分类已批量更新';
+    await load();
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+function openBatchStatus() {
+  batchStatus.value = { value: 1 };
+}
+async function applyBatchStatus() {
+  try {
+    await api.patchCourses({ ids: selected.value, status: batchStatus.value.value });
+    batchStatus.value = null;
+    notice.value = '状态已批量更新';
+    await load();
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+async function doBatchCopy() {
+  if (!selected.value.length) return;
+  try {
+    const data = await api.copyCourses(selected.value);
+    notice.value = `已复制 ${data.count} 门课程（默认下架）`;
+    selected.value = [];
+    await load();
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+
+function askRemoveSelected() {
+  const items = result.value.list.filter((item) => selected.value.includes(item.id) && canDelete(item));
+  if (!items.length) {
+    error.value = '选中的课程中没有可删除项（已安排老师或已有订单的不能删）';
+    return;
+  }
+  pending.value = items;
+}
+async function load() {
+  await run(async () => {
     result.value = await api.courses({
       page: page.value,
       pageSize: pageSize.value,
@@ -693,9 +913,7 @@ async function load() {
       categoryId: categoryId.value,
       semesterScope: semesterScope.value,
     });
-  } catch (err) {
-    error.value = err.message;
-  }
+  });
 }
 function reload() { page.value = 1; load(); }
 function resetFilters() {
@@ -809,11 +1027,6 @@ async function save() {
 function askRemove(item) {
   if (!canDelete(item)) return;
   pending.value = [item];
-}
-function askRemoveSelected() {
-  const items = result.value.list.filter((item) => selected.value.includes(item.id) && canDelete(item));
-  if (!items.length) return;
-  pending.value = items;
 }
 
 async function remove() {

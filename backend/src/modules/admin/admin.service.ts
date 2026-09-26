@@ -1680,13 +1680,122 @@ export class AdminService implements OnModuleInit {
     return { deleted, blocked };
   }
 
+  async patchCourses(ids: number[], patch: any, actor?: any) {
+    const list = await this.prisma.course.findMany({ where: { id: { in: this.normalizeIds(ids) } } });
+    if (!list.length) throw new BadRequestException('请选择课程');
+    for (const course of list) this.assertOwnCourse(actor, course);
+
+    const data: any = {};
+    if (patch.gradeLabel !== undefined) {
+      data.gradeLabel = patch.gradeLabel === '' || patch.gradeLabel == null
+        ? null
+        : String(patch.gradeLabel).trim() || null;
+    }
+    if (patch.categoryId !== undefined && patch.categoryId !== '' && patch.categoryId != null) {
+      const categoryId = Number(patch.categoryId);
+      await this.ensureCategory(categoryId);
+      data.categoryId = categoryId;
+    }
+    if (patch.status !== undefined && patch.status !== '' && patch.status != null) {
+      data.status = Number(patch.status) === 1 ? 1 : 0;
+    }
+    if (!Object.keys(data).length) throw new BadRequestException('没有可更新的字段');
+
+    await this.prisma.course.updateMany({
+      where: { id: { in: list.map((item) => item.id) } },
+      data,
+    });
+    return { updated: list.map((item) => item.id), fields: Object.keys(data) };
+  }
+
+  async generateCourses(body: any, actor?: any) {
+    const title = String(body?.title || '').trim();
+    if (!title) throw new BadRequestException('请填写课程名称');
+    if (!body?.categoryId) throw new BadRequestException('请选择分类');
+    const grades = Array.isArray(body.grades)
+      ? [...new Set(body.grades.map((g: any) => String(g || '').trim()).filter(Boolean))]
+      : [];
+    if (!grades.length) throw new BadRequestException('请选择要生成的年级');
+    if (grades.length > 20) throw new BadRequestException('一次最多生成 20 门课程');
+
+    const created = [];
+    for (const grade of grades) {
+      const row = await this.createCourse({
+        ...body,
+        title: `${title}-${grade}`,
+        gradeLabel: grade,
+      }, actor);
+      created.push(row);
+    }
+    return { created: created.map((item) => ({ id: item.id, title: item.title, gradeLabel: item.gradeLabel })), count: created.length };
+  }
+
+  async copyCourses(ids: number[], actor?: any) {
+    const list = await this.prisma.course.findMany({ where: { id: { in: this.normalizeIds(ids) } } });
+    if (!list.length) throw new BadRequestException('请选择要复制的课程');
+    const created = [];
+    for (const course of list) {
+      this.assertOwnCourse(actor, course);
+      const row = await this.createCourse({
+        title: `${course.title}-副本`,
+        description: course.description,
+        cover: course.cover,
+        categoryId: course.categoryId,
+        price: course.price,
+        originalPrice: course.originalPrice,
+        level: course.level,
+        isFree: course.isFree,
+        isRecommend: false,
+        isHot: false,
+        status: 0,
+        classroom: course.classroom,
+        gradeLabel: course.gradeLabel,
+        schoolId: course.schoolId,
+        school: course.school,
+        sessionFee: course.sessionFee,
+        ownerId: course.ownerId,
+        teacherId: null,
+        allowEnroll: true,
+        published: false,
+      }, actor);
+      created.push(row);
+    }
+    return { created: created.map((item) => ({ id: item.id, title: item.title })), count: created.length };
+  }
+
   async saveCategory(data: any, id?: number, actor?: any) {
     if (!data.name?.trim()) throw new BadRequestException('请填写分类名称');
-    const payload = {
+    let parentId: number | null = null;
+    if (data.parentId !== undefined && data.parentId !== '' && data.parentId != null) {
+      parentId = Number(data.parentId);
+      if (!Number.isInteger(parentId) || parentId <= 0) throw new BadRequestException('上级分类不正确');
+      if (id && parentId === id) throw new BadRequestException('不能将分类设为自己的子级');
+      const parent = await this.prisma.category.findUnique({ where: { id: parentId } });
+      if (!parent) throw new BadRequestException('上级分类不存在');
+      this.assertOwnRecord(actor, parent, '只能使用自己的分类作为上级');
+      if (id) {
+        // 防止成环：上级链不能包含自己
+        let cursor: number | null = parentId;
+        const seen = new Set<number>();
+        while (cursor) {
+          if (cursor === id) throw new BadRequestException('不能形成循环层级');
+          if (seen.has(cursor)) break;
+          seen.add(cursor);
+          const row = await this.prisma.category.findUnique({ where: { id: cursor }, select: { parentId: true } });
+          cursor = row?.parentId ?? null;
+        }
+      }
+    } else if (data.parentId === null || data.parentId === '') {
+      parentId = null;
+    }
+
+    const payload: any = {
       name: data.name.trim(),
       sort: Number(data.sort || 0),
       status: Number(data.status ?? 1),
     };
+    if (data.parentId !== undefined) payload.parentId = parentId;
+
     if (!id) {
       return this.prisma.category.create({
         data: { ...payload, ...(this.isSchool(actor) ? { ownerId: actor.id } : {}) },

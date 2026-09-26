@@ -6,6 +6,7 @@
         <p>管理微信用户。认证通过后才是教师，可以冻结、绑定机构和上级。</p>
       </div>
     </div>
+    <PageLoad :loading="loading" :ready="ready" :error="error" :columns="9" kpis filters @retry="load">
     <div class="kpi-grid">
       <article class="card kpi"><div class="label">全部用户</div><div class="value">{{ stats.all }}</div></article>
       <article class="card kpi"><div class="label">微信用户</div><div class="value">{{ stats.wechat }}</div></article>
@@ -48,7 +49,6 @@
       </div>
       <button class="btn" @click="reload">搜索</button>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
         <thead><tr><th>姓名</th><th>微信昵称</th><th>手机号</th><th>身份</th><th>认证</th><th>机构</th><th>上级</th><th>状态</th><th class="col-actions">操作</th></tr></thead>
@@ -79,49 +79,50 @@
       </table>
       <Pager :page="result.pagination.page" :total-pages="result.pagination.totalPages" :total="result.pagination.total" @change="changePage" />
     </article>
+    </PageLoad>
 
-    <div v-if="editing" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>调整归属</h3>
-          <button class="modal-close" type="button" @click="editing = null">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveRelation">
-          <p class="muted">{{ editing.realName || editing.nickname || '未命名用户' }}</p>
-          <label>所属机构
-            <select v-model="orgId">
-              <option value="">未绑定</option>
-              <option v-for="item in orgs" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
-            </select>
-          </label>
-          <label>上级教师
-            <select v-model="parentId">
-              <option value="">无上级</option>
-              <option v-for="item in teachers" :key="item.id" :value="String(item.id)" :disabled="item.id === editing.id">{{ item.realName || item.nickname }}</option>
-            </select>
-          </label>
-          <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">保存</button>
-            <button class="btn" type="button" @click="editing = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div v-if="freezeTarget" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>{{ freezeTarget.status === 1 ? '冻结账号' : '解除冻结' }}</h3>
-          <button class="modal-close" type="button" @click="freezeTarget = null">×</button>
-        </header>
-        <p class="confirm-text">确定{{ freezeTarget.status === 1 ? '冻结' : '解冻' }}「{{ freezeTarget.realName || freezeTarget.nickname || '该用户' }}」？冻结后不能登录和使用教学功能。</p>
-        <div class="form-actions" style="padding: 0 20px 20px">
-          <button class="btn" type="button" @click="freezeTarget = null">取消</button>
-          <button class="btn primary" type="button" @click="doFreeze">确认</button>
+    <PageModal
+      :open="!!editing"
+      size="narrow"
+      title="调整归属"
+      icon="building"
+      @close="editing = null"
+    >
+      <form class="form" @submit.prevent="saveRelation">
+        <p class="muted">{{ editing.realName || editing.nickname || '未命名用户' }}</p>
+        <label>所属机构
+          <select v-model="orgId">
+            <option value="">未绑定</option>
+            <option v-for="item in orgs" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
+          </select>
+        </label>
+        <label>上级教师
+          <select v-model="parentId">
+            <option value="">无上级</option>
+            <option v-for="item in teachers" :key="item.id" :value="String(item.id)" :disabled="item.id === editing.id">{{ item.realName || item.nickname }}</option>
+          </select>
+        </label>
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <button class="btn" type="button" @click="editing = null">取消</button>
         </div>
-      </div>
-    </div>
+      </form>
+    </PageModal>
+
+    <PageModal
+      :open="!!freezeTarget"
+      size="narrow"
+      :title="freezeTarget?.status === 1 ? '冻结账号' : '解除冻结'"
+      :icon="freezeTarget?.status === 1 ? 'lock' : 'unlock'"
+      @close="freezeTarget = null"
+    >
+      <p class="confirm-text" style="padding:0;margin:0 0 8px">确定{{ freezeTarget.status === 1 ? '冻结' : '解冻' }}「{{ freezeTarget.realName || freezeTarget.nickname || '该用户' }}」？冻结后不能登录和使用教学功能。</p>
+      <template #footer>
+        <button class="btn" type="button" @click="freezeTarget = null">取消</button>
+        <button class="btn primary" type="button" @click="doFreeze">确认</button>
+      </template>
+    </PageModal>
   </section>
 </template>
 
@@ -130,6 +131,9 @@ import { onMounted, ref } from 'vue';
 import { api } from '../api';
 import Pager from '../components/Pager.vue';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const keyword = ref('');
 const cert = ref('');
@@ -137,7 +141,7 @@ const organizationId = ref('');
 const hasParent = ref('');
 const status = ref('');
 const page = ref(1);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const formError = ref('');
 const orgs = ref([]);
 const teachers = ref([]);
@@ -151,8 +155,7 @@ const certMap = { none: '未申请', pending: '审核中', approved: '已认证'
 function certText(value) { return certMap[value] || value; }
 
 async function load() {
-  error.value = '';
-  try {
+  await run(async () => {
     const data = await api.people({
       keyword: keyword.value,
       cert: cert.value,
@@ -164,9 +167,7 @@ async function load() {
     });
     result.value = { list: data.list, pagination: data.pagination };
     stats.value = data.stats;
-  } catch (err) {
-    error.value = err.message;
-  }
+  });
 }
 function reload() { page.value = 1; load(); }
 function changePage(next) { page.value = next; load(); }
@@ -204,8 +205,8 @@ onMounted(async () => {
     const [orgList, faculty] = await Promise.all([api.orgs(), api.faculty()]);
     orgs.value = orgList;
     teachers.value = (faculty.list || []).filter((item) => item.certStatus === 'approved');
-  } catch (err) {
-    error.value = err.message;
+  } catch {
+    /* filter options can load empty; list load still proceeds */
   }
   await load();
 });

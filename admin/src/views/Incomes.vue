@@ -1,7 +1,13 @@
 <template>
   <section>
     <div class="page-head"><div><h1>收入记录</h1><p>平台可以看到课程费用、机构分佣和教师实得。教师端只看自己被允许看到的金额。</p></div></div>
-    <p v-if="error" class="error">{{ error }}</p>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="7"
+      @retry="load"
+    >
     <article class="card">
       <table>
         <thead><tr><th>教师</th><th>课程</th><th>日期</th><th>课程费用</th><th>机构分佣</th><th>教师实得</th><th>状态</th></tr></thead>
@@ -19,15 +25,23 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
   </section>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue';
 import { api } from '../api';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
+
 const list = ref([]);
-const error = ref('');
-onMounted(async () => {
-  try { list.value = await api.incomes(); } catch (err) { error.value = err.message; }
-});
+const { loading, ready, error, run } = usePageLoad();
+
+async function load() {
+  await run(async () => {
+    list.value = await api.incomes();
+  });
+}
+onMounted(load);
 </script>

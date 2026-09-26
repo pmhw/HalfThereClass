@@ -12,6 +12,14 @@
         <button class="btn primary" type="button" :disabled="saving || loading" @click="save">{{ saving ? '保存中' : '保存' }}</button>
       </div>
     </div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="3"
+      :rows="4"
+      @retry="load"
+    >
     <p v-if="error" class="error">{{ error }}</p>
     <form class="doc-form" @submit.prevent="save">
       <label class="title-field">标题
@@ -19,6 +27,7 @@
       </label>
       <MarkdownField v-model="draft.content" />
     </form>
+    </PageLoad>
   </section>
 </template>
 
@@ -27,14 +36,15 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import MarkdownField from '../components/MarkdownField.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const route = useRoute();
 const router = useRouter();
 const kind = computed(() => (route.meta.kind === 'contract' ? 'contract' : 'agreement'));
 const title = computed(() => (kind.value === 'contract' ? '教师服务合同' : '用户协议'));
 const draft = ref({ title: '', content: '' });
-const error = ref('');
-const loading = ref(true);
+const { loading, ready, error, run } = usePageLoad();
 const saving = ref(false);
 
 function back() {
@@ -42,15 +52,9 @@ function back() {
 }
 
 async function load() {
-  loading.value = true;
-  error.value = '';
-  try {
+  await run(async () => {
     draft.value = kind.value === 'contract' ? await api.settingsContract() : await api.settingsAgreement();
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    loading.value = false;
-  }
+  });
 }
 
 async function save() {

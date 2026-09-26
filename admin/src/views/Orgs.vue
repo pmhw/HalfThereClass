@@ -4,6 +4,13 @@
       <div><h1>机构管理</h1><p>机构不是教师账号。教师可以不绑定机构。</p></div>
       <button class="btn primary" @click="openForm()">创建机构</button>
     </div>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="8"
+      @retry="load"
+    >
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
@@ -33,112 +40,110 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
 
-    <Transition name="org-pop">
-      <div v-if="detail" class="modal-mask">
-        <div class="modal org-detail" role="dialog">
-          <header>
-            <div>
-              <h3>{{ detail.name }}</h3>
-              <p class="muted">负责人 {{ detail.contactName || '—' }} · {{ detail.phone || '无电话' }}</p>
-            </div>
-            <button class="modal-close" type="button" @click="closeDetail">×</button>
-          </header>
-          <div class="org-detail-body">
-            <div class="org-stats">
-              <div><small>累计分佣</small><strong>¥{{ Number(detail.commissionTotal || 0).toFixed(2) }}</strong></div>
-              <div><small>绑定教师</small><strong>{{ detail.teachers?.length || 0 }}</strong></div>
-              <div><small>默认分佣</small><strong>{{ detail.commissionMode === 'fixed' ? `¥${detail.commissionValue}/节` : `${detail.commissionValue}%` }}</strong></div>
-            </div>
-            <div class="corp-card">
-              <div class="row-between">
-                <strong>对公信息</strong>
-                <button class="btn" type="button" @click="openForm(detail)">编辑对公信息</button>
-              </div>
-              <div class="kv">
-                <span>户名</span><b>{{ detail.corpName || '—' }}</b>
-                <span>税号</span><b>{{ detail.taxNo || '—' }}</b>
-                <span>开户行</span><b>{{ detail.bankName || '—' }}</b>
-                <span>账号</span><b>{{ detail.bankAccount || '—' }}</b>
-                <span>地址</span><b>{{ detail.corpAddress || '—' }}</b>
-                <span>电话</span><b>{{ detail.corpPhone || '—' }}</b>
-              </div>
-            </div>
-            <table>
-              <thead><tr><th>机构教师</th><th>认证</th><th class="col-actions">操作</th></tr></thead>
-              <tbody>
-                <tr v-for="item in detail.teachers" :key="item.id">
-                  <td>{{ item.teacherCert?.realName || item.nickname }}</td>
-                  <td>{{ item.teacherCert?.status || '未认证' }}</td>
-                  <td class="col-actions">
-                    <div class="row-actions">
-                      <ActionBtn icon="eye" tip="查看" :to="`/faculty/${item.id}`" />
-                      <ActionBtn icon="x" tip="移除" tone="danger" @click="unbind(item)" />
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="!detail.teachers?.length"><td colspan="3" class="empty">还没有绑定教师</td></tr>
-              </tbody>
-            </table>
+    <PageModal
+      :open="!!detail"
+      panel-class="org-detail"
+      :body-pad="false"
+      :title="detail?.name || ''"
+      :desc="detail ? `负责人 ${detail.contactName || '—'} · ${detail.phone || '无电话'}` : ''"
+      @close="closeDetail"
+    >
+      <div class="org-detail-body">
+        <div class="org-stats">
+          <div><small>累计分佣</small><strong>¥{{ Number(detail.commissionTotal || 0).toFixed(2) }}</strong></div>
+          <div><small>绑定教师</small><strong>{{ detail.teachers?.length || 0 }}</strong></div>
+          <div><small>默认分佣</small><strong>{{ detail.commissionMode === 'fixed' ? `¥${detail.commissionValue}/节` : `${detail.commissionValue}%` }}</strong></div>
+        </div>
+        <div class="corp-card">
+          <div class="row-between">
+            <strong>对公信息</strong>
+            <button class="btn" type="button" @click="openForm(detail)">编辑对公信息</button>
+          </div>
+          <div class="kv">
+            <span>户名</span><b>{{ detail.corpName || '—' }}</b>
+            <span>税号</span><b>{{ detail.taxNo || '—' }}</b>
+            <span>开户行</span><b>{{ detail.bankName || '—' }}</b>
+            <span>账号</span><b>{{ detail.bankAccount || '—' }}</b>
+            <span>地址</span><b>{{ detail.corpAddress || '—' }}</b>
+            <span>电话</span><b>{{ detail.corpPhone || '—' }}</b>
           </div>
         </div>
+        <table>
+          <thead><tr><th>机构教师</th><th>认证</th><th class="col-actions">操作</th></tr></thead>
+          <tbody>
+            <tr v-for="item in detail.teachers" :key="item.id">
+              <td>{{ item.teacherCert?.realName || item.nickname }}</td>
+              <td>{{ item.teacherCert?.status || '未认证' }}</td>
+              <td class="col-actions">
+                <div class="row-actions">
+                  <ActionBtn icon="eye" tip="查看" :to="`/faculty/${item.id}`" />
+                  <ActionBtn icon="x" tip="移除" tone="danger" @click="unbind(item)" />
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!detail.teachers?.length"><td colspan="3" class="empty">还没有绑定教师</td></tr>
+          </tbody>
+        </table>
       </div>
-    </Transition>
+    </PageModal>
 
-    <div v-if="form" class="modal-mask">
-      <div class="modal" role="dialog">
-        <header><h3>{{ form.id ? '编辑机构' : '创建机构' }}</h3><button class="modal-close" type="button" @click="form = null">×</button></header>
-        <form class="form" @submit.prevent="save">
-          <label>机构名称<input v-model="form.name" required /></label>
-          <div class="form-row">
-            <label>联系人<input v-model="form.contactName" /></label>
-            <label>电话<input v-model="form.phone" /></label>
+    <PageModal
+      :open="!!form"
+      :title="form?.id ? '编辑机构' : '创建机构'"
+      @close="form = null"
+    >
+      <form class="form" @submit.prevent="save">
+        <label>机构名称<input v-model="form.name" required /></label>
+        <div class="form-row">
+          <label>联系人<input v-model="form.contactName" /></label>
+          <label>电话<input v-model="form.phone" /></label>
+        </div>
+        <label>地址<input v-model="form.address" /></label>
+        <label>简介<textarea v-model="form.intro"></textarea></label>
+        <div class="corp-box">
+          <div class="row-between">
+            <strong>对公信息</strong>
+            <button class="btn" type="button" @click="pasteCorp">一键粘贴解析</button>
           </div>
-          <label>地址<input v-model="form.address" /></label>
-          <label>简介<textarea v-model="form.intro"></textarea></label>
-          <div class="corp-box">
-            <div class="row-between">
-              <strong>对公信息</strong>
-              <button class="btn" type="button" @click="pasteCorp">一键粘贴解析</button>
-            </div>
-            <textarea v-model="form.corpRaw" placeholder="把对公信息粘贴到这里。支持「公司名称 / 税号 / 开户行 / 账号」，也可以按行粘贴。"></textarea>
-            <p v-if="corpHint" class="muted">{{ corpHint }}</p>
-            <div class="form-row">
-              <label>户名<input v-model="form.corpName" placeholder="公司或账户名称" /></label>
-              <label>税号<input v-model="form.taxNo" placeholder="纳税人识别号" /></label>
-            </div>
-            <div class="form-row">
-              <label>开户行<input v-model="form.bankName" placeholder="开户银行" /></label>
-              <label>账号<input v-model="form.bankAccount" placeholder="银行账号" /></label>
-            </div>
-            <div class="form-row">
-              <label>地址<input v-model="form.corpAddress" placeholder="注册或经营地址" /></label>
-              <label>电话<input v-model="form.corpPhone" placeholder="对公电话" /></label>
-            </div>
+          <textarea v-model="form.corpRaw" placeholder="把对公信息粘贴到这里。支持「公司名称 / 税号 / 开户行 / 账号」，也可以按行粘贴。"></textarea>
+          <p v-if="corpHint" class="muted">{{ corpHint }}</p>
+          <div class="form-row">
+            <label>户名<input v-model="form.corpName" placeholder="公司或账户名称" /></label>
+            <label>税号<input v-model="form.taxNo" placeholder="纳税人识别号" /></label>
           </div>
           <div class="form-row">
-            <label>分佣方式
-              <select v-model="form.commissionMode">
-                <option value="percent">按比例 %</option>
-                <option value="fixed">固定金额</option>
-              </select>
-            </label>
-            <label>分佣值<input v-model.number="form.commissionValue" type="number" min="0" step="0.01" /></label>
+            <label>开户行<input v-model="form.bankName" placeholder="开户银行" /></label>
+            <label>账号<input v-model="form.bankAccount" placeholder="银行账号" /></label>
           </div>
-          <label>教师课时费可见
-            <select v-model="form.feeVisibility">
-              <option value="final">只看最终课时费</option>
-              <option value="full">看完整费用和分佣</option>
-              <option value="hidden">不看金额</option>
+          <div class="form-row">
+            <label>地址<input v-model="form.corpAddress" placeholder="注册或经营地址" /></label>
+            <label>电话<input v-model="form.corpPhone" placeholder="对公电话" /></label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>分佣方式
+            <select v-model="form.commissionMode">
+              <option value="percent">按比例 %</option>
+              <option value="fixed">固定金额</option>
             </select>
           </label>
-          <div class="form-actions">
-            <button class="btn primary" type="submit">保存</button>
-            <button class="btn" type="button" @click="form = null">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
+          <label>分佣值<input v-model.number="form.commissionValue" type="number" min="0" step="0.01" /></label>
+        </div>
+        <label>教师课时费可见
+          <select v-model="form.feeVisibility">
+            <option value="final">只看最终课时费</option>
+            <option value="full">看完整费用和分佣</option>
+            <option value="hidden">不看金额</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <button class="btn" type="button" @click="form = null">取消</button>
+        </div>
+      </form>
+    </PageModal>
   </section>
 </template>
 
@@ -147,10 +152,14 @@ import { onMounted, ref } from 'vue';
 import { api } from '../api';
 import { parseCorp } from '../corp';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
+
 const list = ref([]);
 const detail = ref(null);
 const form = ref(null);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const corpHint = ref('');
 const emptyCorp = { corpName: '', taxNo: '', bankName: '', bankAccount: '', corpAddress: '', corpPhone: '', corpRaw: '' };
 function visibilityText(value) {
@@ -162,7 +171,9 @@ function maskAccount(value) {
   return `${text.slice(0, 4)} **** ${text.slice(-4)}`;
 }
 async function load() {
-  try { list.value = await api.orgs(); } catch (err) { error.value = err.message; }
+  await run(async () => {
+    list.value = await api.orgs();
+  });
 }
 function openForm(item) {
   form.value = item

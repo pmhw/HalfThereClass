@@ -6,7 +6,14 @@
         <p>可预分配给已实名认证的教师。若本学期合同未生效，课程会锁定；合同审核通过后自动解锁时间安排，并写入合同附件。附件里的金额是否展示、是否含机构分佣，与下方「教师可见」一致。</p>
       </div>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="4"
+      :rows="4"
+      @retry="load"
+    >
     <p v-if="notice" class="ok-tip">{{ notice }}</p>
     <article class="card card-pad">
       <div class="form-row">
@@ -60,12 +67,15 @@
       </div>
       <p v-else class="empty">先选择课程和认证教师</p>
     </article>
+    </PageLoad>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const courses = ref([]);
 const teachers = ref([]);
@@ -76,7 +86,7 @@ const mode = ref('percent');
 const value = ref(10);
 const visibility = ref('final');
 const quote = ref(null);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const selectedTeacher = computed(() => teachers.value.find((item) => String(item.id) === teacherId.value) || null);
 
@@ -122,11 +132,14 @@ async function save() {
     error.value = err.message;
   }
 }
-onMounted(async () => {
-  const [courseData, faculty] = await Promise.all([api.courses({ page: 1, pageSize: 100, status: '1' }), api.faculty()]);
-  courses.value = courseData.list;
-  teachers.value = faculty.list.filter((item) => item.certStatus === 'approved');
-});
+async function load() {
+  await run(async () => {
+    const [courseData, faculty] = await Promise.all([api.courses({ page: 1, pageSize: 100, status: '1' }), api.faculty()]);
+    courses.value = courseData.list;
+    teachers.value = faculty.list.filter((item) => item.certStatus === 'approved');
+  });
+}
+onMounted(load);
 </script>
 
 <style scoped>

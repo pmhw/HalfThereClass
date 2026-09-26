@@ -7,7 +7,14 @@
         <p>密钥仍在弹窗里配置。用户协议和教师合同会打开编辑页，左边编写、右边预览。</p>
       </div>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
+    <PageLoad
+      :loading="loading"
+      :ready="ready"
+      :error="error"
+      :columns="3"
+      :rows="4"
+      @retry="load"
+    >
     <div class="settings-grid">
       <button type="button" class="settings-card" @click="openWx">
         <span class="settings-icon wx">微</span>
@@ -66,151 +73,147 @@
         <em :class="database.exists ? 'ok' : 'wait'">{{ dbLabel }}</em>
       </button>
     </div>
+    </PageLoad>
 
-    <div v-if="dialog === 'wx'" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>小程序</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveWx">
-          <p class="muted">填写微信公众平台「开发管理 → 开发设置」里的 AppID 和 AppSecret。须与小程序工程里的 AppID 一致，并配置 request 合法域名。</p>
-          <label>AppID
-            <input v-model="draft.appId" required placeholder="wx 开头的 AppID" autocomplete="off" />
-          </label>
-          <label>AppSecret
-            <input v-model="draft.secret" :required="!wx.hasSecret" :placeholder="wx.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 AppSecret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
-          </label>
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <div class="form-actions">
-            <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PageModal
+      :open="dialog === 'wx'"
+      size="narrow"
+      title="小程序"
+      @close="close"
+    >
+      <form class="form" @submit.prevent="saveWx">
+        <p class="muted">填写微信公众平台「开发管理 → 开发设置」里的 AppID 和 AppSecret。须与小程序工程里的 AppID 一致，并配置 request 合法域名。</p>
+        <label>AppID
+          <input v-model="draft.appId" required placeholder="wx 开头的 AppID" autocomplete="off" />
+        </label>
+        <label>AppSecret
+          <input v-model="draft.secret" :required="!wx.hasSecret" :placeholder="wx.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 AppSecret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+        </label>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <div class="form-actions">
+          <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+        </div>
+      </form>
+    </PageModal>
 
-    <div v-if="dialog === 'sms'" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>阿里云短信</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveSms">
-          <p class="muted">用于手机网页端（/m/）验证码注册登录。请在阿里云短信控制台开通国内短信，并使用<strong>已审核通过</strong>的签名与「验证码」类模板。</p>
-          <p class="muted">注意：接口提示成功只代表阿里云已受理；若手机收不到，请到阿里云控制台「国内消息 → 发送记录」用手机号查询，并核对：①签名不要加【】②模板 CODE 正确③模板变量名与下方一致（多为 <code>code</code>）④账户有余额⑤签名已关联该模板。</p>
-          <label class="check">
-            <input v-model="draft.enabled" type="checkbox" />
-            <span>启用短信登录</span>
-          </label>
-          <label>AccessKey ID
-            <input v-model="draft.accessKeyId" :required="draft.enabled" placeholder="LTAI…" autocomplete="off" />
-          </label>
-          <label>AccessKey Secret
-            <input v-model="draft.accessKeySecret" :required="draft.enabled && !sms.hasSecret" :placeholder="sms.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 Secret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
-          </label>
-          <label>短信签名
-            <input v-model="draft.signName" :required="draft.enabled" placeholder="控制台里的签名，不要写【】" autocomplete="off" />
-          </label>
-          <label>模板 CODE
-            <input v-model="draft.templateCode" :required="draft.enabled" placeholder="SMS_…" autocomplete="off" />
-          </label>
-          <label>模板变量名
-            <input v-model="draft.templateParam" placeholder="须与模板一致，默认 code" autocomplete="off" />
-          </label>
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <div class="form-actions">
-            <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PageModal
+      :open="dialog === 'sms'"
+      size="narrow"
+      title="阿里云短信"
+      @close="close"
+    >
+      <form class="form" @submit.prevent="saveSms">
+        <p class="muted">用于手机网页端（/m/）验证码注册登录。请在阿里云短信控制台开通国内短信，并使用<strong>已审核通过</strong>的签名与「验证码」类模板。</p>
+        <p class="muted">注意：接口提示成功只代表阿里云已受理；若手机收不到，请到阿里云控制台「国内消息 → 发送记录」用手机号查询，并核对：①签名不要加【】②模板 CODE 正确③模板变量名与下方一致（多为 <code>code</code>）④账户有余额⑤签名已关联该模板。</p>
+        <label class="check">
+          <input v-model="draft.enabled" type="checkbox" />
+          <span>启用短信登录</span>
+        </label>
+        <label>AccessKey ID
+          <input v-model="draft.accessKeyId" :required="draft.enabled" placeholder="LTAI…" autocomplete="off" />
+        </label>
+        <label>AccessKey Secret
+          <input v-model="draft.accessKeySecret" :required="draft.enabled && !sms.hasSecret" :placeholder="sms.hasSecret ? '已配置，留空或保持掩码则不修改' : '请输入 Secret'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+        </label>
+        <label>短信签名
+          <input v-model="draft.signName" :required="draft.enabled" placeholder="控制台里的签名，不要写【】" autocomplete="off" />
+        </label>
+        <label>模板 CODE
+          <input v-model="draft.templateCode" :required="draft.enabled" placeholder="SMS_…" autocomplete="off" />
+        </label>
+        <label>模板变量名
+          <input v-model="draft.templateParam" placeholder="须与模板一致，默认 code" autocomplete="off" />
+        </label>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <div class="form-actions">
+          <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+        </div>
+      </form>
+    </PageModal>
 
-    <div v-if="dialog === 'amap'" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>高德地图</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <form class="form" @submit.prevent="saveAmap">
-          <p class="muted">在高德开放平台创建「Web端(JS API)」应用，填写 Key 和安全密钥，并把当前后台域名加入白名单。</p>
-          <label>Web端 Key
-            <input v-model="draft.key" required placeholder="请输入高德 Key" autocomplete="off" />
-          </label>
-          <label>安全密钥
-            <input v-model="draft.security" :required="!form.hasSecurity" :placeholder="form.hasSecurity ? '已配置，留空或保持掩码则不修改' : '请输入安全密钥'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
-          </label>
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <div class="form-actions">
-            <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PageModal
+      :open="dialog === 'amap'"
+      size="narrow"
+      title="高德地图"
+      @close="close"
+    >
+      <form class="form" @submit.prevent="saveAmap">
+        <p class="muted">在高德开放平台创建「Web端(JS API)」应用，填写 Key 和安全密钥，并把当前后台域名加入白名单。</p>
+        <label>Web端 Key
+          <input v-model="draft.key" required placeholder="请输入高德 Key" autocomplete="off" />
+        </label>
+        <label>安全密钥
+          <input v-model="draft.security" :required="!form.hasSecurity" :placeholder="form.hasSecurity ? '已配置，留空或保持掩码则不修改' : '请输入安全密钥'" autocomplete="off" :type="showSecret ? 'text' : 'password'" />
+        </label>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <div class="form-actions">
+          <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+        </div>
+      </form>
+    </PageModal>
 
-    <div v-if="dialog === 'partyA'" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>合同甲方对公信息</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <form class="form" @submit.prevent="savePartyA">
-          <p class="muted">保存后，教师查看/签署合同时会自动替换模板中的甲方占位符。</p>
-          <label>机构名称
-            <input v-model="draft.name" required placeholder="上海御炎川科技有限公司" autocomplete="off" />
-          </label>
-          <label>统一社会信用代码
-            <input v-model="draft.creditCode" required placeholder="18位信用代码" autocomplete="off" />
-          </label>
-          <label>住所地
-            <input v-model="draft.address" required placeholder="注册地址" autocomplete="off" />
-          </label>
-          <label>法定代表人/授权代表
-            <input v-model="draft.legalRep" placeholder="可留空" autocomplete="off" />
-          </label>
-          <label>联系电话
-            <input v-model="draft.phone" placeholder="对公联系电话" autocomplete="off" />
-          </label>
-          <label>电子邮箱
-            <input v-model="draft.email" type="email" placeholder="送达邮箱" autocomplete="off" />
-          </label>
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <PageModal
+      :open="dialog === 'partyA'"
+      size="narrow"
+      title="合同甲方对公信息"
+      @close="close"
+    >
+      <form class="form" @submit.prevent="savePartyA">
+        <p class="muted">保存后，教师查看/签署合同时会自动替换模板中的甲方占位符。</p>
+        <label>机构名称
+          <input v-model="draft.name" required placeholder="上海御炎川科技有限公司" autocomplete="off" />
+        </label>
+        <label>统一社会信用代码
+          <input v-model="draft.creditCode" required placeholder="18位信用代码" autocomplete="off" />
+        </label>
+        <label>住所地
+          <input v-model="draft.address" required placeholder="注册地址" autocomplete="off" />
+        </label>
+        <label>法定代表人/授权代表
+          <input v-model="draft.legalRep" placeholder="可留空" autocomplete="off" />
+        </label>
+        <label>联系电话
+          <input v-model="draft.phone" placeholder="对公联系电话" autocomplete="off" />
+        </label>
+        <label>电子邮箱
+          <input v-model="draft.email" type="email" placeholder="送达邮箱" autocomplete="off" />
+        </label>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+        </div>
+      </form>
+    </PageModal>
 
-    <div v-if="dialog === 'database'" class="modal-mask">
-      <div class="modal narrow" role="dialog">
-        <header>
-          <h3>数据同步</h3>
-          <button class="modal-close" type="button" @click="close">×</button>
-        </header>
-        <div class="form">
-          <p class="muted">导出当前运行库，导入到另一台环境即可同步。导入会先自动备份本机原库。运行中的 `dev.db` 不进 Git，只有 `init.db` 初始快照会进仓库。</p>
-          <div class="db-meta">
-            <div><small>当前库</small><strong>{{ database.exists ? formatSize(database.size) : '不存在' }}</strong></div>
-            <div><small>更新时间</small><strong>{{ database.updatedAt ? formatTime(database.updatedAt) : '—' }}</strong></div>
-            <div><small>初始快照</small><strong>{{ database.hasInit ? '已有 init.db' : '未生成' }}</strong></div>
-          </div>
-          <p v-if="dialogError" class="error">{{ dialogError }}</p>
-          <p v-if="dialogOk" class="ok">{{ dialogOk }}</p>
-          <div class="form-actions wrap">
-            <button class="btn primary" type="button" :disabled="busy" @click="exportDb">{{ busy === 'export' ? '导出中…' : '导出数据库' }}</button>
-            <label class="btn" :class="{ disabled: !!busy }">
-              {{ busy === 'import' ? '导入中…' : '导入数据库' }}
-              <input type="file" accept=".db,application/octet-stream" hidden :disabled="!!busy" @change="importDb" />
-            </label>
-            <button class="btn" type="button" :disabled="busy" @click="saveInit">{{ busy === 'init' ? '写入中…' : '另存为初始库' }}</button>
-            <button class="btn" type="button" @click="close">关闭</button>
-          </div>
+    <PageModal
+      :open="dialog === 'database'"
+      size="narrow"
+      title="数据同步"
+      @close="close"
+    >
+      <div class="form">
+        <p class="muted">导出当前运行库，导入到另一台环境即可同步。导入会先自动备份本机原库。运行中的 `dev.db` 不进 Git，只有 `init.db` 初始快照会进仓库。</p>
+        <div class="db-meta">
+          <div><small>当前库</small><strong>{{ database.exists ? formatSize(database.size) : '不存在' }}</strong></div>
+          <div><small>更新时间</small><strong>{{ database.updatedAt ? formatTime(database.updatedAt) : '—' }}</strong></div>
+          <div><small>初始快照</small><strong>{{ database.hasInit ? '已有 init.db' : '未生成' }}</strong></div>
+        </div>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <p v-if="dialogOk" class="ok">{{ dialogOk }}</p>
+        <div class="form-actions wrap">
+          <button class="btn primary" type="button" :disabled="busy" @click="exportDb">{{ busy === 'export' ? '导出中…' : '导出数据库' }}</button>
+          <label class="btn" :class="{ disabled: !!busy }">
+            {{ busy === 'import' ? '导入中…' : '导入数据库' }}
+            <input type="file" accept=".db,application/octet-stream" hidden :disabled="!!busy" @change="importDb" />
+          </label>
+          <button class="btn" type="button" :disabled="busy" @click="saveInit">{{ busy === 'init' ? '写入中…' : '另存为初始库' }}</button>
+          <button class="btn" type="button" @click="close">关闭</button>
         </div>
       </div>
-    </div>
+    </PageModal>
   </section>
 </template>
 
@@ -218,6 +221,9 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
 import Icon from '../components/Icon.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const form = ref({ key: '', security: '' });
 const wx = ref({ appId: '', secret: '', ready: false });
@@ -237,7 +243,7 @@ const partyA = ref({ name: '', creditCode: '', address: '', legalRep: '', phone:
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
 const draft = ref({});
 const dialog = ref('');
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const dialogError = ref('');
 const dialogOk = ref('');
 const saving = ref(false);
@@ -260,7 +266,7 @@ function formatTime(value) {
 }
 
 async function load() {
-  try {
+  await run(async () => {
     const [mini, amap, text, paper, corp, db, smsCfg] = await Promise.all([
       api.settingsWx(),
       api.settingsAmap(),
@@ -277,9 +283,7 @@ async function load() {
     partyA.value = corp;
     database.value = db;
     sms.value = smsCfg;
-  } catch (err) {
-    error.value = err.message;
-  }
+  });
 }
 
 function openWx() {

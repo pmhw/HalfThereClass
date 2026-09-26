@@ -8,7 +8,7 @@
       </div>
       <button class="btn primary" @click="openForm()">新增学校</button>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
+    <PageLoad :loading="loading" :ready="ready" :error="error" :columns="6" @retry="load">
     <article class="card">
       <table>
         <thead>
@@ -39,62 +39,62 @@
         </tbody>
       </table>
     </article>
+    </PageLoad>
 
-    <div v-if="form" class="modal-mask">
-      <div class="modal course-dialog" role="dialog">
-        <header>
-          <h3>{{ form.id ? '编辑学校' : '新增学校' }}</h3>
-          <button class="modal-close" type="button" @click="closeForm">×</button>
-        </header>
-        <form class="form" @submit.prevent="save">
-          <label>学校名称<input v-model="form.name" required placeholder="请输入学校名称" /></label>
-          <label>学校地址
-            <div class="school-address">
-              <div class="school-search" ref="searchBox">
-                <input
-                  v-model="form.address"
-                  placeholder="搜索学校或地址"
-                  @input="onSearchInput"
-                  @focus="onSearchInput"
-                />
-                <div v-if="tips.length" class="amap-tips">
-                  <button v-for="(tip, index) in tips" :key="tip.id || index" type="button" @mousedown.prevent="pickTip(tip)">
-                    <strong>{{ tip.name }}</strong>
-                    <small>{{ tip.district }}{{ tip.address }}</small>
-                  </button>
-                </div>
-              </div>
-              <button class="btn" type="button" @click="searchNow">搜索</button>
-            </div>
-          </label>
-          <div>
-            <div class="school-map-label">地图选点</div>
-            <div class="school-map-wrap">
-              <div ref="mapBox" class="school-map"></div>
-              <div v-if="mapError" class="school-map-empty">
-                <p>{{ mapError }}</p>
-                <router-link v-if="canSettings" class="btn" to="/settings">去系统设置</router-link>
+    <PageModal
+      :open="!!form"
+      size="wide"
+      :title="form?.id ? '编辑学校' : '新增学校'"
+      @close="closeForm"
+    >
+      <form class="form" @submit.prevent="save">
+        <label>学校名称<input v-model="form.name" required placeholder="请输入学校名称" /></label>
+        <label>学校地址
+          <div class="school-address">
+            <div class="school-search" ref="searchBox">
+              <input
+                v-model="form.address"
+                placeholder="搜索学校或地址"
+                @input="onSearchInput"
+                @focus="onSearchInput"
+              />
+              <div v-if="tips.length" class="amap-tips">
+                <button v-for="(tip, index) in tips" :key="tip.id || index" type="button" @mousedown.prevent="pickTip(tip)">
+                  <strong>{{ tip.name }}</strong>
+                  <small>{{ tip.district }}{{ tip.address }}</small>
+                </button>
               </div>
             </div>
-            <p class="muted">输入地址选择搜索结果，或直接在地图上点选。点位会返回经纬度。</p>
+            <button class="btn" type="button" @click="searchNow">搜索</button>
           </div>
-          <div class="form-row">
-            <label>经度<input :value="coordText(form.lng)" readonly /></label>
-            <label>纬度<input :value="coordText(form.lat)" readonly /></label>
+        </label>
+        <div>
+          <div class="school-map-label">地图选点</div>
+          <div class="school-map-wrap">
+            <div ref="mapBox" class="school-map"></div>
+            <div v-if="mapError" class="school-map-empty">
+              <p>{{ mapError }}</p>
+              <router-link v-if="canSettings" class="btn" to="/settings">去系统设置</router-link>
+            </div>
           </div>
-          <div class="form-row">
-            <label>省份<input :value="form.province || '选点后自动记录'" readonly /></label>
-            <label>城市<input :value="form.city || '选点后自动记录'" readonly /></label>
-          </div>
-          <p v-if="hint" class="muted">{{ hint }}</p>
-          <p v-if="formError" class="error">{{ formError }}</p>
-          <div class="form-actions">
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
-            <button class="btn" type="button" @click="closeForm">取消</button>
-          </div>
-        </form>
-      </div>
-    </div>
+          <p class="muted">输入地址选择搜索结果，或直接在地图上点选。点位会返回经纬度。</p>
+        </div>
+        <div class="form-row">
+          <label>经度<input :value="coordText(form.lng)" readonly /></label>
+          <label>纬度<input :value="coordText(form.lat)" readonly /></label>
+        </div>
+        <div class="form-row">
+          <label>省份<input :value="form.province || '选点后自动记录'" readonly /></label>
+          <label>城市<input :value="form.city || '选点后自动记录'" readonly /></label>
+        </div>
+        <p v-if="hint" class="muted">{{ hint }}</p>
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <div class="form-actions">
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中' : '保存' }}</button>
+          <button class="btn" type="button" @click="closeForm">取消</button>
+        </div>
+      </form>
+    </PageModal>
   </section>
 </template>
 
@@ -104,9 +104,12 @@ import { api, getProfile } from '../api';
 import { allow } from '../access';
 import { loadAmap, pointOf, regionOf } from '../amap';
 import ActionBtn from '../components/ActionBtn.vue';
+import PageModal from '../components/PageModal.vue';
+import PageLoad from '../components/PageLoad.vue';
+import { usePageLoad } from '../composables/usePageLoad';
 
 const list = ref([]);
-const error = ref('');
+const { loading, ready, error, run } = usePageLoad();
 const form = ref(null);
 const formError = ref('');
 const hint = ref('');
@@ -135,7 +138,9 @@ function round6(value) {
 }
 
 async function load() {
-  try { list.value = await api.schools(); } catch (err) { error.value = err.message; }
+  await run(async () => {
+    list.value = await api.schools();
+  });
 }
 
 function destroyMap() {
