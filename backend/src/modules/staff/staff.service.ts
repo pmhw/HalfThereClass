@@ -356,7 +356,7 @@ export class StaffService {
   async listContracts(status?: string) {
     const where: any = {};
     if (status) where.status = status;
-    return this.prisma.teacherContract.findMany({
+    const rows = await this.prisma.teacherContract.findMany({
       where,
       orderBy: { id: 'desc' },
       take: 200,
@@ -366,11 +366,50 @@ export class StaffService {
             id: true,
             nickname: true,
             phone: true,
-            teacherCert: { select: { realName: true, teacherNo: true } },
+            teacherCert: {
+              select: {
+                realName: true,
+                teacherNo: true,
+                contractFlowStatus: true,
+                contractDraftStep: true,
+                ocrStatus: true,
+              },
+            },
           },
         },
         semester: { select: { id: true, name: true, year: true, season: true } },
       },
+    });
+    return rows.map((row) => {
+      const cert = row.user?.teacherCert;
+      const step = cert?.contractDraftStep || 1;
+      const flow = cert?.contractFlowStatus || 'not_started';
+      const stepLabel = row.status === 'approved' || row.status === 'pending'
+        ? (row.status === 'pending' ? '已签字待审' : '已签署')
+        : flow === 'waiting_manual_review'
+          ? '人工确认身份'
+          : step === 3 || flow === 'waiting_signature'
+            ? '签字确认'
+            : step === 2 || flow === 'preview'
+              ? '合同预览'
+              : flow === 'filling'
+                ? '信息确认'
+                : '未开始';
+      const flowLabel = ({
+        not_started: '未开始',
+        filling: '填写中',
+        preview: '待确认',
+        waiting_signature: '待签字',
+        waiting_manual_review: '人工处理中',
+        signed: '已签署',
+      } as any)[flow] || flow;
+      return {
+        ...row,
+        currentStep: stepLabel,
+        flowStatus: flow,
+        flowLabel: row.status === 'pending' ? '待审核' : row.status === 'approved' ? '已签署' : flowLabel,
+        ocrStatus: cert?.ocrStatus || 'none',
+      };
     });
   }
 

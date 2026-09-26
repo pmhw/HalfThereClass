@@ -722,6 +722,9 @@ html.page-modal-open, html.page-modal-open body { overflow: hidden; }
 }
 .course-form .course-control:has(.unit) input { padding-right: 72px; }
 .course-control .select-search { flex: 1; min-width: 0; }
+.course-control.share-row { display: flex; gap: 8px; align-items: center; }
+.course-control.share-row select { width: 130px; flex: none; }
+.course-control.share-row input { flex: 1; min-width: 0; }
 .cover-box {
   min-height: 112px; width: 100%; border: 1px dashed #d0d5dd; border-radius: 10px; background: #f8fafc;
   color: #667085; display: grid; place-items: center; padding: 12px; overflow: hidden;

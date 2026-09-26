@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Put, Query, StreamableFile, UploadedFile, 
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UserService } from './user.service';
+import { ContractFlowService } from './contract-flow.service';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -10,7 +11,10 @@ import { SubmitCertDto } from './dto/submit-cert.dto';
 @ApiTags('用户')
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly contractFlow: ContractFlowService,
+  ) {}
 
   @Get('profile')
   @UseGuards(JwtAuthGuard)
@@ -82,6 +86,46 @@ export class UserController {
   @ApiOperation({ summary: '教师服务合同' })
   getContract(@CurrentUser('userId') userId: number) {
     return this.userService.getContract(userId);
+  }
+
+  @Post('contract/ocr')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '合同身份证 OCR（复用认证照片）' })
+  runContractOcr(@CurrentUser('userId') userId: number, @Body() body: { force?: boolean }) {
+    return this.contractFlow.ensureOcr(userId, !!body?.force);
+  }
+
+  @Post('contract/draft')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '保存合同草稿' })
+  saveContractDraft(@CurrentUser('userId') userId: number, @Body() body: any) {
+    return this.contractFlow.saveDraft(userId, body || {});
+  }
+
+  @Post('contract/advance-preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '信息确认完成，进入合同预览' })
+  advancePreview(@CurrentUser('userId') userId: number) {
+    return this.contractFlow.advanceToPreview(userId);
+  }
+
+  @Post('contract/confirm-preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '确认合同内容，进入签字' })
+  confirmPreview(@CurrentUser('userId') userId: number) {
+    return this.contractFlow.confirmPreview(userId);
+  }
+
+  @Post('contract/manual-review')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '申请身份证人工处理' })
+  requestManual(@CurrentUser('userId') userId: number, @Body() body: { reason?: string }) {
+    return this.contractFlow.requestManualReview(userId, body?.reason);
   }
 
   @Get('contract/export')

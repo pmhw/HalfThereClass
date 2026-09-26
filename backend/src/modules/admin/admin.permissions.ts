@@ -7,6 +7,7 @@ export const ADMIN_PERMISSIONS = [
   { key: 'people', label: '用户与教师' },
   { key: 'org', label: '机构与分佣' },
   { key: 'fee', label: '课程费用与收入' },
+  { key: 'finance', label: '财务管理与收益' },
   { key: 'admin', label: '管理员与权限' },
 ] as const;
 
@@ -15,6 +16,7 @@ export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]['key'];
 const RULES: { test: RegExp; permission: AdminPermission }[] = [
   { test: /\/(people|faculty|certs)(?:\/|$)/, permission: 'people' },
   { test: /\/orgs(?:\/|$)/, permission: 'org' },
+  { test: /\/finance(?:\/|$)/, permission: 'finance' },
   { test: /\/(fees|incomes)(?:\/|$)/, permission: 'fee' },
   { test: /\/admins(?:\/|$)/, permission: 'admin' },
   { test: /\/settings(?:\/|$)/, permission: 'admin' },

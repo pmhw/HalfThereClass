@@ -15,6 +15,7 @@ import {
 import { calculateFee, teacherFeeView } from '@/modules/staff/fee';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SubmitCertDto } from './dto/submit-cert.dto';
+import { ContractFlowService } from './contract-flow.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,7 +34,10 @@ const ROLE_RANK: Record<string, number> = {
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private contractFlow: ContractFlowService,
+  ) {}
 
   async findByOpenid(openid: string) {
     return this.prisma.user.findUnique({ where: { openid } });
@@ -179,10 +183,34 @@ export class UserService {
       : contractDue
         ? latestRevoked
           ? `管理员已撤销您的合同${latestRevoked.rejectReason ? `（${latestRevoked.rejectReason}）` : ''}。合同按学期有效，请重新签字提交审核；通过前课程保持锁定。`
-          : `合同按学期有效。当前学期：${semester?.name || '未设置'}。本学期需重新签订，请仔细阅读后签名提交审核。`
+          : `合同按学期有效。当前学期：${semester?.name || '未设置'}。请按「信息确认 → 合同预览 → 签字」完成签署。`
         : contractValid
           ? `本合同在本学期（${semester?.name}）内有效，学期结束后需重签。`
           : '认证通过后才能签订合同。';
+
+    let identity = this.contractFlow.identityPayload(cert);
+    let draft = this.contractFlow.draftPayload(cert);
+    // 首次进入待签：自动 OCR / 复用认证结构化信息
+    if (contractDue && cert && !['success', 'partial', 'manual_confirmed', 'manual_review'].includes(cert.ocrStatus || 'none')) {
+      try {
+        identity = await this.contractFlow.ensureOcr(userId, false);
+        const refreshed = await this.prisma.teacherCert.findUnique({ where: { userId } });
+        draft = this.contractFlow.draftPayload(refreshed);
+        if (refreshed && (refreshed.contractFlowStatus === 'not_started' || !refreshed.contractFlowStatus)) {
+          await this.prisma.teacherCert.update({
+            where: { userId },
+            data: { contractFlowStatus: 'filling', contractDraftStep: 1 },
+          });
+          draft = this.contractFlow.draftPayload({ ...refreshed, contractFlowStatus: 'filling', contractDraftStep: 1 });
+        }
+      } catch {
+        /* OCR 失败不阻断页面加载，由前端展示状态 */
+        identity = this.contractFlow.identityPayload(cert);
+      }
+    }
+
+    const resume = this.resumeHint(draft, identity, contractDue, contractPending, contractValid);
+
     return {
       ...text,
       title: currentRow?.title || text.title,
@@ -200,7 +228,37 @@ export class UserService {
       semesterId: semester?.id || null,
       tip,
       history,
+      identity,
+      draft,
+      resume,
+      partyA: {
+        name: text.partyA?.name,
+        creditCode: text.partyA?.creditCode,
+        address: text.partyA?.address,
+        legalRep: text.partyA?.legalRep,
+      },
+      wizard: true,
     };
+  }
+
+  private resumeHint(draft: any, identity: any, contractDue: boolean, contractPending: boolean, contractValid: boolean) {
+    if (contractValid) return { kind: 'completed', title: '合同已完成签署', action: '查看合同' };
+    if (contractPending) return { kind: 'pending_review', title: '签名已提交', action: '等待审核' };
+    if (!contractDue) return null;
+    if (identity?.ocrStatus === 'manual_review') {
+      return { kind: 'manual_review', title: '身份信息处理中', action: '等待人工确认', message: '您的身份证资料正在人工确认，完成后即可继续签署。' };
+    }
+    const step = Number(draft?.step || 1);
+    if (step >= 3 || draft?.flowStatus === 'waiting_signature') {
+      return { kind: 'step3', title: '继续签署合同', message: '合同已经确认，请完成最后签字。', action: '继续签字', step: 3 };
+    }
+    if (step >= 2 || draft?.flowStatus === 'preview') {
+      return { kind: 'step2', title: '继续查看合同', message: '您已完成信息填写，请确认合同内容。', action: '继续预览', step: 2 };
+    }
+    if (draft?.flowStatus === 'filling' || draft?.formData) {
+      return { kind: 'step1', title: '继续填写合同', message: '您上次填写到了「信息确认」', action: '继续填写', step: 1 };
+    }
+    return { kind: 'start', title: '开始签署合同', action: '开始填写', step: 1 };
   }
 
   async signContract(userId: number, file?: { buffer?: Buffer }) {
@@ -208,7 +266,10 @@ export class UserService {
     if (cert?.status !== 'approved') throw new BadRequestException('认证通过后才能签订合同');
     if (cert.contractStatus === 'pending_review') throw new BadRequestException('已有合同待审核，请耐心等待');
     if (!cert.idNumber || !cert.address) {
-      throw new BadRequestException('请先在认证页补全身份证号与住址，再签署合同');
+      throw new BadRequestException('请先完成合同「信息确认」中的身份证信息核对');
+    }
+    if (cert.ocrStatus === 'manual_review') {
+      throw new BadRequestException('身份信息人工确认中，暂不能签署');
     }
     const semester = await this.openSemester();
     if (!semester) throw new BadRequestException('当前没有开放学期，暂无法签订合同');
@@ -266,6 +327,8 @@ export class UserService {
           contractStatus: 'pending_review',
           contractSign,
           contractSignedAt: new Date(),
+          contractFlowStatus: 'signed',
+          contractDraftStep: 3,
         },
       });
       return created;

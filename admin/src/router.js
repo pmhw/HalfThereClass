@@ -17,6 +17,11 @@ import Certs from './views/Certs.vue';
 import Orgs from './views/Orgs.vue';
 import Assign from './views/Assign.vue';
 import Incomes from './views/Incomes.vue';
+import Finance from './views/Finance.vue';
+import FinanceMonthly from './views/FinanceMonthly.vue';
+import FinanceTeachers from './views/FinanceTeachers.vue';
+import FinanceOrgs from './views/FinanceOrgs.vue';
+import FinanceRules from './views/FinanceRules.vue';
 import Settings from './views/Settings.vue';
 import DocEdit from './views/DocEdit.vue';
 import { allow, landingPath } from './access';
@@ -43,6 +48,11 @@ const router = createRouter({
         { path: 'orgs', component: Orgs, meta: { title: '机构管理', crumb: '机构 / 机构列表', perm: 'org' } },
         { path: 'assign', component: Assign, meta: { title: '教师分配', crumb: '课程 / 教师分配', perm: 'fee' } },
         { path: 'incomes', component: Incomes, meta: { title: '收入记录', crumb: '数据 / 教师收入', perm: 'fee' } },
+        { path: 'finance', component: Finance, meta: { title: '收益概览', crumb: '财务 / 收益概览', perm: 'finance' } },
+        { path: 'finance/monthly', component: FinanceMonthly, meta: { title: '月度收益', crumb: '财务 / 月度收益', perm: 'finance' } },
+        { path: 'finance/teachers', component: FinanceTeachers, meta: { title: '教师收益', crumb: '财务 / 教师收益', perm: 'finance' } },
+        { path: 'finance/orgs', component: FinanceOrgs, meta: { title: '机构收益', crumb: '财务 / 机构收益', perm: 'finance' } },
+        { path: 'finance/rules', component: FinanceRules, meta: { title: '收益规则', crumb: '财务 / 收益规则', perm: 'finance' } },
         { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin' } },
         { path: 'settings', component: Settings, meta: { title: '系统设置', crumb: '系统 / 设置', perm: 'admin' } },
         { path: 'settings/agreement', component: DocEdit, meta: { title: '用户协议', crumb: '系统 / 设置 / 用户协议', perm: 'admin', kind: 'agreement' } },

@@ -39,6 +39,7 @@ model User {
   incomes      SessionIncome[]
   termTeachings CourseTermTeacher[]
   contracts    TeacherContract[]
+  profitRecords ProfitRecord[] @relation("TeacherProfitRecords")
 
   @@map("users")
 }
@@ -94,6 +95,11 @@ model Course {
   isRecommend Boolean   @default(false) @map("is_recommend")
   isHot       Boolean   @default(false) @map("is_hot")
   sessionFee  Float?    @map("session_fee")
+  // 订单收益分成：教师 / 机构。平台利润 = 收入 - 教师 - 机构（快照落在 ProfitRecord）
+  teacherShareMode      String  @default("percent") @map("teacher_share_mode") // percent, fixed, per_lesson
+  teacherShareValue     Float   @default(50) @map("teacher_share_value")
+  institutionShareMode  String  @default("percent") @map("institution_share_mode") // percent, fixed, per_student, per_lesson
+  institutionShareValue Float   @default(20) @map("institution_share_value")
   grabAt      DateTime? @map("grab_at")
   activeSemesterId Int? @map("active_semester_id") // 当前开放学期；列表只展示该学期课程
   ownerId     Int?      @map("owner_id")
@@ -116,6 +122,7 @@ model Course {
   grants      TeacherCourseGrant[]
   incomes     SessionIncome[]
   termTeachers CourseTermTeacher[]
+  profitRecords ProfitRecord[]
 
   @@index([categoryId])
   @@index([teacherId])
@@ -198,10 +205,66 @@ model Order {
 
   user        User      @relation(fields: [userId], references: [id])
   course      Course    @relation(fields: [courseId], references: [id])
+  profitRecord ProfitRecord?
 
   @@index([userId])
   @@index([status])
   @@map("orders")
+}
+
+// 订单收益快照。分成规则变更不影响历史订单
+model ProfitRecord {
+  id                 Int       @id @default(autoincrement())
+  orderId            Int       @unique @map("order_id")
+  courseId           Int       @map("course_id")
+  teacherId          Int?      @map("teacher_id")
+  institutionId      Int?      @map("institution_id")
+  totalAmount        Float     @map("total_amount")
+  refundAmount       Float     @default(0) @map("refund_amount")
+  teacherAmount      Float     @default(0) @map("teacher_amount")
+  institutionAmount  Float     @default(0) @map("institution_amount")
+  platformAmount     Float     @default(0) @map("platform_amount")
+  teacherRate        Float?    @map("teacher_rate")
+  institutionRate    Float?    @map("institution_rate")
+  platformRate       Float?    @map("platform_rate")
+  teacherShareMode   String?   @map("teacher_share_mode")
+  institutionShareMode String? @map("institution_share_mode")
+  settlementStatus   String    @default("pending") @map("settlement_status") // pending, settled
+  settlementMonth    String    @map("settlement_month") // YYYY-MM
+  orderStatus        String    @default("paid") @map("order_status")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  settledAt          DateTime? @map("settled_at")
+
+  order              Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  course             Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacher            User?     @relation("TeacherProfitRecords", fields: [teacherId], references: [id], onDelete: SetNull)
+  institution        Organization? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  @@index([courseId])
+  @@index([teacherId])
+  @@index([institutionId])
+  @@index([settlementMonth])
+  @@index([settlementStatus])
+  @@map("profit_records")
+}
+
+// 月度结算状态
+model MonthlySettlement {
+  id                 Int       @id @default(autoincrement())
+  month              String    @unique @map("month") // YYYY-MM
+  status             String    @default("open") @map("status") // open, pending, settled
+  totalAmount        Float     @default(0) @map("total_amount")
+  teacherAmount      Float     @default(0) @map("teacher_amount")
+  institutionAmount  Float     @default(0) @map("institution_amount")
+  platformAmount     Float     @default(0) @map("platform_amount")
+  orderCount         Int       @default(0) @map("order_count")
+  settledAt          DateTime? @map("settled_at")
+  settledBy          Int?      @map("settled_by")
+  note               String?   @map("note")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("monthly_settlements")
 }
 
 // 评论表
@@ -249,6 +312,16 @@ model TeacherCert {
   idCardBack  String?  @map("id_card_back")
   idNumber    String?  @map("id_number")
   address     String?  @map("address")
+  ethnicity   String?  @map("ethnicity")
+  birthday    String?  @map("birthday")
+  issuingAuthority String? @map("issuing_authority")
+  idValidFrom String?  @map("id_valid_from")
+  idValidTo   String?  @map("id_valid_to")
+  ocrStatus   String   @default("none") @map("ocr_status") // none, processing, success, partial, failed, manual_review, manual_confirmed
+  ocrAttempts Int      @default(0) @map("ocr_attempts")
+  ocrRaw      String?  @map("ocr_raw") // JSON：原始 OCR 结果
+  ocrError    String?  @map("ocr_error")
+  ocrAt       DateTime? @map("ocr_at")
   email       String?  @map("email")
   bankName    String?  @map("bank_name")
   bankAccountName String? @map("bank_account_name")
@@ -262,6 +335,10 @@ model TeacherCert {
   contractSemesterId Int? @map("contract_semester_id")
   contractSignedAt DateTime? @map("contract_signed_at")
   contractSign String? @map("contract_sign")
+  contractFlowStatus String @default("not_started") @map("contract_flow_status") // not_started, filling, preview, waiting_signature, waiting_manual_review, signed
+  contractDraftStep Int @default(1) @map("contract_draft_step") // 1信息确认 2预览 3签字
+  contractDraftJson String? @map("contract_draft_json")
+  contractDraftAt DateTime? @map("contract_draft_at")
   bio         String?  @map("bio")
   skills      String?  @map("skills")
   rejectReason String? @map("reject_reason")
@@ -269,9 +346,29 @@ model TeacherCert {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   user        User     @relation(fields: [userId], references: [id])
+  ocrAudits   IdOcrAudit[]
 
   @@index([status])
+  @@index([ocrStatus])
   @@map("teacher_certs")
+}
+
+// 身份证 OCR / 人工修正审计
+model IdOcrAudit {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  field        String   @map("field")
+  ocrValue     String?  @map("ocr_value")
+  manualValue  String?  @map("manual_value")
+  operatorId   Int?     @map("operator_id")
+  operatorName String?  @map("operator_name")
+  source       String   @default("teacher") @map("source") // teacher, admin, ocr
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  cert         TeacherCert @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("id_ocr_audits")
 }
 
 // 上课签到
@@ -416,6 +513,7 @@ model Organization {
   createdAt        DateTime @default(now()) @map("created_at")
 
   teachers         User[]
+  profitRecords    ProfitRecord[]
 
   @@map("organizations")
 }

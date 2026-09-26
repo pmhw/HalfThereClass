@@ -6,6 +6,7 @@ import { AdminLoginDto, CaptchaCheckDto } from './dto/admin-login.dto';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import { ScheduleService } from '../schedule/schedule.service';
+import { ContractFlowService } from '../user/contract-flow.service';
 
 @ApiTags('管理后台')
 @Controller('admin')
@@ -39,6 +40,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly scheduleService: ScheduleService,
+    private readonly contractFlow: ContractFlowService,
   ) {}
 
   @Get('session')
@@ -569,5 +571,20 @@ export class AdminController {
   @ApiOperation({ summary: '删除单节课' })
   deleteSession(@Req() req: any, @Param('id') id: string) {
     return this.scheduleService.deleteSession(Number(id), req.admin);
+  }
+
+  @Get('ocr-reviews')
+  @ApiOperation({ summary: '身份证 OCR 人工处理列表' })
+  listOcrReviews() {
+    return this.contractFlow.listOcrReviews();
+  }
+
+  @Post('ocr-reviews/:userId/confirm')
+  @ApiOperation({ summary: '人工确认身份证信息' })
+  confirmOcr(@Req() req: any, @Param('userId') userId: string, @Body() body: any) {
+    return this.contractFlow.adminConfirmIdentity(Number(userId), body || {}, {
+      id: req.admin?.id,
+      name: req.admin?.name || req.admin?.username,
+    });
   }
 }

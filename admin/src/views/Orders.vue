@@ -30,6 +30,18 @@
             <td class="col-actions">
               <div class="row-actions">
                 <ActionBtn icon="eye" tip="查看" @click="detail = item" />
+                <ActionBtn
+                  v-if="item.status === 'pending' || item.status === 'cancelled'"
+                  icon="play"
+                  tip="标记已支付"
+                  @click="markPaid(item)"
+                />
+                <ActionBtn
+                  v-if="item.status === 'paid'"
+                  icon="clock"
+                  tip="退款"
+                  @click="refund(item)"
+                />
               </div>
             </td>
           </tr>
@@ -98,6 +110,24 @@ function statusClass(value) {
   if (value === 'pending') return 'amber';
   if (value === 'refunded') return 'red';
   return '';
+}
+async function markPaid(item) {
+  if (!confirm(`确认将订单 ${item.orderNo} 标记为已支付？将按课程收益规则生成利润快照。`)) return;
+  try {
+    await api.financeMarkPaid(item.id);
+    await load();
+  } catch (e) {
+    alert(e.message || '操作失败');
+  }
+}
+async function refund(item) {
+  if (!confirm(`确认对订单 ${item.orderNo} 全额退款？将同步冲减教师/机构/平台收益。`)) return;
+  try {
+    await api.financeRefund(item.id);
+    await load();
+  } catch (e) {
+    alert(e.message || '退款失败');
+  }
 }
 watch(() => route.query.status, (value) => {
   status.value = value || '';

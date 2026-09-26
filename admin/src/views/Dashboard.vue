@@ -83,6 +83,35 @@
         </article>
       </div>
 
+      <article v-if="finance" class="card card-pad" style="margin-top: 16px">
+        <div class="card-title">
+          <h2>收益概览 · {{ finance.month }}</h2>
+          <router-link class="link" to="/finance">财务管理</router-link>
+        </div>
+        <div class="kpi-grid">
+          <article class="card kpi">
+            <div class="label">总收入</div>
+            <div class="value">{{ money(finance.current?.totalAmount) }}</div>
+            <div class="meta"><span class="flat">{{ finance.current?.orderCount || 0 }} 笔订单</span></div>
+          </article>
+          <article class="card kpi">
+            <div class="label">教师所得</div>
+            <div class="value">{{ money(finance.current?.teacherAmount) }}</div>
+            <div class="meta"><span class="flat">{{ finance.current?.teacherSharePct || 0 }}%</span></div>
+          </article>
+          <article class="card kpi">
+            <div class="label">机构所得</div>
+            <div class="value">{{ money(finance.current?.institutionAmount) }}</div>
+            <div class="meta"><span class="flat">{{ finance.current?.institutionSharePct || 0 }}%</span></div>
+          </article>
+          <article class="card kpi">
+            <div class="label">平台利润</div>
+            <div class="value">{{ money(finance.current?.platformAmount) }}</div>
+            <div class="meta"><span class="up">利润率 {{ finance.current?.profitRate || 0 }}%</span></div>
+          </article>
+        </div>
+      </article>
+
       <article class="card" style="margin-top: 16px">
         <div class="card-title" style="padding: 18px 16px 0">
           <h2>课程</h2>
@@ -109,10 +138,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { api } from '../api';
+import { api, getProfile } from '../api';
 import { dateTime, greeting, money, orderStatusText, todayText } from '../format';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { allow } from '../access';
 
 const data = ref({
   trend: { users: [], courses: [], orders: [], labels: [] },
@@ -125,6 +155,7 @@ const data = ref({
   totalRevenue: 0,
   changes: {},
 });
+const finance = ref(null);
 const { loading, ready, error, run } = usePageLoad();
 
 const kpis = computed(() => [
@@ -172,6 +203,14 @@ function statusClass(status) {
 async function load() {
   await run(async () => {
     data.value = await api.dashboard();
+    const profile = getProfile();
+    if (allow(profile, 'finance')) {
+      try {
+        finance.value = await api.financeOverview();
+      } catch {
+        finance.value = null;
+      }
+    }
   });
 }
 

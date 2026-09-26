@@ -22,6 +22,10 @@
         合同审核
         <span v-if="pendingContracts.length" class="tag amber">{{ pendingContracts.length }}</span>
       </button>
+      <button type="button" :class="{ on: tab === 'ocr' }" @click="tab = 'ocr'">
+        OCR 人工处理
+        <span v-if="ocrList.length" class="tag amber">{{ ocrList.length }}</span>
+      </button>
     </div>
 
     <article v-if="tab === 'certs'" class="card">
@@ -60,15 +64,16 @@
       </table>
     </article>
 
-    <article v-else class="card">
+    <article v-else-if="tab === 'contracts'" class="card">
       <p class="card-pad muted">每学期需重新签订；通过后预分配课程自动解锁。驳回后教师可重签，历史记录不删除。</p>
       <table>
-        <thead><tr><th>教师</th><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
+        <thead><tr><th>教师</th><th>学期</th><th>当前步骤</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in contracts" :key="item.id">
             <td>{{ item.user?.teacherCert?.realName || item.user?.nickname || '—' }}</td>
             <td>{{ item.semester?.name || '—' }}</td>
-            <td>{{ contractStatusText(item.status) }}</td>
+            <td>{{ item.currentStep || '—' }}</td>
+            <td>{{ item.flowLabel || contractStatusText(item.status) }}</td>
             <td>{{ formatTime(item.signedAt) }}</td>
             <td class="muted">{{ item.courseAnnex || '无' }}</td>
             <td class="col-actions">
@@ -88,11 +93,65 @@
               </div>
             </td>
           </tr>
-          <tr v-if="!contracts.length"><td colspan="6" class="empty">还没有合同记录</td></tr>
+          <tr v-if="!contracts.length"><td colspan="7" class="empty">还没有合同记录</td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article v-else class="card">
+      <p class="card-pad muted">身份证 OCR 失败或部分缺失时，对照原图人工确认。确认后教师可继续签合同。</p>
+      <table>
+        <thead><tr><th>教师</th><th>状态</th><th>异常原因</th><th>更新时间</th><th class="col-actions">操作</th></tr></thead>
+        <tbody>
+          <tr v-for="item in ocrList" :key="item.userId">
+            <td>{{ item.realName || item.nickname || '—' }}</td>
+            <td>{{ ocrStatusText(item.ocrStatus) }}</td>
+            <td class="muted">{{ item.reason || '—' }}</td>
+            <td>{{ formatTime(item.updatedAt) }}</td>
+            <td class="col-actions">
+              <div class="row-actions">
+                <ActionBtn icon="pencil" tip="处理" @click="openOcr(item)" />
+              </div>
+            </td>
+          </tr>
+          <tr v-if="!ocrList.length"><td colspan="5" class="empty">暂无待处理项</td></tr>
         </tbody>
       </table>
     </article>
     </PageLoad>
+
+    <PageModal
+      :open="!!ocrEdit"
+      title="身份证人工确认"
+      size="wide"
+      @close="ocrEdit = null"
+    >
+      <div class="ocr-grid">
+        <div class="ocr-photos">
+          <img v-if="ocrEdit.idCard" :src="protectedAssetUrl(ocrEdit.idCard)" alt="人像面" />
+          <img v-if="ocrEdit.idCardBack" :src="protectedAssetUrl(ocrEdit.idCardBack)" alt="国徽面" />
+        </div>
+        <form class="form" @submit.prevent="saveOcr">
+          <label>姓名<input v-model="ocrEdit.fields.name" required /></label>
+          <label>性别
+            <select v-model="ocrEdit.fields.gender">
+              <option value="">请选择</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+            </select>
+          </label>
+          <label>身份证号码<input v-model="ocrEdit.fields.idNumber" required maxlength="18" /></label>
+          <label>出生日期<input v-model="ocrEdit.fields.birthday" type="date" /></label>
+          <label>民族<input v-model="ocrEdit.fields.ethnicity" /></label>
+          <label>身份证住址<textarea v-model="ocrEdit.fields.address" required></textarea></label>
+          <p v-if="ocrError" class="error">{{ ocrError }}</p>
+          <div class="form-actions">
+            <button class="btn primary" type="submit">确认身份信息</button>
+            <button class="btn" type="button" @click="ocrEdit = null">取消</button>
+          </div>
+        </form>
+      </div>
+    </PageModal>
 
     <PageModal
       :open="!!viewing"
@@ -163,6 +222,9 @@ import { usePageLoad } from '../composables/usePageLoad';
 
 const list = ref([]);
 const contracts = ref([]);
+const ocrList = ref([]);
+const ocrEdit = ref(null);
+const ocrError = ref('');
 const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const rejecting = ref(null);
@@ -174,6 +236,16 @@ const tab = ref('certs');
 const certMap = { pending: '审核中', approved: '已认证', rejected: '已驳回', frozen: '冻结' };
 
 const pendingContracts = computed(() => contracts.value.filter((item) => item.status === 'pending'));
+
+function ocrStatusText(status) {
+  return ({
+    manual_review: '待处理',
+    failed: '识别失败',
+    partial: '部分成功',
+    success: '已识别',
+    manual_confirmed: '人工已确认',
+  })[status] || status;
+}
 
 function certText(item) {
   if (item.status === 'approved' && item.clearanceStatus === 'pending') return '证明待审';
@@ -219,11 +291,43 @@ function filesOf(item) {
 function openReject(item) { rejecting.value = item; reason.value = '资料不完整'; }
 async function load() {
   await run(async () => {
-    const [certs, rows] = await Promise.all([api.certs(), api.contracts()]);
+    const [certs, rows, ocrs] = await Promise.all([
+      api.certs(),
+      api.contracts(),
+      api.ocrReviews().catch(() => []),
+    ]);
     list.value = certs;
     contracts.value = rows;
-    if (pendingContracts.value.length) tab.value = tab.value || 'contracts';
+    ocrList.value = ocrs || [];
+    if (pendingContracts.value.length && tab.value === 'certs') tab.value = 'contracts';
   });
+}
+function openOcr(item) {
+  ocrError.value = '';
+  ocrEdit.value = {
+    userId: item.userId,
+    idCard: item.idCard,
+    idCardBack: item.idCardBack,
+    fields: {
+      name: item.fields?.name || item.realName || '',
+      gender: item.fields?.gender || '',
+      idNumber: item.fields?.idNumber || '',
+      birthday: item.fields?.birthday || '',
+      ethnicity: item.fields?.ethnicity || '',
+      address: item.fields?.address || '',
+    },
+  };
+}
+async function saveOcr() {
+  ocrError.value = '';
+  try {
+    await api.confirmOcrReview(ocrEdit.value.userId, { fields: ocrEdit.value.fields });
+    ocrEdit.value = null;
+    notice.value = '身份信息已人工确认，教师可继续签合同';
+    await load();
+  } catch (err) {
+    ocrError.value = err.message;
+  }
 }
 async function review(item, action) {
   if (action === 'reject' && !reason.value.trim()) return;
@@ -302,5 +406,21 @@ onMounted(load);
   max-width: 240px;
   border: 1px solid #e7edf5;
   background: #fff;
+}
+.ocr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 8px 4px 16px;
+}
+.ocr-photos { display: flex; flex-direction: column; gap: 10px; }
+.ocr-photos img {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #e7edf5;
+  background: #f8fafc;
+}
+@media (max-width: 860px) {
+  .ocr-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -1872,6 +1872,14 @@ export class AdminService implements OnModuleInit {
     };
     if (!this.isSchool(actor)) {
       row.sessionFee = data.sessionFee === '' || data.sessionFee == null ? null : Number(data.sessionFee);
+      if (data.teacherShareMode != null) row.teacherShareMode = String(data.teacherShareMode);
+      if (data.teacherShareValue != null && data.teacherShareValue !== '') {
+        row.teacherShareValue = Number(data.teacherShareValue);
+      }
+      if (data.institutionShareMode != null) row.institutionShareMode = String(data.institutionShareMode);
+      if (data.institutionShareValue != null && data.institutionShareValue !== '') {
+        row.institutionShareValue = Number(data.institutionShareValue);
+      }
     }
     return row;
   }

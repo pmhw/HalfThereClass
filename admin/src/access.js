@@ -36,6 +36,11 @@ export const PERMISSION_GROUPS = [
     items: [{ key: 'fee', label: '课程费用与收入', desc: '教师分配和收入记录', icon: 'receipt' }],
   },
   {
+    key: 'finance',
+    label: '财务管理',
+    items: [{ key: 'finance', label: '财务管理与收益', desc: '月度收益、教师/机构分成与结算', icon: 'chart' }],
+  },
+  {
     key: 'admin',
     label: '权限管理',
     items: [{ key: 'admin', label: '管理员与权限', desc: '管理员账号、系统设置和用户协议', icon: 'users' }],
@@ -59,6 +64,7 @@ const LANDING = [
   ['people', '/people'],
   ['org', '/orgs'],
   ['fee', '/assign'],
+  ['finance', '/finance'],
   ['admin', '/admins'],
 ];
 

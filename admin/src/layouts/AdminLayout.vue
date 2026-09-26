@@ -217,7 +217,7 @@ let versionTimer = 0;
 let updateTimer = 0;
 let pollTimer = 0;
 const collapsed = ref(localStorage.getItem('admin_nav_collapsed') === '1');
-const opened = ref({ course: true, trade: false, admin: true });
+const opened = ref({ course: true, trade: false, admin: true, finance: true });
 const result = ref({ courses: [], users: [], orders: [] });
 const profile = ref(getProfile());
 const menuSource = [
@@ -267,6 +267,18 @@ const menuSource = [
     children: [
       { to: '/assign', label: '教师分配', icon: 'list', perm: 'fee' },
       { to: '/incomes', label: '收入记录', icon: 'chart', perm: 'fee' },
+    ],
+  },
+  {
+    key: 'finance',
+    label: '财务管理',
+    icon: 'chart',
+    children: [
+      { to: '/finance', label: '收益概览', icon: 'chart', perm: 'finance' },
+      { to: '/finance/monthly', label: '月度收益', icon: 'list', perm: 'finance' },
+      { to: '/finance/teachers', label: '教师收益', icon: 'users', perm: 'finance' },
+      { to: '/finance/orgs', label: '机构收益', icon: 'folder', perm: 'finance' },
+      { to: '/finance/rules', label: '收益规则', icon: 'gear', perm: 'finance' },
     ],
   },
   {
