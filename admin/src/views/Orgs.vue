@@ -7,7 +7,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
-        <thead><tr><th>机构</th><th>联系人</th><th>对公信息</th><th>教师数</th><th>默认分佣</th><th>教师可见</th><th>状态</th><th></th></tr></thead>
+        <thead><tr><th>机构</th><th>联系人</th><th>对公信息</th><th>教师数</th><th>默认分佣</th><th>教师可见</th><th>状态</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
             <td>{{ item.name }}</td>
@@ -23,7 +23,11 @@
             <td>{{ item.commissionMode === 'fixed' ? `¥${item.commissionValue}/节` : `${item.commissionValue}%` }}</td>
             <td>{{ visibilityText(item.feeVisibility) }}</td>
             <td><span :class="['tag', item.status === 1 ? 'green' : '']">{{ item.status === 1 ? '正常' : '停用' }}</span></td>
-            <td><button class="link" @click="openDetail(item)">详情</button></td>
+            <td class="col-actions">
+              <div class="row-actions">
+                <ActionBtn icon="eye" tip="详情" @click="openDetail(item)" />
+              </div>
+            </td>
           </tr>
           <tr v-if="!list.length"><td colspan="8" class="empty">还没有机构</td></tr>
         </tbody>
@@ -61,15 +65,15 @@
               </div>
             </div>
             <table>
-              <thead><tr><th>机构教师</th><th>认证</th><th></th></tr></thead>
+              <thead><tr><th>机构教师</th><th>认证</th><th class="col-actions">操作</th></tr></thead>
               <tbody>
                 <tr v-for="item in detail.teachers" :key="item.id">
                   <td>{{ item.teacherCert?.realName || item.nickname }}</td>
                   <td>{{ item.teacherCert?.status || '未认证' }}</td>
-                  <td>
+                  <td class="col-actions">
                     <div class="row-actions">
-                      <router-link class="link" :to="`/faculty/${item.id}`">查看</router-link>
-                      <button class="link danger" @click="unbind(item)">移除</button>
+                      <ActionBtn icon="eye" tip="查看" :to="`/faculty/${item.id}`" />
+                      <ActionBtn icon="x" tip="移除" tone="danger" @click="unbind(item)" />
                     </div>
                   </td>
                 </tr>
@@ -142,6 +146,7 @@
 import { onMounted, ref } from 'vue';
 import { api } from '../api';
 import { parseCorp } from '../corp';
+import ActionBtn from '../components/ActionBtn.vue';
 const list = ref([]);
 const detail = ref(null);
 const form = ref(null);

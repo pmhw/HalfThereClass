@@ -51,7 +51,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
-        <thead><tr><th>姓名</th><th>微信昵称</th><th>手机号</th><th>身份</th><th>认证</th><th>机构</th><th>上级</th><th>状态</th><th></th></tr></thead>
+        <thead><tr><th>姓名</th><th>微信昵称</th><th>手机号</th><th>身份</th><th>认证</th><th>机构</th><th>上级</th><th>状态</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
             <td>{{ item.realName || '—' }}</td>
@@ -62,11 +62,15 @@
             <td>{{ item.organization?.name || '未绑定' }}</td>
             <td>{{ item.parent?.name || '无' }}</td>
             <td><span :class="['tag', item.status === 1 ? 'green' : 'red']">{{ item.status === 1 ? '正常' : '冻结' }}</span></td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <router-link class="link" :to="`/faculty/${item.id}`">详情</router-link>
-                <button class="link" @click="openRelation(item)">机构/上级</button>
-                <button class="link" @click="askFreeze(item)">{{ item.status === 1 ? '冻结' : '解冻' }}</button>
+                <ActionBtn icon="eye" tip="详情" :to="`/faculty/${item.id}`" />
+                <ActionBtn icon="building" tip="机构/上级" @click="openRelation(item)" />
+                <ActionBtn
+                  :icon="item.status === 1 ? 'lock' : 'unlock'"
+                  :tip="item.status === 1 ? '冻结' : '解冻'"
+                  @click="askFreeze(item)"
+                />
               </div>
             </td>
           </tr>
@@ -125,6 +129,7 @@
 import { onMounted, ref } from 'vue';
 import { api } from '../api';
 import Pager from '../components/Pager.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const keyword = ref('');
 const cert = ref('');

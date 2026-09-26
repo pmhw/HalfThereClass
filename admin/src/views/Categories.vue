@@ -10,7 +10,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card" style="margin-top: 16px">
       <table>
-        <thead><tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>分类</th><th>排序</th><th>课程数</th><th>状态</th><th></th></tr></thead>
+        <thead><tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>分类</th><th>排序</th><th>课程数</th><th>状态</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
             <td class="check-col"><input type="checkbox" :disabled="item._count.courses > 0" :checked="selected.includes(item.id)" :title="item._count.courses ? '分类下还有课程，不能删除' : ''" @change="toggle(item)" /></td>
@@ -18,10 +18,17 @@
             <td>{{ item.sort }}</td>
             <td>{{ item._count.courses }}</td>
             <td><span :class="['tag', item.status === 1 ? 'green' : '']">{{ item.status === 1 ? '启用' : '停用' }}</span></td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button class="link" @click="open(item)">编辑</button>
-                <button class="link danger" :disabled="item._count.courses > 0" @click="askRemove(item)">删除</button>
+                <ActionBtn icon="pencil" tip="编辑" @click="open(item)" />
+                <ActionBtn
+                  icon="trash"
+                  tip="删除"
+                  tone="danger"
+                  :disabled="item._count.courses > 0"
+                  disabled-tip="分类下还有课程，不能删除"
+                  @click="askRemove(item)"
+                />
               </div>
             </td>
           </tr>
@@ -56,6 +63,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
 import Confirm from '../components/Confirm.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const list = ref([]);
 const error = ref('');

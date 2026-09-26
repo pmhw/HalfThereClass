@@ -109,24 +109,25 @@
     <article v-if="tab === '合同记录'" class="card card-pad">
       <p class="muted">历史已签合同全部保留，不会覆盖删除，便于责任追溯。合同按学期生效；也可手动撤销，要求教师重签并重新审核。</p>
       <table>
-        <thead><tr><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th></th></tr></thead>
+        <thead><tr><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in detail.contracts || []" :key="item.id">
             <td>{{ item.semester?.name || item.semesterId || '—' }}</td>
             <td>{{ contractStatusText(item.status) }}</td>
             <td>{{ formatTime(item.signedAt) }}</td>
             <td class="muted">{{ item.courseAnnex || '无' }}</td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button v-if="item.status === 'pending'" class="link" type="button" @click="reviewContract(item, 'approve')">通过</button>
-                <button v-if="item.status === 'pending'" class="link" type="button" @click="reviewContract(item, 'reject')">驳回</button>
-                <button
+                <ActionBtn v-if="item.status === 'pending'" icon="check" tip="通过" tone="plan" @click="reviewContract(item, 'approve')" />
+                <ActionBtn v-if="item.status === 'pending'" icon="x" tip="驳回" tone="danger" @click="reviewContract(item, 'reject')" />
+                <ActionBtn
                   v-if="item.status === 'approved' || item.status === 'pending'"
-                  class="link"
-                  type="button"
+                  icon="refresh"
+                  tip="撤销重签"
+                  tone="wait"
                   @click="revokeOne(item)"
-                >撤销重签</button>
-                <button class="link" type="button" @click="openContract(item)">预览</button>
+                />
+                <ActionBtn icon="eye" tip="预览" @click="openContract(item)" />
               </div>
             </td>
           </tr>
@@ -186,6 +187,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { api, protectedAssetUrl } from '../api';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const route = useRoute();
 const detail = ref(null);

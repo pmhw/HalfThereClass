@@ -176,9 +176,17 @@ a { color: inherit; text-decoration: none; }
   content: attr(data-tip);
   position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
   white-space: nowrap; padding: 6px 8px; border-radius: 8px; background: #111827; color: #fff;
-  font-size: 12px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .12s ease; z-index: 5;
+  font-size: 12px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity .12s ease; z-index: 40;
 }
+.tip-wrap:not([data-tip])::after,
+.tip-wrap[data-tip=""]::after { display: none; }
 .tip-wrap:hover::after { opacity: 1; }
+.col-actions .tip-wrap::after {
+  top: 50%;
+  left: auto;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+}
 .dot {
   position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--red);
 }
@@ -219,6 +227,7 @@ a { color: inherit; text-decoration: none; }
 
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 20px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card:has(table) { overflow-x: auto; }
 .kpi { padding: 18px 18px 14px; }
 .kpi .label { color: var(--muted); font-size: 13px; }
 .kpi .value { margin-top: 8px; font-size: 30px; font-weight: 650; letter-spacing: -0.04em; }
@@ -340,7 +349,7 @@ tr.on td { background: #eef4ff; }
 .tag.blue { background: var(--primary-soft); color: var(--primary); }
 .link { border: 0; background: transparent; color: var(--primary); padding: 0; }
 .link:disabled { color: #98a2b3; cursor: not-allowed; }
-.row-actions { display: inline-flex; align-items: center; gap: 8px; }
+.row-actions { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
 .row-actions .link {
   height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid #dbe7ff;
   background: #f8fbff; color: var(--primary); transition: background .15s ease, border-color .15s ease, transform .15s ease;
@@ -353,6 +362,51 @@ tr.on td { background: #eef4ff; }
 .row-actions .link.plan:hover:not(:disabled) { background: #d1fae5; border-color: #6ee7b7; }
 .row-actions .link.wait { color: #b45309; border-color: #fed7aa; background: #fff7ed; }
 .row-actions .link.wait:hover:not(:disabled) { background: #ffedd5; border-color: #fdba74; }
+
+/* 统一：表格操作列贴右固定 + 图标按钮 */
+th.col-actions,
+td.col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  background: #fff;
+  box-shadow: -10px 0 12px -12px rgba(15, 23, 42, 0.28);
+  padding-left: 10px;
+  padding-right: 14px;
+}
+thead th.col-actions {
+  z-index: 3;
+  background: #fff;
+}
+tbody tr:hover > td.col-actions { background: #fafbfd; }
+tr.on > td.col-actions { background: #eef4ff; }
+
+.action-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid #dbe7ff;
+  background: #f8fbff;
+  color: var(--primary);
+  display: inline-grid;
+  place-items: center;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+}
+.action-btn svg { width: 16px; height: 16px; }
+.action-btn:hover:not(:disabled) { background: #eef4ff; border-color: #bfdbfe; }
+.action-btn:active:not(:disabled) { transform: translateY(1px); }
+.action-btn:disabled { opacity: .42; cursor: not-allowed; }
+.action-btn.danger { color: var(--red); border-color: #fecaca; background: #fff; }
+.action-btn.danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+.action-btn.plan { color: #047857; border-color: #a7f3d0; background: #ecfdf3; }
+.action-btn.plan:hover:not(:disabled) { background: #d1fae5; border-color: #6ee7b7; }
+.action-btn.wait { color: #b45309; border-color: #fed7aa; background: #fff7ed; }
+.action-btn.wait:hover:not(:disabled) { background: #ffedd5; border-color: #fdba74; }
+a.action-btn { text-decoration: none; }
 .plan-dialog { width: min(920px, 100%); }
 .plan-dialog header {
   align-items: flex-start; background: linear-gradient(180deg, #eef4ff 0%, #fff 100%);

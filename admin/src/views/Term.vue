@@ -119,7 +119,7 @@
               <strong>{{ item.course?.title || '课程' }}</strong>
               <p>{{ item.startTime }}<template v-if="item.endTime"> - {{ item.endTime }}</template> · {{ hoursText(item) }}</p>
             </div>
-            <button v-if="!ended" type="button" class="link" @click="openSession(item)">调整</button>
+            <ActionBtn v-if="!ended" icon="pencil" tip="调整" @click="openSession(item)" />
           </div>
         </div>
       </div>
@@ -279,6 +279,7 @@ import { useRoute } from 'vue-router';
 import { api } from '../api';
 import Icon from '../components/Icon.vue';
 import Confirm from '../components/Confirm.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const semesters = ref([]);
 const holidays = ref([]);

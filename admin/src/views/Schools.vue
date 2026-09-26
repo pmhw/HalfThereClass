@@ -12,7 +12,7 @@
     <article class="card">
       <table>
         <thead>
-          <tr><th>学校</th><th>省份</th><th>城市</th><th>地址</th><th>课程</th><th></th></tr>
+          <tr><th>学校</th><th>省份</th><th>城市</th><th>地址</th><th>课程</th><th class="col-actions">操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
@@ -21,10 +21,17 @@
             <td>{{ item.city || '—' }}</td>
             <td>{{ item.address || '—' }}</td>
             <td>{{ item._count?.courses || 0 }}</td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button class="link" @click="openForm(item)">编辑</button>
-                <button class="link danger" :disabled="!!item._count?.courses" @click="remove(item)">删除</button>
+                <ActionBtn icon="pencil" tip="编辑" @click="openForm(item)" />
+                <ActionBtn
+                  icon="trash"
+                  tip="删除"
+                  tone="danger"
+                  :disabled="!!item._count?.courses"
+                  disabled-tip="学校下还有课程，不能删除"
+                  @click="remove(item)"
+                />
               </div>
             </td>
           </tr>
@@ -96,6 +103,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api, getProfile } from '../api';
 import { allow } from '../access';
 import { loadAmap, pointOf, regionOf } from '../amap';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const list = ref([]);
 const error = ref('');

@@ -10,7 +10,7 @@
     </div>
     <article class="card">
       <table>
-        <thead><tr><th>订单号</th><th>用户</th><th>课程</th><th>金额</th><th>状态</th><th>支付时间</th><th></th></tr></thead>
+        <thead><tr><th>订单号</th><th>用户</th><th>课程</th><th>金额</th><th>状态</th><th>支付时间</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
             <td>{{ item.orderNo }}</td>
@@ -19,7 +19,11 @@
             <td>{{ money(item.payAmount ?? item.amount) }}</td>
             <td><span :class="['tag', statusClass(item.status)]">{{ orderStatusText[item.status] || item.status }}</span></td>
             <td>{{ dateTime(item.payTime) }}</td>
-            <td><button class="link" @click="detail = item">查看</button></td>
+            <td class="col-actions">
+              <div class="row-actions">
+                <ActionBtn icon="eye" tip="查看" @click="detail = item" />
+              </div>
+            </td>
           </tr>
           <tr v-if="!result.list.length"><td colspan="7" class="empty">暂无订单</td></tr>
         </tbody>
@@ -52,6 +56,7 @@ import { useRoute } from 'vue-router';
 import { api } from '../api';
 import { dateTime, money, orderStatusText } from '../format';
 import Pager from '../components/Pager.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const route = useRoute();
 const keyword = ref('');

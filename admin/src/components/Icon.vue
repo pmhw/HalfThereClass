@@ -35,6 +35,12 @@
     <template v-else-if="name === 'quote'"><path d="M8 8H5.5A1.5 1.5 0 0 0 4 9.5V12h4V8zM16 8h-2.5A1.5 1.5 0 0 0 12 9.5V12h4V8zM4 12v2.5A1.5 1.5 0 0 0 5.5 16H8v-4M12 12v2.5A1.5 1.5 0 0 0 13.5 16H16v-4"/></template>
     <template v-else-if="name === 'code'"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></template>
     <template v-else-if="name === 'link'"><path d="M10 13a5 5 0 0 0 7.1.4l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.4l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1"/></template>
+    <template v-else-if="name === 'eye'"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></template>
+    <template v-else-if="name === 'x'"><path d="M7 7l10 10M17 7 7 17"/></template>
+    <template v-else-if="name === 'lock'"><rect x="6" y="11" width="12" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></template>
+    <template v-else-if="name === 'unlock'"><rect x="6" y="11" width="12" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-1.8"/></template>
+    <template v-else-if="name === 'refresh'"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></template>
+    <template v-else-if="name === 'copy'"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></template>
   </svg>
 </template>
 

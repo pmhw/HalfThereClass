@@ -19,7 +19,7 @@
 
     <article v-if="tab === 'certs'" class="card">
       <table>
-        <thead><tr><th>姓名</th><th>微信</th><th>手机号</th><th>状态</th><th>材料</th><th></th></tr></thead>
+        <thead><tr><th>姓名</th><th>微信</th><th>手机号</th><th>状态</th><th>材料</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
             <td>{{ item.realName }}</td>
@@ -31,20 +31,20 @@
               <div class="muted">{{ contractText(item) }}</div>
             </td>
             <td>
-              <button class="link" type="button" @click="viewing = item">查看材料</button>
+              <ActionBtn icon="image" tip="查看材料" @click="viewing = item" />
             </td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <router-link class="link" :to="`/faculty/${item.userId}`">资料</router-link>
+                <ActionBtn icon="user" tip="资料" :to="`/faculty/${item.userId}`" />
                 <template v-if="item.status === 'pending'">
-                  <button class="link" @click="review(item, 'approve')">通过</button>
-                  <button class="link" @click="openReject(item)">驳回</button>
+                  <ActionBtn icon="check" tip="通过" tone="plan" @click="review(item, 'approve')" />
+                  <ActionBtn icon="x" tip="驳回" tone="danger" @click="openReject(item)" />
                 </template>
                 <template v-else-if="item.clearanceStatus === 'pending'">
-                  <button class="link" @click="review(item, 'approveClearance')">通过无犯罪证明</button>
-                  <button class="link" @click="openReject(item)">驳回</button>
+                  <ActionBtn icon="check" tip="通过无犯罪证明" tone="plan" @click="review(item, 'approveClearance')" />
+                  <ActionBtn icon="x" tip="驳回" tone="danger" @click="openReject(item)" />
                 </template>
-                <span v-else>{{ item.rejectReason || '—' }}</span>
+                <span v-else class="muted">{{ item.rejectReason || '—' }}</span>
               </div>
             </td>
           </tr>
@@ -56,7 +56,7 @@
     <article v-else class="card">
       <p class="card-pad muted">每学期需重新签订；通过后预分配课程自动解锁。驳回后教师可重签，历史记录不删除。</p>
       <table>
-        <thead><tr><th>教师</th><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th></th></tr></thead>
+        <thead><tr><th>教师</th><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in contracts" :key="item.id">
             <td>{{ item.user?.teacherCert?.realName || item.user?.nickname || '—' }}</td>
@@ -64,19 +64,20 @@
             <td>{{ contractStatusText(item.status) }}</td>
             <td>{{ formatTime(item.signedAt) }}</td>
             <td class="muted">{{ item.courseAnnex || '无' }}</td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button class="link" type="button" @click="contractView = item">预览</button>
+                <ActionBtn icon="eye" tip="预览" @click="contractView = item" />
                 <template v-if="item.status === 'pending'">
-                  <button class="link" type="button" @click="reviewContract(item, 'approve')">通过</button>
-                  <button class="link" type="button" @click="reviewContract(item, 'reject')">驳回</button>
+                  <ActionBtn icon="check" tip="通过" tone="plan" @click="reviewContract(item, 'approve')" />
+                  <ActionBtn icon="x" tip="驳回" tone="danger" @click="reviewContract(item, 'reject')" />
                 </template>
-                <button
+                <ActionBtn
                   v-if="item.status === 'approved' || item.status === 'pending'"
-                  class="link"
-                  type="button"
+                  icon="refresh"
+                  tip="撤销重签"
+                  tone="wait"
                   @click="revokeContract(item)"
-                >撤销重签</button>
+                />
               </div>
             </td>
           </tr>
@@ -154,6 +155,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api, protectedAssetUrl } from '../api';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const list = ref([]);
 const contracts = ref([]);

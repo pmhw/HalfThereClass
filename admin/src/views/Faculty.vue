@@ -11,7 +11,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
-        <thead><tr><th>教师</th><th>手机号</th><th>认证</th><th>机构</th><th>上级</th><th>授权课程</th><th>已授课</th><th></th></tr></thead>
+        <thead><tr><th>教师</th><th>手机号</th><th>认证</th><th>机构</th><th>上级</th><th>授权课程</th><th>已授课</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
             <td>{{ item.realName || item.nickname }}</td>
@@ -21,7 +21,11 @@
             <td>{{ item.parent?.name || '未设置' }}</td>
             <td>{{ item.grantCount }}</td>
             <td>{{ item.taughtCount }}</td>
-            <td><router-link class="link" :to="`/faculty/${item.id}`">详情</router-link></td>
+            <td class="col-actions">
+              <div class="row-actions">
+                <ActionBtn icon="eye" tip="详情" :to="`/faculty/${item.id}`" />
+              </div>
+            </td>
           </tr>
           <tr v-if="!list.length"><td colspan="8" class="empty">还没有教师申请</td></tr>
         </tbody>
@@ -33,6 +37,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { api } from '../api';
+import ActionBtn from '../components/ActionBtn.vue';
 const error = ref('');
 const list = ref([]);
 const stats = ref({ certified: 0, pending: 0, monthNew: 0, org: 0, independent: 0 });

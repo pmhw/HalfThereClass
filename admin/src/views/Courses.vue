@@ -65,7 +65,7 @@
     <article class="card">
       <table>
         <thead>
-          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>年级</th><th>分类</th><th>老师</th><th>学期</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th></th></tr>
+          <tr><th class="check-col"><input type="checkbox" :checked="allChecked" :disabled="!selectable.length" @change="toggleAll" /></th><th>课程</th><th>年级</th><th>分类</th><th>老师</th><th>学期</th><th v-if="!schoolAccount">校企业</th><th>校方价格</th><th v-if="!schoolAccount">课时费</th><th>状态</th><th class="col-actions">操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
@@ -88,14 +88,33 @@
             <td>{{ item.isFree ? '免费' : money(item.price) }}</td>
             <td v-if="!schoolAccount">{{ item.sessionFee == null ? '—' : money(item.sessionFee) }}</td>
             <td><span :class="['tag', item.status === 1 ? 'green' : '']">{{ item.status === 1 ? '上架' : '下架' }}</span></td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button v-if="!schoolAccount && item._count?.sessions" class="link plan" type="button" @click="openPlan(item)">已排课</button>
-                <button v-else-if="!schoolAccount" class="link wait" type="button" @click="goSchedule(item)">未排课</button>
-                <button class="link" type="button" @click="copyGrabLink(item)">复制链接</button>
-                <button class="link" type="button" @click="openContinue(item)">延续学期</button>
-                <button class="link" @click="openForm(item)">编辑</button>
-                <button class="link danger" :disabled="!!item.teacherId" :title="item.teacherId ? '已安排老师，不能删除' : ''" @click="askRemove(item)">删除</button>
+                <ActionBtn
+                  v-if="!schoolAccount && item._count?.sessions"
+                  icon="cal"
+                  tip="已排课"
+                  tone="plan"
+                  @click="openPlan(item)"
+                />
+                <ActionBtn
+                  v-else-if="!schoolAccount"
+                  icon="cal"
+                  tip="未排课，去排课"
+                  tone="wait"
+                  @click="goSchedule(item)"
+                />
+                <ActionBtn icon="link" tip="复制抢课链接" @click="copyGrabLink(item)" />
+                <ActionBtn icon="refresh" tip="延续学期" @click="openContinue(item)" />
+                <ActionBtn icon="pencil" tip="编辑" @click="openForm(item)" />
+                <ActionBtn
+                  icon="trash"
+                  tip="删除"
+                  tone="danger"
+                  :disabled="!!item.teacherId"
+                  disabled-tip="已安排老师，不能删除"
+                  @click="askRemove(item)"
+                />
               </div>
             </td>
           </tr>
@@ -467,6 +486,7 @@ import { money } from '../format';
 import Pager from '../components/Pager.vue';
 import Confirm from '../components/Confirm.vue';
 import Icon from '../components/Icon.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const router = useRouter();
 const schoolAccount = getProfile()?.role === 'school';

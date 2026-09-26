@@ -14,7 +14,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <article class="card">
       <table>
-        <thead><tr><th>姓名</th><th>账号</th><th>权限</th><th>状态</th><th></th></tr></thead>
+        <thead><tr><th>姓名</th><th>账号</th><th>权限</th><th>状态</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in result.list" :key="item.id">
             <td>{{ item.name }}</td>
@@ -23,10 +23,10 @@
             <td>
               <span :class="['tag', item.status === 1 && !frozen(item) ? 'green' : 'red']">{{ frozen(item) ? '已冻结' : (item.status === 1 ? '正常' : '停用') }}</span>
             </td>
-            <td>
+            <td class="col-actions">
               <div class="row-actions">
-                <button class="link" @click="openForm(item)">编辑</button>
-                <button class="link danger" @click="askRemove(item)">删除</button>
+                <ActionBtn icon="pencil" tip="编辑" @click="openForm(item)" />
+                <ActionBtn icon="trash" tip="删除" tone="danger" @click="askRemove(item)" />
               </div>
             </td>
           </tr>
@@ -135,6 +135,7 @@ import { PERMISSIONS, PERMISSION_GROUPS } from '../access';
 import Pager from '../components/Pager.vue';
 import Confirm from '../components/Confirm.vue';
 import Icon from '../components/Icon.vue';
+import ActionBtn from '../components/ActionBtn.vue';
 
 const keyword = ref('');
 const page = ref(1);
