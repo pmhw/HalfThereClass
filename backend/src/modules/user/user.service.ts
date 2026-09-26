@@ -12,6 +12,7 @@ import {
   buildFilledContract,
   parsePartyA,
 } from '@/common/contract';
+import { calculateFee, teacherFeeView } from '@/modules/staff/fee';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SubmitCertDto } from './dto/submit-cert.dto';
 
@@ -136,15 +137,7 @@ export class UserService {
       this.openSemester(),
     ]);
     const text = await this.contractText();
-    const pendingGrants = await this.prisma.teacherCourseGrant.findMany({
-      where: { userId, lockState: 'pending_contract' },
-      include: { course: { select: { id: true, title: true, school: true, gradeLabel: true, weekday: true, startTime: true, endTime: true, sessionFee: true } } },
-    });
-    const annexCourses = pendingGrants.map((g) => ({
-      ...g.course,
-      sessionFee: g.course.sessionFee ?? (g as any).baseFee,
-    }));
-    const annex = this.formatCourseAnnex(annexCourses);
+    const { annex, courses: annexCourses, assignedCourses } = await this.buildPendingCourseAnnex(userId);
     const history = await this.prisma.teacherContract.findMany({
       where: { userId },
       orderBy: { id: 'desc' },
@@ -195,7 +188,7 @@ export class UserService {
       title: currentRow?.title || text.title,
       content,
       courseAnnex: displayAnnex,
-      assignedCourses: pendingGrants.map((g) => g.course),
+      assignedCourses,
       status: cert?.status || 'none',
       signed: contractValid,
       contractValid,
@@ -236,15 +229,7 @@ export class UserService {
       this.contractText(),
       this.prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }),
     ]);
-    const pendingGrants = await this.prisma.teacherCourseGrant.findMany({
-      where: { userId, lockState: 'pending_contract' },
-      include: { course: { select: { id: true, title: true, school: true, gradeLabel: true, weekday: true, startTime: true, endTime: true, sessionFee: true } } },
-    });
-    const courses = pendingGrants.map((g) => ({
-      ...g.course,
-      sessionFee: g.course.sessionFee ?? g.baseFee,
-    }));
-    const annex = this.formatCourseAnnex(courses);
+    const { annex, courses } = await this.buildPendingCourseAnnex(userId);
     const body = await this.fillContractBody(text.content, {
       partyA: text.partyA,
       cert,
@@ -331,25 +316,74 @@ export class UserService {
     return data;
   }
 
-  private formatCourseAnnex(courses: Array<{
-    id: number;
-    title: string;
-    school?: string | null;
-    gradeLabel?: string | null;
-    weekday?: number | null;
-    startTime?: string | null;
-    endTime?: string | null;
-    sessionFee?: number | null;
-  }>) {
-    if (!courses.length) return '';
+  /** 预分配课程附件：金额展示跟随分配/机构的「教师可见」配置 */
+  private async buildPendingCourseAnnex(userId: number) {
+    const [user, pendingGrants] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { organization: true },
+      }),
+      this.prisma.teacherCourseGrant.findMany({
+        where: { userId, lockState: 'pending_contract' },
+        include: {
+          course: {
+            select: {
+              id: true,
+              title: true,
+              school: true,
+              gradeLabel: true,
+              weekday: true,
+              startTime: true,
+              endTime: true,
+              sessionFee: true,
+            },
+          },
+        },
+      }),
+    ]);
+    const org = user?.organization;
+    const hasOrg = !!org && org.status === 1;
     const week = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    return courses.map((c, i) => {
+    const lines = pendingGrants.map((g, i) => {
+      const c = g.course;
       const when = [c.weekday ? week[c.weekday] : '', c.startTime ? `${c.startTime}${c.endTime ? `-${c.endTime}` : ''}` : '']
         .filter(Boolean)
         .join(' ');
-      const fee = c.sessionFee != null ? `课时费 ¥${Number(c.sessionFee).toFixed(2)}` : '课时费待定';
-      return `${i + 1}. ${c.title}${c.gradeLabel ? `（${c.gradeLabel}）` : ''}${c.school ? ` · ${c.school}` : ''}${when ? ` · ${when}` : ''} · ${fee}`;
-    }).join('\n');
+      const base = g.baseFee != null ? Number(g.baseFee) : (c.sessionFee != null ? Number(c.sessionFee) : null);
+      const mode = g.mode || (hasOrg ? org!.commissionMode : null);
+      const value = g.value ?? (hasOrg ? org!.commissionValue : null);
+      const visibility = g.visibility || org?.feeVisibility || 'final';
+      const quote = calculateFee({ base, hasOrg, mode, value, visibility });
+      const view = teacherFeeView(quote);
+      const feePart = this.formatAnnexFee(view, quote.configured);
+      return [
+        `${i + 1}. ${c.title}`,
+        c.gradeLabel ? `（${c.gradeLabel}）` : '',
+        c.school ? ` · ${c.school}` : '',
+        when ? ` · ${when}` : '',
+        feePart ? ` · ${feePart}` : '',
+      ].join('');
+    });
+    return {
+      annex: lines.join('\n'),
+      courses: pendingGrants.map((g) => g.course),
+      assignedCourses: pendingGrants.map((g) => g.course),
+    };
+  }
+
+  private formatAnnexFee(
+    view: ReturnType<typeof teacherFeeView>,
+    configured: boolean,
+  ) {
+    if (!configured) return '课时费待定';
+    if (!view.showFee) return '课时费未开放';
+    const money = (n: number | null | undefined) => `¥${Number(n || 0).toFixed(2)}`;
+    // full：展示标准课时费、机构分佣、教师实得
+    if ('baseFee' in view && view.baseFee != null && 'commission' in view) {
+      return `课程标准 ${money(view.baseFee)} · 机构分佣 ${money(view.commission)} · 实得 ${money(view.teacherFee)}`;
+    }
+    // final：只看最终课时费
+    return `课时费 ${money(view.teacherFee)}`;
   }
 
   private buildContractHtml(title: string, body: string, signPath: string, semesterName: string) {
