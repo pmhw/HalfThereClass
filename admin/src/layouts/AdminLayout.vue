@@ -9,12 +9,11 @@
         @focusin="openVersion(true)"
         @focusout="closeVersion"
       >
-        <div class="logo">
-          半
-          <i v-if="updates.hasUpdate" class="update-dot"></i>
-        </div>
         <div class="brand-text">
-          <strong>对校课程平台</strong>
+          <strong>
+            对校课程平台
+            <i v-if="updates.hasUpdate" class="update-dot"></i>
+          </strong>
           <span>{{ updates.hasUpdate ? `有新版本 ${updates.latest?.tag || ''}` : '管理后台' }}</span>
         </div>
       </div>
@@ -158,6 +157,9 @@
             <Icon name="bell" />
             <i v-if="pendingCount" class="dot"></i>
           </router-link>
+          <button type="button" class="icon-btn" title="刷新当前页" @click="refreshCurrent">
+            <Icon name="refresh" />
+          </button>
           <button type="button" class="icon-btn" title="帮助" @click="help = !help">
             <Icon name="help" />
           </button>
@@ -175,8 +177,45 @@
           </div>
         </div>
       </header>
+
+      <div class="workspace-tabs" v-if="tabs.length">
+        <div class="workspace-tabs-scroll">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            type="button"
+            class="workspace-tab"
+            :class="{ active: tab.key === activeKey }"
+            :title="tab.crumb || tab.title"
+            @click="activate(tab)"
+            @click.middle.prevent="closeTab(tab, $event)"
+            @contextmenu.prevent="closeOthers(tab)"
+          >
+            <span class="workspace-tab-title">{{ tab.title }}</span>
+            <i
+              v-if="tabs.length > 1"
+              class="workspace-tab-close"
+              title="关闭"
+              @click="closeTab(tab, $event)"
+            >×</i>
+          </button>
+        </div>
+        <button type="button" class="workspace-refresh" title="刷新当前页" @click="refreshCurrent">
+          <Icon name="refresh" />
+          <span>刷新</span>
+        </button>
+      </div>
+
       <div class="content">
-        <router-view />
+        <router-view v-slot="{ Component, route: viewRoute }">
+          <keep-alive :max="24">
+            <component
+              :is="Component"
+              v-if="Component"
+              :key="aliveKey(viewRoute)"
+            />
+          </keep-alive>
+        </router-view>
       </div>
     </div>
 
@@ -202,9 +241,20 @@ import { useRoute, useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import { api, accountLock, clearToken, getProfile } from '../api';
 import { allow } from '../access';
+import { clearAdminTabsStorage, useAdminTabs } from '../composables/useAdminTabs';
 
 const route = useRoute();
 const router = useRouter();
+const {
+  tabs,
+  activeKey,
+  aliveKey,
+  hydrate,
+  activate,
+  closeTab,
+  closeOthers,
+  refreshCurrent,
+} = useAdminTabs();
 const keyword = ref('');
 const open = ref(false);
 const help = ref(false);
@@ -367,6 +417,7 @@ function onSearch() {
 
 function logout() {
   accountLock.message = '';
+  clearAdminTabsStorage();
   clearToken();
   router.push('/login');
 }
@@ -555,6 +606,7 @@ watch(() => route.path, () => {
   guardAccount(false);
 });
 onMounted(async () => {
+  hydrate();
   syncOpen();
   await nextTick();
   refreshUpdates(false);
