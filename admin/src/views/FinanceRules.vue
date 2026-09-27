@@ -123,5 +123,5 @@ onMounted(load);
 <style scoped>
 .form-grid { display: grid; gap: 12px; }
 .form-grid label { display: grid; gap: 6px; font-size: 13px; color: #475467; }
-.form-grid input, .form-grid select { height: 40px; padding: 0 10px; border: 1px solid #d0d5dd; border-radius: 10px; }
+.form-grid input { height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; }
 </style>

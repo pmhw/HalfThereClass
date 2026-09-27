@@ -399,9 +399,22 @@ async function main() {
   if (String(status.stdout || '').trim()) {
     run(`git commit -m "release: v${version}"`);
   }
-  run(`git tag -a v${version} -m "HalfThereClass v${version}"`);
-  run('git push origin HEAD');
-  run(`git push origin v${version}`);
+  const tag = `v${version}`;
+  const existing = spawnSync(`git rev-parse -q --verify refs/tags/${tag}`, {
+    cwd: root,
+    shell: true,
+    encoding: 'utf8',
+  });
+  if (existing.status === 0) {
+    run(`git tag -d ${tag}`);
+  }
+  run(`git tag -a ${tag} -m "HalfThereClass ${tag}"`);
+
+  const pushHead = spawnSync('git push origin HEAD', { cwd: root, shell: true, stdio: 'inherit' });
+  if (pushHead.status !== 0) {
+    console.warn('主分支推送失败（可能非快进）；继续推送 tag 并创建 Release');
+  }
+  run(`git push origin ${tag}`);
 
   const info = await createGithubRelease(version, assetPath);
   console.log(`Release: ${info.htmlUrl}`);

@@ -14,8 +14,8 @@
           <i v-if="updates.hasUpdate" class="update-dot"></i>
         </div>
         <div class="brand-text">
-          <strong>半堂课</strong>
-          <span>{{ updates.hasUpdate ? `有新版本 ${updates.latest?.tag || ''}` : '课程平台管理后台' }}</span>
+          <strong>对校课程平台</strong>
+          <span>{{ updates.hasUpdate ? `有新版本 ${updates.latest?.tag || ''}` : '管理后台' }}</span>
         </div>
       </div>
       <Teleport to="body">
