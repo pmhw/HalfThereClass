@@ -1157,7 +1157,7 @@ export class AdminService implements OnModuleInit {
     const repo = process.env.GITHUB_REPO || 'pmhw/HalfThereClass';
     let releases: any[] = [];
     let source = 'github-api';
-    const apiUrl = `https://api.github.com/repos/${repo}/releases?per_page=10`;
+    const apiUrl = `https://api.github.com/repos/${repo}/releases?per_page=30`;
     const apiCandidates = this.cnMirrorEnabled()
       ? [this.wrapGithubUrl(apiUrl), apiUrl]
       : [apiUrl, this.wrapGithubUrl(apiUrl)].filter((u, i, a) => u && a.indexOf(u) === i);
@@ -1202,8 +1202,12 @@ export class AdminService implements OnModuleInit {
       source = 'version-file';
     }
 
-    const updates = list.filter((item) => item.newer);
-    const latest = updates[0] || list[0] || null;
+    // GitHub 按创建时间排序，不一定等于版本号；统一按 semver 降序
+    list = list.sort((a, b) => this.compareVersion(b.tag, a.tag));
+    const withAsset = list.filter((item) => item.size > 0 || item.assetName);
+    const ranked = withAsset.length ? withAsset : list;
+    const updates = ranked.filter((item) => item.newer);
+    const latest = updates[0] || ranked[0] || null;
     const data = {
       current,
       latest,
