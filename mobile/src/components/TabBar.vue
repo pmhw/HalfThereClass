@@ -56,33 +56,38 @@ function go(index) {
   bottom: 0;
   z-index: 10000;
   box-sizing: border-box;
-  padding: calc(16 * var(--r)) calc(28 * var(--r)) calc(16 * var(--r) + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.38);
-  border-top: 1px solid rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  padding: 0 calc(36 * var(--r)) calc(20 * var(--r) + env(safe-area-inset-bottom));
+  pointer-events: none;
+  background: transparent;
+  border: 0;
 }
 .shell {
   position: relative;
+  pointer-events: auto;
   width: 100%;
+  max-width: calc(690 * var(--r));
+  margin: 0 auto;
   height: calc(112 * var(--r));
   border-radius: 999px;
   overflow: hidden;
   display: flex;
-  background: rgba(255, 255, 255, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 calc(10 * var(--r)) calc(28 * var(--r)) rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  isolation: isolate;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 calc(12 * var(--r)) calc(32 * var(--r)) rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
 }
 .shine {
   position: absolute;
   left: 0;
   right: 0;
   top: 0;
-  height: 50%;
+  height: 52%;
   border-radius: 999px 999px 0 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), transparent);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent);
   pointer-events: none;
   z-index: 0;
 }
