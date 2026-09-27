@@ -224,31 +224,7 @@
               <input v-model="form.sessionFee" type="number" min="0" step="0.01" placeholder="请输入教师结算费用" required />
               <em class="unit">元/课时</em>
             </div>
-          </label>
-          <label v-if="!schoolAccount" class="course-field">
-            <span>教师分成</span>
-            <div class="course-control share-row">
-              <select v-model="form.teacherShareMode">
-                <option value="percent">收入比例%</option>
-                <option value="fixed">固定金额</option>
-                <option value="per_lesson">按课时</option>
-              </select>
-              <input v-model="form.teacherShareValue" type="number" min="0" step="0.01" placeholder="50" />
-            </div>
-            <small class="region-note">订单收益快照用。默认 50%。与「课时费」签到结算相互独立。</small>
-          </label>
-          <label v-if="!schoolAccount" class="course-field">
-            <span>机构分成</span>
-            <div class="course-control share-row">
-              <select v-model="form.institutionShareMode">
-                <option value="percent">收入比例%</option>
-                <option value="fixed">固定金额</option>
-                <option value="per_student">按人数</option>
-                <option value="per_lesson">按课时</option>
-              </select>
-              <input v-model="form.institutionShareValue" type="number" min="0" step="0.01" placeholder="20" />
-            </div>
-            <small class="region-note">默认 20%。平台利润 = 收入 − 教师 − 机构。</small>
+            <small class="region-note">教师所得。机构分佣在机构设置；平台利润 = 校方价格 − 课时费 − 分佣。</small>
           </label>
           <label class="course-field">
             <span>开抢时间</span>
@@ -759,10 +735,6 @@ function blank() {
     price: '',
     originalPrice: '',
     sessionFee: '',
-    teacherShareMode: 'percent',
-    teacherShareValue: 50,
-    institutionShareMode: 'percent',
-    institutionShareValue: 20,
     grabAt: '',
     cover: '',
     level: 'beginner',
@@ -1008,10 +980,6 @@ function openForm(item) {
         price: item.price,
         originalPrice: item.originalPrice ?? '',
         sessionFee: item.sessionFee ?? '',
-        teacherShareMode: item.teacherShareMode || 'percent',
-        teacherShareValue: item.teacherShareValue ?? 50,
-        institutionShareMode: item.institutionShareMode || 'percent',
-        institutionShareValue: item.institutionShareValue ?? 20,
         grabAt: toLocalInput(item.grabAt),
         cover: item.cover || '',
         level: item.level || 'beginner',
@@ -1046,10 +1014,6 @@ async function save() {
   };
   if (schoolAccount) {
     delete body.sessionFee;
-    delete body.teacherShareMode;
-    delete body.teacherShareValue;
-    delete body.institutionShareMode;
-    delete body.institutionShareValue;
   }
   try {
     if (form.value.id) await api.updateCourse(form.value.id, body);

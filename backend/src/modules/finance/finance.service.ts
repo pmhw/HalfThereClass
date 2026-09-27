@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
-import { calculateProfitSplit, moneyPct, monthKey, prevMonthKey } from './profit';
-import { roundMoney } from '@/modules/staff/fee';
+import { calculateSessionProfit, moneyPct, monthKey, prevMonthKey } from './profit';
+import { calculateFee, roundMoney } from '@/modules/staff/fee';
 
 type Scope = {
   organizationId?: number | null;
@@ -13,105 +13,57 @@ type Scope = {
 export class FinanceService {
   constructor(private prisma: PrismaService) {}
 
-  /** 为已支付/退款订单写入或刷新收益快照。首次按课程规则落库；之后退款只按快照比例缩放。 */
-  async syncOrderProfit(orderId: number, opts?: { forceRecalc?: boolean; refundAmount?: number }) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+  /**
+   * 按已结算课次写入利润快照：
+   * 平台利润 = 校方价格 − 教师课时费 − 机构分佣
+   */
+  async syncSessionProfit(sessionIncomeId: number, opts?: { forceRecalc?: boolean }) {
+    const income = await this.prisma.sessionIncome.findUnique({
+      where: { id: sessionIncomeId },
       include: {
-        course: {
-          include: {
-            teacher: { select: { id: true, organizationId: true } },
-          },
-        },
+        course: { select: { id: true, price: true, sessionFee: true } },
         profitRecord: true,
+        user: { select: { id: true, organizationId: true } },
       },
     });
-    if (!order) throw new NotFoundException('订单不存在');
-    if (order.status !== 'paid' && order.status !== 'refunded') {
-      if (order.profitRecord) {
-        await this.prisma.profitRecord.delete({ where: { id: order.profitRecord.id } });
+    if (!income) throw new NotFoundException('课次收入不存在');
+
+    if (income.status === 'unconfigured' || income.teacherFee == null) {
+      if (income.profitRecord) {
+        await this.prisma.profitRecord.delete({ where: { id: income.profitRecord.id } });
       }
       return null;
     }
 
-    const totalAmount = roundMoney(Number(order.payAmount ?? order.amount) || 0);
-    const existing = order.profitRecord;
-    const refundAmount = opts?.refundAmount != null
-      ? Number(opts.refundAmount)
-      : (order.status === 'refunded'
-        ? (existing?.refundAmount && existing.refundAmount > 0 ? existing.refundAmount : totalAmount)
-        : (existing?.refundAmount || 0));
+    const existing = income.profitRecord;
+    const schoolPrice = roundMoney(Number(income.course?.price) || 0);
+    const split = calculateSessionProfit({
+      schoolPrice,
+      sessionFee: income.baseFee,
+      teacherFee: income.teacherFee,
+      commission: income.commission || 0,
+    });
 
-    const course = order.course;
-    const teacherId = course.teacherId || course.teacher?.id || null;
-    const institutionId = course.teacher?.organizationId || existing?.institutionId || null;
-    const settlementMonth = existing?.settlementMonth || monthKey(order.payTime || order.createdAt);
-
-    let teacherAmount = 0;
-    let institutionAmount = 0;
-    let platformAmount = 0;
-    let teacherRate: number | null = null;
-    let institutionRate: number | null = null;
-    let platformRate: number | null = null;
-    let teacherShareMode = course.teacherShareMode;
-    let institutionShareMode = course.institutionShareMode;
-
-    if (existing && !opts?.forceRecalc) {
-      const net = roundMoney(totalAmount - refundAmount);
-      const oldNet = roundMoney(existing.totalAmount - (existing.refundAmount || 0));
-      teacherShareMode = existing.teacherShareMode || teacherShareMode;
-      institutionShareMode = existing.institutionShareMode || institutionShareMode;
-      teacherRate = existing.teacherRate;
-      institutionRate = existing.institutionRate;
-      platformRate = existing.platformRate;
-      if (oldNet > 0) {
-        const r = net / oldNet;
-        teacherAmount = roundMoney(existing.teacherAmount * r);
-        institutionAmount = roundMoney(existing.institutionAmount * r);
-        platformAmount = roundMoney(net - teacherAmount - institutionAmount);
-      } else if (net > 0 && teacherRate != null) {
-        teacherAmount = roundMoney(net * (teacherRate || 0));
-        institutionAmount = roundMoney(net * (institutionRate || 0));
-        platformAmount = roundMoney(net - teacherAmount - institutionAmount);
-      }
-    } else {
-      const split = calculateProfitSplit({
-        totalAmount,
-        refundAmount,
-        teacherShareMode: course.teacherShareMode,
-        teacherShareValue: course.teacherShareValue,
-        institutionShareMode: course.institutionShareMode,
-        institutionShareValue: course.institutionShareValue,
-        lessonCount: course.lessonCount,
-        studentCount: 1,
-      });
-      teacherAmount = split.teacherAmount;
-      institutionAmount = split.institutionAmount;
-      platformAmount = split.platformAmount;
-      teacherRate = split.teacherRate;
-      institutionRate = split.institutionRate;
-      platformRate = split.platformRate;
-      teacherShareMode = split.teacherShareMode;
-      institutionShareMode = split.institutionShareMode;
-    }
-
+    // 已结算月且非强制重算：保留快照金额，仅纠正关联
+    const useSnapshot = existing && existing.settlementStatus === 'settled' && !opts?.forceRecalc;
     const data = {
-      orderId: order.id,
-      courseId: order.courseId,
-      teacherId,
-      institutionId,
-      totalAmount,
-      refundAmount: roundMoney(refundAmount),
-      teacherAmount,
-      institutionAmount,
-      platformAmount,
-      teacherRate,
-      institutionRate,
-      platformRate,
-      teacherShareMode,
-      institutionShareMode,
-      settlementMonth,
-      orderStatus: order.status,
+      sessionIncomeId: income.id,
+      courseId: income.courseId,
+      teacherId: income.userId,
+      institutionId: income.organizationId || income.user?.organizationId || null,
+      sessionDate: income.date,
+      totalAmount: useSnapshot ? existing.totalAmount : split.schoolPrice,
+      refundAmount: 0,
+      teacherAmount: useSnapshot ? existing.teacherAmount : split.teacherAmount,
+      institutionAmount: useSnapshot ? existing.institutionAmount : split.institutionAmount,
+      platformAmount: useSnapshot ? existing.platformAmount : split.platformAmount,
+      teacherRate: useSnapshot ? existing.teacherRate : split.teacherRate,
+      institutionRate: useSnapshot ? existing.institutionRate : split.institutionRate,
+      platformRate: useSnapshot ? existing.platformRate : split.platformRate,
+      teacherShareMode: useSnapshot ? existing.teacherShareMode : 'session_fee',
+      institutionShareMode: useSnapshot ? existing.institutionShareMode : 'org_commission',
+      settlementMonth: existing?.settlementMonth || monthKey(income.date),
+      orderStatus: 'session',
       settlementStatus: existing?.settlementStatus || 'pending',
       settledAt: existing?.settledAt || null,
     };
@@ -122,23 +74,26 @@ export class FinanceService {
     return this.prisma.profitRecord.create({ data });
   }
 
-  async syncAllPaidOrders() {
-    const orders = await this.prisma.order.findMany({
-      where: { status: { in: ['paid', 'refunded'] } },
+  async syncAllSessions() {
+    // 清掉旧的订单型快照（无 sessionIncomeId）
+    await this.prisma.profitRecord.deleteMany({ where: { sessionIncomeId: null } });
+    const rows = await this.prisma.sessionIncome.findMany({
+      where: { status: { not: 'unconfigured' }, teacherFee: { not: null } },
       select: { id: true },
     });
     let synced = 0;
-    for (const row of orders) {
-      await this.syncOrderProfit(row.id);
+    for (const row of rows) {
+      await this.syncSessionProfit(row.id, { forceRecalc: true });
       synced += 1;
     }
     return { synced };
   }
 
+  /** @deprecated 订单不再驱动利润；保留手动改订单状态能力 */
   async markOrderPaid(orderId: number, payAmount?: number) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('订单不存在');
-    if (order.status === 'paid') return this.syncOrderProfit(orderId);
+    if (order.status === 'paid') return { id: orderId, status: 'paid' };
     if (order.status !== 'pending' && order.status !== 'cancelled') {
       throw new BadRequestException('当前订单状态不可标记为已支付');
     }
@@ -157,14 +112,11 @@ export class FinanceService {
       update: {},
       create: { userId: order.userId, courseId: order.courseId, orderId: order.id },
     });
-    return this.syncOrderProfit(orderId, { forceRecalc: true });
+    return { id: orderId, status: 'paid' };
   }
 
   async markOrderRefunded(orderId: number, refundAmount?: number) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { profitRecord: true },
-    });
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status !== 'paid' && order.status !== 'refunded') {
       throw new BadRequestException('仅已支付订单可退款');
@@ -175,7 +127,7 @@ export class FinanceService {
       where: { id: orderId },
       data: { status: refund >= total ? 'refunded' : 'paid' },
     });
-    return this.syncOrderProfit(orderId, { refundAmount: refund });
+    return { id: orderId, status: refund >= total ? 'refunded' : 'paid', refundAmount: refund };
   }
 
   private whereScope(scope?: Scope, month?: string, from?: string, to?: string) {
@@ -551,51 +503,75 @@ export class FinanceService {
         id: true,
         title: true,
         price: true,
-        teacherShareMode: true,
-        teacherShareValue: true,
-        institutionShareMode: true,
-        institutionShareValue: true,
+        sessionFee: true,
         school: true,
-        teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } }, organizationId: true } },
+        teacher: {
+          select: {
+            id: true,
+            nickname: true,
+            organizationId: true,
+            teacherCert: { select: { realName: true } },
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                commissionMode: true,
+                commissionValue: true,
+                feeVisibility: true,
+              },
+            },
+          },
+        },
       },
       take: 200,
     });
+
     return courses.map((c) => {
-      const preview = calculateProfitSplit({
-        totalAmount: c.price,
-        teacherShareMode: c.teacherShareMode,
-        teacherShareValue: c.teacherShareValue,
-        institutionShareMode: c.institutionShareMode,
-        institutionShareValue: c.institutionShareValue,
-        studentCount: 1,
-        lessonCount: 1,
+      const org = c.teacher?.organization || null;
+      const hasOrg = !!org;
+      const fee = calculateFee({
+        base: c.sessionFee,
+        hasOrg,
+        mode: org?.commissionMode,
+        value: org?.commissionValue,
+        visibility: org?.feeVisibility,
+      });
+      const preview = calculateSessionProfit({
+        schoolPrice: c.price,
+        sessionFee: fee.baseFee,
+        teacherFee: fee.teacherFee,
+        commission: fee.commission || 0,
+        commissionMode: fee.mode,
+        commissionValue: fee.value,
       });
       return {
-        ...c,
+        id: c.id,
+        title: c.title,
+        price: c.price,
+        sessionFee: c.sessionFee,
+        school: c.school,
         teacherName: c.teacher?.teacherCert?.realName || c.teacher?.nickname || '—',
+        organizationName: org?.name || '未绑定机构',
+        commissionMode: org?.commissionMode || null,
+        commissionValue: org?.commissionValue ?? 0,
+        feeVisibility: org?.feeVisibility || 'final',
+        configured: fee.configured,
         preview,
       };
     });
   }
 
+  /** 收益规则：改课程校方价格 / 课时费；机构分佣仍在机构设置里维护 */
   async saveCourseRule(courseId: number, body: any) {
     const course = await this.prisma.course.findUnique({ where: { id: courseId } });
     if (!course) throw new NotFoundException('课程不存在');
-    const teacherShareMode = body.teacherShareMode || course.teacherShareMode;
-    const institutionShareMode = body.institutionShareMode || course.institutionShareMode;
-    const validTeacher = ['percent', 'fixed', 'per_lesson'];
-    const validOrg = ['percent', 'fixed', 'per_student', 'per_lesson'];
-    if (!validTeacher.includes(teacherShareMode)) throw new BadRequestException('教师分成方式无效');
-    if (!validOrg.includes(institutionShareMode)) throw new BadRequestException('机构分成方式无效');
-    return this.prisma.course.update({
-      where: { id: courseId },
-      data: {
-        teacherShareMode,
-        teacherShareValue: Number(body.teacherShareValue ?? course.teacherShareValue),
-        institutionShareMode,
-        institutionShareValue: Number(body.institutionShareValue ?? course.institutionShareValue),
-      },
-    });
+    const data: any = {};
+    if (body.price !== undefined && body.price !== '') data.price = Number(body.price);
+    if (body.sessionFee !== undefined) {
+      data.sessionFee = body.sessionFee === '' || body.sessionFee == null ? null : Number(body.sessionFee);
+    }
+    if (!Object.keys(data).length) throw new BadRequestException('没有可保存的字段');
+    return this.prisma.course.update({ where: { id: courseId }, data });
   }
 
   private defaultMonthStatus(month: string) {

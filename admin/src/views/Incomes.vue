@@ -1,6 +1,6 @@
 <template>
   <section>
-    <div class="page-head"><div><h1>收入记录</h1><p>平台可以看到课程费用、机构分佣和教师实得。教师端只看自己被允许看到的金额。</p></div></div>
+    <div class="page-head"><div><h1>收入记录</h1><p>课时费归教师，机构分佣另计。平台利润 = 校方价格 − 课时费 − 分佣，见「财务管理」。</p></div></div>
     <PageLoad
       :loading="loading"
       :ready="ready"
@@ -10,7 +10,7 @@
     >
     <article class="card">
       <table>
-        <thead><tr><th>教师</th><th>课程</th><th>日期</th><th>课程费用</th><th>机构分佣</th><th>教师实得</th><th>状态</th></tr></thead>
+        <thead><tr><th>教师</th><th>课程</th><th>日期</th><th>课时费</th><th>机构分佣</th><th>教师实得</th><th>状态</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
             <td>{{ item.user.teacherCert?.realName || item.user.nickname }}</td>

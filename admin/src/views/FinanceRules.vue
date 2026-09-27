@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>收益规则</h1>
-        <p>按课程配置教师 / 机构分成。订单支付时写入快照，之后改规则不影响历史订单。</p>
+        <p>平台利润 = 校方价格 − 教师课时费 − 机构分佣。机构分佣在「机构管理」配置；此处可调整课程价格与课时费。</p>
       </div>
     </div>
 
@@ -13,9 +13,9 @@
           <thead>
             <tr>
               <th>课程</th>
-              <th>价格</th>
-              <th>教师分成</th>
-              <th>机构分成</th>
+              <th>校方价格</th>
+              <th>课时费</th>
+              <th>机构 / 分佣</th>
               <th>预估教师</th>
               <th>预估机构</th>
               <th>预估平台</th>
@@ -29,8 +29,11 @@
                 <div class="muted">{{ item.teacherName }} · {{ item.school || '未绑定学校' }}</div>
               </td>
               <td>{{ money(item.price) }}</td>
-              <td>{{ modeText(item.teacherShareMode, item.teacherShareValue, 'teacher') }}</td>
-              <td>{{ modeText(item.institutionShareMode, item.institutionShareValue, 'org') }}</td>
+              <td>{{ item.sessionFee == null ? '未配置' : money(item.sessionFee) }}</td>
+              <td>
+                <div>{{ item.organizationName }}</div>
+                <div class="muted">{{ commissionText(item) }}</div>
+              </td>
               <td>{{ money(item.preview?.teacherAmount) }}</td>
               <td>{{ money(item.preview?.institutionAmount) }}</td>
               <td>{{ money(item.preview?.platformAmount) }}</td>
@@ -44,34 +47,20 @@
       </article>
     </PageLoad>
 
-    <PageModal :open="!!form" size="narrow" title="编辑收益规则" icon="gear" @close="form = null">
+    <PageModal :open="!!form" size="narrow" title="编辑课程收益参数" icon="gear" @close="form = null">
       <form v-if="form" class="form-grid" @submit.prevent="save">
         <label>
-          教师分成方式
-          <select v-model="form.teacherShareMode">
-            <option value="percent">按课程收入比例</option>
-            <option value="fixed">固定金额</option>
-            <option value="per_lesson">按课时</option>
-          </select>
+          校方价格（元/课时）
+          <input v-model.number="form.price" type="number" min="0" step="0.01" required />
         </label>
         <label>
-          教师分成值
-          <input v-model.number="form.teacherShareValue" type="number" min="0" step="0.01" required />
+          教师课时费（元/节）
+          <input v-model="form.sessionFee" type="number" min="0" step="0.01" />
         </label>
-        <label>
-          机构分成方式
-          <select v-model="form.institutionShareMode">
-            <option value="percent">按课程收入比例</option>
-            <option value="fixed">固定金额</option>
-            <option value="per_student">按学生人数</option>
-            <option value="per_lesson">按课时</option>
-          </select>
-        </label>
-        <label>
-          机构分成值
-          <input v-model.number="form.institutionShareValue" type="number" min="0" step="0.01" required />
-        </label>
-        <p class="muted">比例模式填写百分数，例如 50 表示 50%。按课时/人数时填写单价。</p>
+        <p class="muted">
+          机构分佣请到「机构管理」设置。全职分佣一般为 0，利润 = 校方价格 − 课时费；
+          兼职固定抽成时，利润 = 校方价格 − 课时费 − 分佣值。一般定价使校方价格 ≈ 课时费 + 分佣。
+        </p>
         <div class="actions">
           <button class="btn" type="button" @click="form = null">取消</button>
           <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中…' : '保存' }}</button>
@@ -94,20 +83,17 @@ const form = ref(null);
 const saving = ref(false);
 const { loading, ready, error, run } = usePageLoad();
 
-function modeText(mode, value, kind) {
-  if (mode === 'fixed') return `固定 ¥${value}`;
-  if (mode === 'per_lesson') return `¥${value}/课时`;
-  if (mode === 'per_student') return `¥${value}/人`;
-  return `${value}%${kind === 'teacher' ? ' 教师' : ''}`;
+function commissionText(item) {
+  if (!item.commissionMode) return '无分佣';
+  if (item.commissionMode === 'fixed') return `固定 ¥${item.commissionValue}/节`;
+  return `${item.commissionValue}%`;
 }
 
 function edit(item) {
   form.value = {
     id: item.id,
-    teacherShareMode: item.teacherShareMode || 'percent',
-    teacherShareValue: item.teacherShareValue ?? 50,
-    institutionShareMode: item.institutionShareMode || 'percent',
-    institutionShareValue: item.institutionShareValue ?? 20,
+    price: item.price ?? 0,
+    sessionFee: item.sessionFee ?? '',
   };
 }
 

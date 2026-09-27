@@ -125,16 +125,17 @@
         <div class="form-row">
           <label>分佣方式
             <select v-model="form.commissionMode">
-              <option value="percent">按比例 %</option>
-              <option value="fixed">固定金额</option>
+              <option value="percent">按课时费比例 %</option>
+              <option value="fixed">固定金额 / 节</option>
             </select>
           </label>
           <label>分佣值<input v-model.number="form.commissionValue" type="number" min="0" step="0.01" /></label>
         </div>
+        <p class="muted" style="grid-column:1/-1">全职机构分佣一般填 0，并可选「不看金额」。兼职常用固定金额/节。分佣不从教师课时费扣除；平台利润 = 校方价格 − 课时费 − 分佣。</p>
         <label>教师课时费可见
           <select v-model="form.feeVisibility">
             <option value="final">只看最终课时费</option>
-            <option value="full">看完整费用和分佣</option>
+            <option value="full">看课时费和分佣</option>
             <option value="hidden">不看金额</option>
           </select>
         </label>

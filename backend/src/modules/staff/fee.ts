@@ -3,8 +3,11 @@ export type FeeVisibility = 'full' | 'final' | 'hidden';
 
 export type FeeQuote = {
   configured: boolean;
+  /** 课程标准课时费（教师所得基数） */
   baseFee: number | null;
+  /** 机构分佣（单节）；不从教师课时费里扣除 */
   commission: number | null;
+  /** 教师实得 = 课时费 */
   teacherFee: number | null;
   mode: FeeMode;
   value: number | null;
@@ -15,6 +18,10 @@ export function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * 课时费归教师；机构分佣按固定金额/节或按课时费比例另计，不从教师课时费扣减。
+ * 平台利润在财务模块用：校方价格 − 课时费 − 分佣。
+ */
 export function calculateFee(input: {
   base: number | null;
   hasOrg: boolean;
@@ -34,12 +41,11 @@ export function calculateFee(input: {
   const raw = Number(input.value || 0);
   let commission = mode === 'percent' ? roundMoney(baseFee * raw / 100) : roundMoney(raw);
   if (commission < 0) commission = 0;
-  if (commission > baseFee) commission = baseFee;
   return {
     configured: true,
     baseFee,
     commission,
-    teacherFee: roundMoney(baseFee - commission),
+    teacherFee: baseFee,
     mode,
     value: raw,
     visibility,

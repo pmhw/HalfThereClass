@@ -205,37 +205,37 @@ model Order {
 
   user        User      @relation(fields: [userId], references: [id])
   course      Course    @relation(fields: [courseId], references: [id])
-  profitRecord ProfitRecord?
 
   @@index([userId])
   @@index([status])
   @@map("orders")
 }
 
-// 订单收益快照。分成规则变更不影响历史订单
+// 单节课收益快照：校方价格 − 教师课时费 − 机构分佣 = 平台利润
 model ProfitRecord {
   id                 Int       @id @default(autoincrement())
-  orderId            Int       @unique @map("order_id")
+  sessionIncomeId    Int?      @unique @map("session_income_id")
   courseId           Int       @map("course_id")
   teacherId          Int?      @map("teacher_id")
   institutionId      Int?      @map("institution_id")
-  totalAmount        Float     @map("total_amount")
+  sessionDate        String?   @map("session_date") // YYYY-MM-DD
+  totalAmount        Float     @map("total_amount") // 校方价格（单节）
   refundAmount       Float     @default(0) @map("refund_amount")
-  teacherAmount      Float     @default(0) @map("teacher_amount")
-  institutionAmount  Float     @default(0) @map("institution_amount")
+  teacherAmount      Float     @default(0) @map("teacher_amount") // 课时费 / 教师所得
+  institutionAmount  Float     @default(0) @map("institution_amount") // 机构分佣
   platformAmount     Float     @default(0) @map("platform_amount")
   teacherRate        Float?    @map("teacher_rate")
   institutionRate    Float?    @map("institution_rate")
   platformRate       Float?    @map("platform_rate")
-  teacherShareMode   String?   @map("teacher_share_mode")
+  teacherShareMode   String?   @map("teacher_share_mode") // 兼容旧字段；现为 commissionMode 快照
   institutionShareMode String? @map("institution_share_mode")
   settlementStatus   String    @default("pending") @map("settlement_status") // pending, settled
   settlementMonth    String    @map("settlement_month") // YYYY-MM
-  orderStatus        String    @default("paid") @map("order_status")
+  orderStatus        String    @default("session") @map("order_status")
   createdAt          DateTime  @default(now()) @map("created_at")
   settledAt          DateTime? @map("settled_at")
 
-  order              Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sessionIncome      SessionIncome? @relation(fields: [sessionIncomeId], references: [id], onDelete: Cascade)
   course             Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   teacher            User?     @relation("TeacherProfitRecords", fields: [teacherId], references: [id], onDelete: SetNull)
   institution        Organization? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
@@ -595,6 +595,7 @@ model SessionIncome {
 
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  profitRecord   ProfitRecord?
 
   @@unique([userId, courseId, date])
   @@map("session_incomes")

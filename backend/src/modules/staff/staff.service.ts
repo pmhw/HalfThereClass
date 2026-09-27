@@ -1,11 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { buildPaginationResult, getPaginationParams } from '@/common/utils/pagination.util';
 import { calculateFee, teacherFeeView, FeeQuote } from './fee';
+import { FinanceService } from '@/modules/finance/finance.service';
 
 @Injectable()
 export class StaffService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => FinanceService)) private finance: FinanceService,
+  ) {}
 
   async quote(userId: number, courseId: number, override: any = {}): Promise<FeeQuote & { organizationName: string | null }> {
     const user = await this.prisma.user.findUnique({
@@ -38,11 +42,17 @@ export class StaffService {
   async settle(userId: number, courseId: number, date: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const quote = await this.quote(userId, courseId);
-    return this.prisma.sessionIncome.upsert({
+    const income = await this.prisma.sessionIncome.upsert({
       where: { userId_courseId_date: { userId, courseId, date } },
       update: this.incomeData(quote, user?.organizationId),
       create: { userId, courseId, date, organizationId: user?.organizationId || null, ...this.incomeData(quote, user?.organizationId) },
     });
+    try {
+      await this.finance.syncSessionProfit(income.id, { forceRecalc: true });
+    } catch {
+      // 利润同步失败不阻断签到结算
+    }
+    return income;
   }
 
   async myCourses(userId: number) {

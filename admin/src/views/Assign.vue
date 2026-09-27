@@ -38,30 +38,31 @@
         <p v-if="selectedTeacher && !selectedTeacher.contractSigned" class="warn-tip">
           该教师本学期合同未生效：保存后课程处于「未解锁」，写入待签合同附件；老师签完并通过审核后自动解锁。
         </p>
-        <label>课程标准课时费<input v-model="baseFee" type="number" min="0" step="0.01" @input="preview" /></label>
+        <label>教师课时费（单节归教师）<input v-model="baseFee" type="number" min="0" step="0.01" @input="preview" /></label>
         <template v-if="selectedTeacher?.organization">
           <label>分佣方式
             <select v-model="mode" @change="preview">
-              <option value="percent">按比例 %</option>
-              <option value="fixed">固定金额</option>
+              <option value="percent">按课时费比例 %</option>
+              <option value="fixed">固定金额 / 节</option>
             </select>
           </label>
           <label>分佣值<input v-model="value" type="number" min="0" step="0.01" @input="preview" /></label>
           <label>教师可见
             <select v-model="visibility" @change="preview">
               <option value="final">只看最终课时费</option>
-              <option value="full">看完整费用</option>
+              <option value="full">看课时费和分佣</option>
               <option value="hidden">不看金额</option>
             </select>
           </label>
         </template>
         <div v-if="quote && quote.configured" class="fee-flow">
-          <div><small>课程费用</small><b>¥{{ quote.baseFee }}</b></div>
-          <span>↓</span>
-          <div><small>机构分佣</small><b>- ¥{{ quote.commission }}</b></div>
-          <span>↓</span>
-          <div><small>教师实得</small><b>¥{{ quote.teacherFee }}</b></div>
+          <div><small>教师课时费</small><b>¥{{ quote.teacherFee }}</b></div>
+          <span>+</span>
+          <div><small>机构分佣</small><b>¥{{ quote.commission || 0 }}</b></div>
+          <span>=</span>
+          <div><small>参考校方成本</small><b>¥{{ Number(quote.teacherFee || 0) + Number(quote.commission || 0) }}</b></div>
         </div>
+        <p v-if="quote && quote.configured" class="muted">平台利润 = 校方价格 − 课时费 − 分佣。全职分佣多为 0；兼职常用固定金额/节。</p>
         <p v-else class="muted">还没有课时费，教师端不会显示金额。</p>
         <button class="btn primary" type="button" @click="save">保存授权</button>
       </div>

@@ -3,13 +3,13 @@
     <div class="page-head">
       <div>
         <h1>收益概览</h1>
-        <p>平台利润 = 课程总收入 − 教师所得 − 机构所得</p>
+        <p>平台利润 = 校方价格 − 教师课时费 − 机构分佣（按已上课次统计）</p>
       </div>
       <div class="actions">
         <select v-model="month" @change="load">
           <option v-for="item in monthOptions" :key="item" :value="item">{{ item }}</option>
         </select>
-        <button class="btn" type="button" :disabled="syncing" @click="sync">{{ syncing ? '同步中…' : '同步订单收益' }}</button>
+        <button class="btn" type="button" :disabled="syncing" @click="sync">{{ syncing ? '同步中…' : '同步课次收益' }}</button>
         <button
           v-if="data.settlementStatus !== 'settled'"
           class="btn primary"
@@ -81,7 +81,7 @@
                 <td>{{ money(item.totalAmount) }}</td>
                 <td>{{ money(item.platformAmount) }}</td>
               </tr>
-              <tr v-if="!data.courseRank?.length"><td colspan="3" class="empty">本月暂无收益数据，可先同步已支付订单</td></tr>
+              <tr v-if="!data.courseRank?.length"><td colspan="3" class="empty">本月暂无收益数据，签到结算后会生成；也可点「同步课次收益」</td></tr>
             </tbody>
           </table>
         </article>
@@ -93,7 +93,7 @@
             <router-link class="btn" to="/finance/orgs">机构收益</router-link>
             <router-link class="btn" to="/finance/rules">收益规则</router-link>
           </div>
-          <p class="muted" style="margin-top: 12px">结算状态：{{ statusText(data.settlementStatus) }} · 订单 {{ cur.orderCount || 0 }} 笔</p>
+          <p class="muted" style="margin-top: 12px">结算状态：{{ statusText(data.settlementStatus) }} · 课次 {{ cur.orderCount || 0 }} 节</p>
         </article>
       </div>
     </PageLoad>
@@ -157,7 +157,7 @@ async function sync() {
   syncing.value = true;
   try {
     const res = await api.financeSync();
-    alert(`已同步 ${res.synced || 0} 笔订单收益`);
+    alert(`已同步 ${res.synced || 0} 节课收益`);
     await load();
   } catch (e) {
     alert(e.message || '同步失败');

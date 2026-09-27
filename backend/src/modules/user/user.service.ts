@@ -441,9 +441,9 @@ export class UserService {
     if (!configured) return '课时费待定';
     if (!view.showFee) return '课时费未开放';
     const money = (n: number | null | undefined) => `¥${Number(n || 0).toFixed(2)}`;
-    // full：展示标准课时费、机构分佣、教师实得
+    // full：课时费归教师，机构分佣另计
     if ('baseFee' in view && view.baseFee != null && 'commission' in view) {
-      return `课程标准 ${money(view.baseFee)} · 机构分佣 ${money(view.commission)} · 实得 ${money(view.teacherFee)}`;
+      return `课时费 ${money(view.teacherFee ?? view.baseFee)} · 机构分佣 ${money(view.commission)} · 实得 ${money(view.teacherFee)}`;
     }
     // final：只看最终课时费
     return `课时费 ${money(view.teacherFee)}`;

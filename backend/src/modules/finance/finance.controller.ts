@@ -79,7 +79,7 @@ export class FinanceAdminController {
 
   @Post('sync')
   sync() {
-    return this.finance.syncAllPaidOrders();
+    return this.finance.syncAllSessions();
   }
 
   @Post('settle/:month')
