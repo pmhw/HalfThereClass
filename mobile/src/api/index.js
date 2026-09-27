@@ -1,4 +1,4 @@
-import { get, post, put, upload } from './request';
+import { get, post, put, del, upload } from './request';
 
 export const getAgreement = () => get('/auth/agreement');
 export const getSmsStatus = () => get('/auth/sms/status');
@@ -44,6 +44,10 @@ export const getCategories = () => get('/categories');
 export const getTeacherCourses = () => get('/teacher/courses');
 export const getTeacherSummary = () => get('/teacher/summary');
 export const getTeacherIncomes = () => get('/teacher/incomes');
+export const getReimbursements = () => get('/teacher/reimbursements');
+export const createReimbursement = (data) => post('/teacher/reimbursements', data);
+export const cancelReimbursement = (id) => del(`/teacher/reimbursements/${id}`);
+export const uploadReimbursementReceipt = (file) => upload('/teacher/reimbursements/receipt', file);
 
 export const getOrders = (params) => get('/orders', params);
 export const postComment = (data) => post('/comments', data);

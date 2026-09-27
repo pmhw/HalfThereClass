@@ -237,6 +237,9 @@ export class UserService {
         address: text.partyA?.address,
         legalRep: text.partyA?.legalRep,
       },
+      bankName: cert?.bankName || '',
+      bankAccountName: cert?.bankAccountName || '',
+      bankAccount: cert?.bankAccount || '',
       wizard: true,
     };
   }
@@ -270,6 +273,15 @@ export class UserService {
     }
     if (cert.ocrStatus === 'manual_review') {
       throw new BadRequestException('身份信息人工确认中，暂不能签署');
+    }
+    const bankName = String(cert.bankName || '').trim();
+    const bankAccountName = String(cert.bankAccountName || '').trim();
+    const bankAccount = String(cert.bankAccount || '').trim().replace(/[\s\-]/g, '');
+    if (!bankName || !bankAccountName || !bankAccount) {
+      throw new BadRequestException('签订合同前须填写收款开户行、收款名与银行账号');
+    }
+    if (bankAccount.length < 8 || bankAccount.length > 32 || !/^\d+$/.test(bankAccount)) {
+      throw new BadRequestException('请填写正确的银行账号');
     }
     const semester = await this.openSemester();
     if (!semester) throw new BadRequestException('当前没有开放学期，暂无法签订合同');
@@ -566,11 +578,8 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
     const idNumber = String(data.idNumber || '').trim().toUpperCase();
     const address = String(data.address || '').trim();
     const email = String(data.email || '').trim();
-    const bankName = String(data.bankName || '').trim();
-    const bankAccountName = String(data.bankAccountName || '').trim() || realName || '';
-    const bankAccount = String(data.bankAccount || '').trim();
-
-    // 已认证教师：仅补全合同所需身份/收款信息，不重新走审核
+    // 认证阶段不采集收款信息；收款开户行/收款名/账号在签订合同时强制填写
+    // 已认证教师：仅补全合同所需身份信息，不重新走审核
     if (current?.status === 'approved') {
       if (!/^[0-9]{17}[0-9X]$/.test(idNumber)) throw new BadRequestException('请填写正确的身份证号码');
       if (!address) throw new BadRequestException('请填写身份证住址');
@@ -584,9 +593,6 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
           idNumber,
           address,
           email: email || null,
-          bankName: bankName || null,
-          bankAccountName: bankAccountName || null,
-          bankAccount: bankAccount || null,
         },
       });
     }
@@ -610,9 +616,6 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
       idNumber,
       address,
       email: email || null,
-      bankName: bankName || null,
-      bankAccountName: bankAccountName || null,
-      bankAccount: bankAccount || null,
       idCard,
       idCardBack,
       diploma,

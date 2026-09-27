@@ -51,6 +51,23 @@
       <text class="annex-body">{{paper.courseAnnex}}</text>
     </view>
 
+    <view class="card bank-card">
+      <view class="label">收款信息<text class="req">*</text></view>
+      <view class="hint">签订合同须绑定收款账户，用于后续劳务报酬发放</view>
+      <view class="label gap">收款开户行</view>
+      <view class="input">
+        <input placeholder="如中国银行某某支行" placeholder-class="ph" value="{{bankName}}" bindinput="onBankName" />
+      </view>
+      <view class="label gap">收款名</view>
+      <view class="input">
+        <input placeholder="与银行卡户名一致" placeholder-class="ph" value="{{bankAccountName}}" bindinput="onBankAccountName" />
+      </view>
+      <view class="label gap">银行账号</view>
+      <view class="input">
+        <input type="number" placeholder="劳务报酬收款账号" placeholder-class="ph" value="{{bankAccount}}" bindinput="onBankAccount" />
+      </view>
+    </view>
+
     <view class="card paper">
       <view class="paper-head">
         <view class="seal">合同</view>

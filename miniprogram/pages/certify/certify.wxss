@@ -22,6 +22,7 @@
 .label.gap { margin-top: 36rpx; }
 .req { color: #ef4444; margin-left: 4rpx; }
 .desc { margin-top: 10rpx; color: #98a2b3; font-size: 22rpx; line-height: 1.55; }
+.desc.gap { margin-top: 28rpx; }
 .input {
   margin-top: 16rpx; height: 92rpx; padding: 0 24rpx; border-radius: 16rpx; background: #f3f5f8;
   display: flex; align-items: center; gap: 16rpx;

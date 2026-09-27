@@ -22,6 +22,7 @@ import FinanceMonthly from './views/FinanceMonthly.vue';
 import FinanceTeachers from './views/FinanceTeachers.vue';
 import FinanceOrgs from './views/FinanceOrgs.vue';
 import FinanceRules from './views/FinanceRules.vue';
+import Reimbursements from './views/Reimbursements.vue';
 import Settings from './views/Settings.vue';
 import DocEdit from './views/DocEdit.vue';
 import { allow, landingPath } from './access';
@@ -53,6 +54,7 @@ const router = createRouter({
         { path: 'finance/teachers', component: FinanceTeachers, meta: { title: '教师收益', crumb: '财务 / 教师收益', perm: 'finance' } },
         { path: 'finance/orgs', component: FinanceOrgs, meta: { title: '机构收益', crumb: '财务 / 机构收益', perm: 'finance' } },
         { path: 'finance/rules', component: FinanceRules, meta: { title: '收益规则', crumb: '财务 / 收益规则', perm: 'finance' } },
+        { path: 'reimbursements', component: Reimbursements, meta: { title: '报销单', crumb: '财务 / 报销单', perm: 'finance' } },
         { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin' } },
         { path: 'settings', component: Settings, meta: { title: '系统设置', crumb: '系统 / 设置', perm: 'admin' } },
         { path: 'settings/agreement', component: DocEdit, meta: { title: '用户协议', crumb: '系统 / 设置 / 用户协议', perm: 'admin', kind: 'agreement' } },

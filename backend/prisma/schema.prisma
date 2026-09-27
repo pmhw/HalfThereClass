@@ -40,6 +40,7 @@ model User {
   termTeachings CourseTermTeacher[]
   contracts    TeacherContract[]
   profitRecords ProfitRecord[] @relation("TeacherProfitRecords")
+  reimbursements Reimbursement[]
 
   @@map("users")
 }
@@ -599,6 +600,31 @@ model SessionIncome {
 
   @@unique([userId, courseId, date])
   @@map("session_incomes")
+}
+
+// 教师报销单：提交 → 管理员审核通过 → 方可报销打款
+model Reimbursement {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  title        String    @map("title")
+  category     String    @default("other") @map("category") // transport, material, meal, office, other
+  amount       Float     @map("amount")
+  expenseDate  String    @map("expense_date")
+  description  String?   @map("description")
+  attachments  String    @default("[]") @map("attachments") // JSON: /uploads/reimbursements/...
+  status       String    @default("pending") @map("status") // pending, approved, rejected, reimbursed
+  rejectReason String?   @map("reject_reason")
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewedBy   Int?      @map("reviewed_by")
+  reimbursedAt DateTime? @map("reimbursed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("reimbursements")
 }
 
 // 后台可改的配置。高德 Key 存在这里，不写进代码

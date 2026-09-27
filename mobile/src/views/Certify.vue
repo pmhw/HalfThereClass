@@ -33,18 +33,7 @@
         <span>电子邮箱（选填）</span>
         <input v-model="email" type="email" placeholder="合同送达邮箱" />
       </label>
-      <label v-if="!onlyClearance" class="field">
-        <span>收款开户行（选填）</span>
-        <input v-model="bankName" type="text" placeholder="如中国银行某某支行" />
-      </label>
-      <label v-if="!onlyClearance" class="field">
-        <span>收款账户名（选填）</span>
-        <input v-model="bankAccountName" type="text" placeholder="默认与姓名一致" />
-      </label>
-      <label v-if="!onlyClearance" class="field">
-        <span>银行账号（选填）</span>
-        <input v-model="bankAccount" type="text" placeholder="劳务报酬收款账号" />
-      </label>
+      <p v-if="!onlyClearance" class="hint bank-hint">收款开户行、收款名与银行账号将在签订合同时填写（必填）。</p>
 
       <div
         v-for="item in uploadFields"
@@ -94,9 +83,6 @@ const realName = ref('');
 const idNumber = ref('');
 const address = ref('');
 const email = ref('');
-const bankName = ref('');
-const bankAccountName = ref('');
-const bankAccount = ref('');
 const files = reactive({
   idCard: '',
   idCardBack: '',
@@ -155,9 +141,6 @@ async function load() {
     idNumber.value = data.idNumber || idNumber.value;
     address.value = data.address || address.value;
     email.value = data.email || email.value;
-    bankName.value = data.bankName || bankName.value;
-    bankAccountName.value = data.bankAccountName || bankAccountName.value;
-    bankAccount.value = data.bankAccount || bankAccount.value;
     files.idCard = files.idCard || data.idCard || '';
     files.idCardBack = files.idCardBack || data.idCardBack || '';
     files.diploma = files.diploma || data.diploma || '';
@@ -240,9 +223,6 @@ async function submit() {
       idNumber: idNumber.value.trim(),
       address: address.value.trim(),
       email: email.value.trim(),
-      bankName: bankName.value.trim(),
-      bankAccountName: bankAccountName.value.trim() || realName.value.trim(),
-      bankAccount: bankAccount.value.trim(),
       idCard: files.idCard,
       idCardBack: files.idCardBack,
       diploma: files.diploma,

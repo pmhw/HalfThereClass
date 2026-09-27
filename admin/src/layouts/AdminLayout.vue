@@ -341,6 +341,7 @@ const menuSource = [
       { to: '/finance/teachers', label: '教师收益', icon: 'users', perm: 'finance' },
       { to: '/finance/orgs', label: '机构收益', icon: 'folder', perm: 'finance' },
       { to: '/finance/rules', label: '收益规则', icon: 'gear', perm: 'finance' },
+      { to: '/reimbursements', label: '报销单', icon: 'receipt', perm: 'finance' },
     ],
   },
   {

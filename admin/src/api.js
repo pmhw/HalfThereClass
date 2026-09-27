@@ -14,7 +14,7 @@ export function protectedAssetUrl(path) {
   if (!path) return '';
   if (/^https?:\/\//.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path;
   const token = getToken();
-  if (!token || !/\/uploads\/(certs|signs)\//.test(path)) return path;
+  if (!token || !/\/uploads\/(certs|signs|reimbursements)\//.test(path)) return path;
   return `${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`;
 }
 
@@ -176,6 +176,10 @@ export const api = {
   updateOrg: (id, body) => request(`/api/admin/orgs/${id}`, { method: 'PUT', body }),
   feePreview: (params) => request(withQuery('/api/admin/fees/preview', params)),
   incomes: () => request('/api/admin/incomes'),
+  reimbursements: (params) => request(withQuery('/api/admin/reimbursements', params)),
+  reimbursementsPendingCount: () => request('/api/admin/reimbursements/pending-count'),
+  reviewReimbursement: (id, body) => request(`/api/admin/reimbursements/${id}/review`, { method: 'POST', body }),
+  markReimbursementPaid: (id) => request(`/api/admin/reimbursements/${id}/pay`, { method: 'POST' }),
   financeOverview: (params) => request(withQuery('/api/admin/finance/overview', params)),
   financeMonthly: (params) => request(withQuery('/api/admin/finance/monthly', params)),
   financeMonthCourses: (month, params) => request(withQuery(`/api/admin/finance/months/${month}/courses`, params)),

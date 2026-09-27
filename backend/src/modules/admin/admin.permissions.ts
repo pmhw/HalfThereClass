@@ -17,6 +17,7 @@ const RULES: { test: RegExp; permission: AdminPermission }[] = [
   { test: /\/(people|faculty|certs)(?:\/|$)/, permission: 'people' },
   { test: /\/orgs(?:\/|$)/, permission: 'org' },
   { test: /\/finance(?:\/|$)/, permission: 'finance' },
+  { test: /\/reimbursements(?:\/|$)/, permission: 'finance' },
   { test: /\/(fees|incomes|grants)(?:\/|$)/, permission: 'fee' },
   { test: /\/admins(?:\/|$)/, permission: 'admin' },
   { test: /\/settings(?:\/|$)/, permission: 'admin' },

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
@@ -130,6 +131,35 @@ export class StaffAdminController {
   incomes() {
     return this.staff.incomes();
   }
+
+  @Get('reimbursements')
+  reimbursements(@Query('status') status?: string) {
+    return this.staff.listReimbursements({ status });
+  }
+
+  @Get('reimbursements/pending-count')
+  reimbursementsPendingCount() {
+    return this.staff.reimbursementsPendingCount();
+  }
+
+  @Post('reimbursements/:id/review')
+  reviewReimbursement(
+    @Param('id') id: string,
+    @Body() body: { action: string; reason?: string },
+    @Req() req: any,
+  ) {
+    return this.staff.reviewReimbursement(
+      Number(id),
+      body.action,
+      body.reason,
+      Number(req.user?.adminId) || undefined,
+    );
+  }
+
+  @Post('reimbursements/:id/pay')
+  markReimbursed(@Param('id') id: string, @Req() req: any) {
+    return this.staff.markReimbursed(Number(id), Number(req.user?.adminId) || undefined);
+  }
 }
 
 @Controller('teacher')
@@ -150,5 +180,26 @@ export class TeacherPortalController {
   @Get('incomes')
   incomes(@CurrentUser('userId') userId: number) {
     return this.staff.myIncomes(userId);
+  }
+
+  @Get('reimbursements')
+  reimbursements(@CurrentUser('userId') userId: number) {
+    return this.staff.myReimbursements(userId);
+  }
+
+  @Post('reimbursements')
+  createReimbursement(@CurrentUser('userId') userId: number, @Body() body: any) {
+    return this.staff.createReimbursement(userId, body);
+  }
+
+  @Delete('reimbursements/:id')
+  cancelReimbursement(@CurrentUser('userId') userId: number, @Param('id') id: string) {
+    return this.staff.cancelReimbursement(userId, Number(id));
+  }
+
+  @Post('reimbursements/receipt')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  uploadReceipt(@UploadedFile() file: { buffer?: Buffer }) {
+    return this.staff.saveReimbursementReceipt(file);
   }
 }

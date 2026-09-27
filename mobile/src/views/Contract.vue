@@ -113,9 +113,18 @@
               <div class="sec-title">本次合同补充信息</div>
               <label class="field">联系地址<input v-model="form.contactAddress" placeholder="可与身份证住址不同" /></label>
               <label class="field">电子邮箱<input v-model="form.email" placeholder="选填" /></label>
-              <label class="field">开户行<input v-model="form.bankName" placeholder="收款开户行" /></label>
-              <label class="field">账户名<input v-model="form.bankAccountName" placeholder="默认与姓名一致" /></label>
-              <label class="field">银行账号<input v-model="form.bankAccount" placeholder="收款账号" /></label>
+              <label class="field" :class="{ miss: !form.bankName.trim() }">
+                收款开户行<em>*</em>
+                <input v-model="form.bankName" placeholder="如中国银行某某支行" />
+              </label>
+              <label class="field" :class="{ miss: !form.bankAccountName.trim() }">
+                收款名<em>*</em>
+                <input v-model="form.bankAccountName" placeholder="与银行卡户名一致" />
+              </label>
+              <label class="field" :class="{ miss: !form.bankAccount.trim() }">
+                银行账号<em>*</em>
+                <input v-model="form.bankAccount" placeholder="劳务报酬收款账号" />
+              </label>
             </template>
           </div>
 
@@ -235,7 +244,8 @@ const signUrl = computed(() => assetUrl(paper.value.sign || ''));
 const canAdvance = computed(() => {
   if (!identity.value.hasPhotos) return false;
   const id = form.identity;
-  return !!(id.name?.trim() && /^[0-9]{17}[0-9Xx]$/.test(id.idNumber || '') && id.address?.trim());
+  const bankOk = !!(form.bankName?.trim() && form.bankAccountName?.trim() && form.bankAccount?.trim());
+  return !!(id.name?.trim() && /^[0-9]{17}[0-9Xx]$/.test(id.idNumber || '') && id.address?.trim() && bankOk);
 });
 
 function missing(key) {
@@ -298,9 +308,9 @@ async function load() {
     if (serverForm.identity) Object.assign(form.identity, serverForm.identity);
     form.contactAddress = serverForm.contactAddress || form.contactAddress;
     form.email = serverForm.email || form.email || '';
-    form.bankName = serverForm.bankName || form.bankName || '';
-    form.bankAccountName = serverForm.bankAccountName || form.bankAccountName || '';
-    form.bankAccount = serverForm.bankAccount || form.bankAccount || '';
+    form.bankName = serverForm.bankName || data.bankName || form.bankName || '';
+    form.bankAccountName = serverForm.bankAccountName || data.bankAccountName || form.bankAccountName || form.identity.name || '';
+    form.bankAccount = serverForm.bankAccount || data.bankAccount || form.bankAccount || '';
     const local = readLocal();
     if (local?.form) {
       Object.assign(form.identity, local.form.identity || {});
@@ -372,9 +382,9 @@ async function saveDraft(silent = false) {
         identity: { ...form.identity },
         contactAddress: form.contactAddress,
         email: form.email,
-        bankName: form.bankName,
-        bankAccountName: form.bankAccountName || form.identity.name,
-        bankAccount: form.bankAccount,
+        bankName: form.bankName.trim(),
+        bankAccountName: form.bankAccountName.trim(),
+        bankAccount: form.bankAccount.trim().replace(/[\s\-]/g, ''),
         previewConfirmed: previewOk.value,
       },
     });
@@ -397,6 +407,10 @@ async function saveDraft(silent = false) {
 
 async function goPreview() {
   if (!canAdvance.value) {
+    if (!form.bankName?.trim() || !form.bankAccountName?.trim() || !form.bankAccount?.trim()) {
+      showToast('请填写收款开户行、收款名与银行账号');
+      return;
+    }
     showToast('请完整填写姓名、身份证号、住址');
     return;
   }
@@ -538,6 +552,7 @@ async function exportPdf(id) {
 .steps span.on { color: #2563eb; font-weight: 700; }
 .steps span.done { color: #027a48; }
 .sec-title { margin: 14px 0 8px; font-weight: 650; font-size: 14px; }
+.field em { color: #ef4444; font-style: normal; margin-left: 2px; }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; color: #344054; }
 .field input, .field select {
   height: 40px; border: 1px solid #e7edf5; border-radius: 10px; padding: 0 12px; font-size: 14px;

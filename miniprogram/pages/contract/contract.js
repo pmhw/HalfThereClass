@@ -9,6 +9,9 @@ Page({
     signUrl: '',
     paper: { title: '教师服务合同', status: 'none', signed: false, history: [] },
     html: '',
+    bankName: '',
+    bankAccountName: '',
+    bankAccount: '',
     agreed: false,
     drew: false,
     saving: false,
@@ -31,16 +34,24 @@ Page({
   async load() {
     try {
       const paper = await userService.getContract();
+      const draftBank = (paper.draft && paper.draft.formData) || {};
       this.setData({
         paper: { ...paper, history: paper.history || [] },
         signUrl: util.assetUrl(paper.sign || ''),
         html: renderMarkdown(paper.content),
+        bankName: draftBank.bankName || paper.bankName || this.data.bankName || '',
+        bankAccountName: draftBank.bankAccountName || paper.bankAccountName || this.data.bankAccountName || '',
+        bankAccount: draftBank.bankAccount || paper.bankAccount || this.data.bankAccount || '',
         loaded: true,
       });
     } catch (err) {
       console.error(err);
     }
   },
+
+  onBankName(e) { this.setData({ bankName: e.detail.value }); },
+  onBankAccountName(e) { this.setData({ bankAccountName: e.detail.value }); },
+  onBankAccount(e) { this.setData({ bankAccount: e.detail.value }); },
 
   paint() {
     if (!this.ctx) return;
@@ -163,10 +174,21 @@ Page({
     }
   },
 
-  submit() {
+  async submit() {
     if (this.data.saving) return;
     if (this.data.paper.status !== 'approved') {
       wx.showToast({ title: '认证通过后才能签订', icon: 'none' });
+      return;
+    }
+    const bankName = String(this.data.bankName || '').trim();
+    const bankAccountName = String(this.data.bankAccountName || '').trim();
+    const bankAccount = String(this.data.bankAccount || '').trim().replace(/[\s\-]/g, '');
+    if (!bankName || !bankAccountName || !bankAccount) {
+      wx.showToast({ title: '请填写收款开户行、收款名与银行账号', icon: 'none' });
+      return;
+    }
+    if (bankAccount.length < 8 || !/^\d+$/.test(bankAccount)) {
+      wx.showToast({ title: '请填写正确的银行账号', icon: 'none' });
       return;
     }
     if (!this.data.agreed) {
@@ -178,6 +200,17 @@ Page({
       return;
     }
     this.setData({ saving: true });
+    try {
+      await userService.saveContractDraft({
+        step: 1,
+        flowStatus: 'filling',
+        formData: { bankName, bankAccountName, bankAccount },
+      });
+    } catch (err) {
+      this.setData({ saving: false });
+      wx.showToast({ title: (err && err.message) || '收款信息保存失败', icon: 'none' });
+      return;
+    }
     wx.canvasToTempFilePath({
       canvasId: 'sign',
       fileType: 'png',

@@ -182,8 +182,14 @@ export class ContractFlowService {
     if (identity.contactAddress) formData.contactAddress = identity.contactAddress;
     if (formData.email !== undefined) patch.email = String(formData.email || '').trim() || null;
     if (formData.bankName !== undefined) patch.bankName = String(formData.bankName || '').trim() || null;
-    if (formData.bankAccountName !== undefined) patch.bankAccountName = String(formData.bankAccountName || '').trim() || null;
-    if (formData.bankAccount !== undefined) patch.bankAccount = String(formData.bankAccount || '').trim() || null;
+    if (formData.bankAccountName !== undefined) {
+      patch.bankAccountName = String(formData.bankAccountName || '').trim() || null;
+    }
+    if (formData.bankAccount !== undefined) {
+      const account = String(formData.bankAccount || '').trim().replace(/[\s\-]/g, '');
+      patch.bankAccount = account || null;
+      formData.bankAccount = account;
+    }
 
     if (coreChanged && ['success', 'partial', 'manual_confirmed'].includes(cert.ocrStatus)) {
       patch.ocrStatus = 'manual_review';
@@ -218,6 +224,7 @@ export class ContractFlowService {
     if (!cert.idNumber || !cert.address || !cert.realName) {
       throw new BadRequestException('请先完成身份信息确认');
     }
+    this.assertBankInfo(cert);
     const formData = this.parseJson(cert.contractDraftJson) || {};
     formData.previewConfirmed = true;
     const saved = await this.prisma.teacherCert.update({
@@ -242,6 +249,7 @@ export class ContractFlowService {
     if (!cert.idNumber || !cert.address || !cert.realName) {
       throw new BadRequestException('姓名、身份证号、住址为必填');
     }
+    this.assertBankInfo(cert);
     const formData = this.parseJson(cert.contractDraftJson) || {};
     formData.identityConfirmed = true;
     formData.previewConfirmed = false;
@@ -360,6 +368,19 @@ export class ContractFlowService {
       },
     });
     return this.identityPayload(saved);
+  }
+
+  /** 签合同阶段强制绑定收款信息 */
+  private assertBankInfo(cert: { bankName?: string | null; bankAccountName?: string | null; bankAccount?: string | null }) {
+    const bankName = String(cert.bankName || '').trim();
+    const bankAccountName = String(cert.bankAccountName || '').trim();
+    const bankAccount = String(cert.bankAccount || '').trim().replace(/[\s\-]/g, '');
+    if (!bankName || !bankAccountName || !bankAccount) {
+      throw new BadRequestException('签订合同前须填写收款开户行、收款名与银行账号');
+    }
+    if (bankAccount.length < 8 || bankAccount.length > 32 || !/^\d+$/.test(bankAccount)) {
+      throw new BadRequestException('请填写正确的银行账号');
+    }
   }
 
   private parseJson(raw?: string | null) {

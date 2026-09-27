@@ -24,6 +24,7 @@ const routes = [
   { path: '/checkin', name: 'checkin', component: () => import('./views/Checkin.vue') },
   { path: '/adjust', name: 'adjust', component: () => import('./views/Adjust.vue') },
   { path: '/income', name: 'income', component: () => import('./views/Income.vue') },
+  { path: '/reimburse', name: 'reimburse', component: () => import('./views/Reimburse.vue') },
   { path: '/profile', name: 'profile', component: () => import('./views/Profile.vue') },
   { path: '/order', name: 'order', component: () => import('./views/Order.vue') },
   { path: '/comment', name: 'comment', component: () => import('./views/Comment.vue') },

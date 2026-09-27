@@ -1,8 +1,19 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
+import { mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { buildPaginationResult, getPaginationParams } from '@/common/utils/pagination.util';
 import { calculateFee, teacherFeeView, FeeQuote } from './fee';
 import { FinanceService } from '@/modules/finance/finance.service';
+
+const REIMBURSE_CATEGORIES = new Set(['transport', 'material', 'meal', 'office', 'other']);
+const REIMBURSE_STATUS = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  reimbursed: 'reimbursed',
+} as const;
 
 @Injectable()
 export class StaffService {
@@ -768,6 +779,213 @@ export class StaffService {
     });
   }
 
+  async myReimbursements(userId: number) {
+    const rows = await this.prisma.reimbursement.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((row) => this.formatReimbursement(row));
+  }
+
+  async createReimbursement(userId: number, body: any) {
+    const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
+    if (!cert || cert.status !== 'approved') {
+      throw new BadRequestException('认证通过后才能提交报销单');
+    }
+    const title = String(body?.title || '').trim();
+    if (!title || title.length > 80) throw new BadRequestException('请填写报销事由（80字以内）');
+    const category = String(body?.category || 'other');
+    if (!REIMBURSE_CATEGORIES.has(category)) throw new BadRequestException('报销类别无效');
+    const amount = Number(body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 999999) {
+      throw new BadRequestException('请填写有效金额');
+    }
+    const expenseDate = String(body?.expenseDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) throw new BadRequestException('请选择发生日期');
+    const description = String(body?.description || '').trim().slice(0, 500) || null;
+    const attachments = this.parseAttachments(body?.attachments);
+    if (!attachments.length) throw new BadRequestException('请至少上传一张票据或凭证');
+
+    const row = await this.prisma.reimbursement.create({
+      data: {
+        userId,
+        title,
+        category,
+        amount: Math.round(amount * 100) / 100,
+        expenseDate,
+        description,
+        attachments: JSON.stringify(attachments),
+        status: REIMBURSE_STATUS.pending,
+      },
+    });
+    return this.formatReimbursement(row);
+  }
+
+  async cancelReimbursement(userId: number, id: number) {
+    const row = await this.prisma.reimbursement.findUnique({ where: { id } });
+    if (!row || row.userId !== userId) throw new NotFoundException('报销单不存在');
+    if (row.status !== REIMBURSE_STATUS.pending) {
+      throw new BadRequestException('仅待审核的报销单可撤销');
+    }
+    await this.prisma.reimbursement.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async saveReimbursementReceipt(file?: { buffer?: Buffer; path?: string }) {
+    let buffer = file?.buffer;
+    if ((!buffer || !buffer.length) && file?.path) {
+      const { readFile } = await import('fs/promises');
+      buffer = await readFile(file.path);
+    }
+    if (!buffer?.length) throw new BadRequestException('请上传票据');
+    if (buffer.length > 8 * 1024 * 1024) throw new BadRequestException('票据不能超过 8MB');
+    const ext = receiptExt(buffer);
+    const name = `${randomUUID()}${ext}`;
+    const dir = join(process.cwd(), 'uploads', 'reimbursements');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, name), buffer);
+    return { url: `/uploads/reimbursements/${name}` };
+  }
+
+  async listReimbursements(query: { status?: string } = {}) {
+    const where: any = {};
+    if (query.status && Object.values(REIMBURSE_STATUS).includes(query.status as any)) {
+      where.status = query.status;
+    }
+    const rows = await this.prisma.reimbursement.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+      include: {
+        user: {
+          select: {
+            id: true,
+            nickname: true,
+            phone: true,
+            teacherCert: { select: { realName: true, bankName: true, bankAccountName: true, bankAccount: true } },
+          },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      ...this.formatReimbursement(row),
+      user: row.user,
+    }));
+  }
+
+  async reimbursementsPendingCount() {
+    const count = await this.prisma.reimbursement.count({ where: { status: REIMBURSE_STATUS.pending } });
+    return { count };
+  }
+
+  async reviewReimbursement(id: number, action: string, reason?: string, adminId?: number) {
+    const row = await this.prisma.reimbursement.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('报销单不存在');
+    if (row.status !== REIMBURSE_STATUS.pending) {
+      throw new BadRequestException('该报销单已处理');
+    }
+    if (action === 'approve') {
+      const updated = await this.prisma.reimbursement.update({
+        where: { id },
+        data: {
+          status: REIMBURSE_STATUS.approved,
+          rejectReason: null,
+          reviewedAt: new Date(),
+          reviewedBy: adminId || null,
+        },
+      });
+      return this.formatReimbursement(updated);
+    }
+    if (action === 'reject') {
+      const text = String(reason || '').trim();
+      if (!text) throw new BadRequestException('请填写驳回原因');
+      const updated = await this.prisma.reimbursement.update({
+        where: { id },
+        data: {
+          status: REIMBURSE_STATUS.rejected,
+          rejectReason: text.slice(0, 200),
+          reviewedAt: new Date(),
+          reviewedBy: adminId || null,
+        },
+      });
+      return this.formatReimbursement(updated);
+    }
+    throw new BadRequestException('无效操作');
+  }
+
+  /** 仅审核通过后可标记已报销（打款完成） */
+  async markReimbursed(id: number, adminId?: number) {
+    const row = await this.prisma.reimbursement.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('报销单不存在');
+    if (row.status !== REIMBURSE_STATUS.approved) {
+      throw new BadRequestException('需管理员审核通过后才能报销');
+    }
+    const updated = await this.prisma.reimbursement.update({
+      where: { id },
+      data: {
+        status: REIMBURSE_STATUS.reimbursed,
+        reimbursedAt: new Date(),
+        reviewedBy: adminId || row.reviewedBy,
+      },
+    });
+    return this.formatReimbursement(updated);
+  }
+
+  private formatReimbursement(row: {
+    id: number;
+    userId: number;
+    title: string;
+    category: string;
+    amount: number;
+    expenseDate: string;
+    description: string | null;
+    attachments: string;
+    status: string;
+    rejectReason: string | null;
+    reviewedAt: Date | null;
+    reviewedBy: number | null;
+    reimbursedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    let attachments: string[] = [];
+    try {
+      const parsed = JSON.parse(row.attachments || '[]');
+      attachments = Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    } catch {
+      attachments = [];
+    }
+    return {
+      id: row.id,
+      userId: row.userId,
+      title: row.title,
+      category: row.category,
+      categoryLabel: categoryLabel(row.category),
+      amount: row.amount,
+      expenseDate: row.expenseDate,
+      description: row.description,
+      attachments,
+      status: row.status,
+      statusLabel: statusLabel(row.status),
+      rejectReason: row.rejectReason,
+      reviewedAt: row.reviewedAt,
+      reviewedBy: row.reviewedBy,
+      reimbursedAt: row.reimbursedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      canReimburse: row.status === REIMBURSE_STATUS.approved,
+    };
+  }
+
+  private parseAttachments(raw: unknown) {
+    const list = Array.isArray(raw) ? raw : [];
+    const urls = list
+      .map((item) => String(item || '').trim())
+      .filter((item) => item.startsWith('/uploads/reimbursements/'));
+    if (urls.length > 9) throw new BadRequestException('最多上传 9 张票据');
+    return [...new Set(urls)];
+  }
+
   private incomeData(quote: FeeQuote, organizationId?: number | null) {
     if (!quote.configured) {
       return { baseFee: null, commission: null, teacherFee: null, visibility: quote.visibility, status: 'unconfigured', organizationId: organizationId || null };
@@ -859,4 +1077,31 @@ export class StaffService {
     if (value === undefined || value === null || value === '') return null;
     return Number(value);
   }
+}
+
+function categoryLabel(category: string) {
+  return ({
+    transport: '交通出行',
+    material: '教材教具',
+    meal: '餐饮补贴',
+    office: '办公耗材',
+    other: '其他',
+  } as Record<string, string>)[category] || category;
+}
+
+function statusLabel(status: string) {
+  return ({
+    pending: '待审核',
+    approved: '已通过（可报销）',
+    rejected: '已驳回',
+    reimbursed: '已报销',
+  } as Record<string, string>)[status] || status;
+}
+
+function receiptExt(buffer: Buffer) {
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) return '.jpg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50) return '.png';
+  if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') return '.webp';
+  if (buffer.slice(0, 4).toString('ascii') === '%PDF') return '.pdf';
+  throw new BadRequestException('请上传 jpg、png、webp 或 pdf');
 }

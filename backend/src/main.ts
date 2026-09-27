@@ -73,6 +73,8 @@ async function bootstrap() {
   app.useStaticAssets(join(uploadsRoot, 'certs'), { prefix: '/uploads/certs/' });
   app.use('/uploads/signs', requireUploadAuth);
   app.useStaticAssets(join(uploadsRoot, 'signs'), { prefix: '/uploads/signs/' });
+  app.use('/uploads/reimbursements', requireUploadAuth);
+  app.useStaticAssets(join(uploadsRoot, 'reimbursements'), { prefix: '/uploads/reimbursements/' });
 
   const www = resolveWww();
   if (www) {

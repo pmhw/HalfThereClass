@@ -27,9 +27,6 @@ Page({
     idNumber: '',
     address: '',
     email: '',
-    bankName: '',
-    bankAccountName: '',
-    bankAccount: '',
     files: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     sources: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     previews: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
@@ -100,9 +97,6 @@ Page({
         idNumber: cert.idNumber || this.data.idNumber,
         address: cert.address || this.data.address,
         email: cert.email || this.data.email,
-        bankName: cert.bankName || this.data.bankName,
-        bankAccountName: cert.bankAccountName || this.data.bankAccountName,
-        bankAccount: cert.bankAccount || this.data.bankAccount,
         files,
         sources: {
           idCard: util.assetUrl(files.idCard),
@@ -125,9 +119,6 @@ Page({
   onIdNumber(e) { this.setData({ idNumber: e.detail.value }); },
   onAddress(e) { this.setData({ address: e.detail.value }); },
   onEmail(e) { this.setData({ email: e.detail.value }); },
-  onBankName(e) { this.setData({ bankName: e.detail.value }); },
-  onBankAccountName(e) { this.setData({ bankAccountName: e.detail.value }); },
-  onBankAccount(e) { this.setData({ bankAccount: e.detail.value }); },
 
   choose(e) {
     const key = e.currentTarget.dataset.key;
@@ -256,7 +247,7 @@ Page({
   async submit() {
     if (this.data.saving) return;
     const {
-      realName, idNumber, address, email, bankName, bankAccountName, bankAccount, files, cert,
+      realName, idNumber, address, email, files, cert,
     } = this.data;
     const onlyClearance = cert.status === 'approved' && cert.clearanceDue;
     const onlyProfile = cert.status === 'approved' && cert.profileIncomplete && !onlyClearance;
@@ -291,9 +282,6 @@ Page({
         idNumber: String(idNumber || '').trim(),
         address: String(address || '').trim(),
         email: String(email || '').trim(),
-        bankName: String(bankName || '').trim(),
-        bankAccountName: String(bankAccountName || '').trim() || realName.trim(),
-        bankAccount: String(bankAccount || '').trim(),
         idCard: files.idCard,
         idCardBack: files.idCardBack,
         diploma: files.diploma,

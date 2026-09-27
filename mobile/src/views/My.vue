@@ -48,6 +48,7 @@
         <button type="button" class="item" @click="router.push('/schedule')">课程时刻表 ›</button>
         <button type="button" class="item" @click="router.push('/courses')">课程大厅 ›</button>
         <button type="button" class="item" @click="goIncome">我的收入 ›</button>
+        <button type="button" class="item" @click="goReimburse">报销单 ›</button>
         <button type="button" class="item" @click="goAdjust">登记调课 ›</button>
         <button type="button" class="item" @click="router.push('/profile')">编辑资料 ›</button>
         <button type="button" class="item" @click="goCert">认证资料 ›</button>
@@ -130,6 +131,11 @@ function goContract() {
 function goIncome() {
   if (!requireLogin(router)) return;
   router.push('/income');
+}
+
+function goReimburse() {
+  if (!requireLogin(router)) return;
+  router.push('/reimburse');
 }
 
 function goAdjust() {

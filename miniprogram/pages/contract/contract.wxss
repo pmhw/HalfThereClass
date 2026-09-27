@@ -62,8 +62,18 @@
   border-top: 1rpx dashed #e5e7eb;
 }
 .label { font-size: 30rpx; font-weight: 650; color: #111827; }
+.label.gap { margin-top: 28rpx; }
 .req { color: #ef4444; margin-left: 4rpx; }
 .hint { margin-top: 8rpx; color: #98a2b3; font-size: 22rpx; line-height: 1.5; }
+.bank-card .input {
+  margin-top: 12rpx;
+  padding: 0 24rpx;
+  background: #f8fafc;
+  border-radius: 16rpx;
+  border: 1rpx solid #e5e7eb;
+}
+.bank-card .input input { height: 88rpx; font-size: 28rpx; color: #111827; }
+.ph { color: #98a2b3; }
 .foot { text-align: center; color: #98a2b3; font-size: 22rpx; margin-top: 16rpx; padding-bottom: 24rpx; }
 .sign-card {
   scroll-margin-top: 24rpx;
