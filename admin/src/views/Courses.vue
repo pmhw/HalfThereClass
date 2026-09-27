@@ -2,9 +2,8 @@
   <section>
     <div class="page-head">
       <div>
-        <p class="crumb">课程管理 / 课程列表</p>
         <h1>课程管理</h1>
-        <p>新增、修改课程，已安排老师的课程不能删除</p>
+        <p>用于管理课程、教师、价格和课程状态。已安排老师的课程不能删除。</p>
       </div>
       <div class="actions">
         <router-link v-if="!schoolAccount" class="btn" to="/categories"><Icon name="folder" />课程分类</router-link>

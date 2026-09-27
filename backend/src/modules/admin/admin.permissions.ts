@@ -17,7 +17,7 @@ const RULES: { test: RegExp; permission: AdminPermission }[] = [
   { test: /\/(people|faculty|certs)(?:\/|$)/, permission: 'people' },
   { test: /\/orgs(?:\/|$)/, permission: 'org' },
   { test: /\/finance(?:\/|$)/, permission: 'finance' },
-  { test: /\/(fees|incomes)(?:\/|$)/, permission: 'fee' },
+  { test: /\/(fees|incomes|grants)(?:\/|$)/, permission: 'fee' },
   { test: /\/admins(?:\/|$)/, permission: 'admin' },
   { test: /\/settings(?:\/|$)/, permission: 'admin' },
   // 具体路径必须写在宽泛 /system 规则之前，否则 overview 会覆盖 database / apply-update

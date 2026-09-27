@@ -194,6 +194,7 @@ export class StaffService {
     const start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
+    const semester = await this.openSemester();
     const list = await this.prisma.user.findMany({
       where: { teacherCert: { isNot: null } },
       orderBy: { id: 'desc' },
@@ -207,8 +208,69 @@ export class StaffService {
         org: list.filter((item) => item.organizationId && item.teacherCert?.status === 'approved').length,
         independent: list.filter((item) => !item.organizationId && item.teacherCert?.status === 'approved').length,
       },
-      list: list.map((item) => this.presentUser(item)),
+      semesterName: semester?.name || '',
+      list: list.map((item) => this.presentUser(item, semester)),
     };
+  }
+
+  async listGrants() {
+    const semester = await this.openSemester();
+    const grants = await this.prisma.teacherCourseGrant.findMany({
+      orderBy: { id: 'desc' },
+      include: {
+        course: { select: { id: true, title: true, teacherId: true, school: true, status: true } },
+        user: {
+          select: {
+            id: true,
+            nickname: true,
+            organization: { select: { id: true, name: true } },
+            teacherCert: { select: { realName: true, contractStatus: true, contractSemesterId: true, status: true } },
+          },
+        },
+      },
+    });
+    return {
+      semesterName: semester?.name || '',
+      list: grants.map((grant) => {
+        const cert = grant.user.teacherCert;
+        const contractValid = cert?.contractStatus === 'signed'
+          && !!semester
+          && cert.contractSemesterId === semester.id;
+        const contractPending = cert?.contractStatus === 'pending_review';
+        return {
+          id: grant.id,
+          userId: grant.userId,
+          courseId: grant.courseId,
+          title: grant.course.title,
+          school: grant.course.school || '',
+          primary: grant.course.teacherId === grant.userId,
+          lockState: grant.lockState,
+          locked: grant.lockState === 'pending_contract',
+          baseFee: grant.baseFee,
+          teacherName: cert?.realName || grant.user.nickname || `教师#${grant.userId}`,
+          organizationName: grant.user.organization?.name || '',
+          contractValid,
+          contractPending,
+          contractDue: cert?.status === 'approved' && !contractPending && !contractValid,
+          createdAt: grant.createdAt,
+        };
+      }),
+    };
+  }
+
+  async revokeGrant(userId: number, courseId: number) {
+    const grant = await this.prisma.teacherCourseGrant.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+    });
+    if (!grant) throw new NotFoundException('未找到该课程分配');
+    const course = await this.prisma.course.findUnique({ where: { id: courseId }, select: { id: true, teacherId: true, title: true } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.teacherCourseGrant.delete({ where: { id: grant.id } });
+      if (course?.teacherId === userId) {
+        await tx.course.update({ where: { id: courseId }, data: { teacherId: null } });
+      }
+    });
+    return { ok: true, courseId, userId, title: course?.title || '' };
   }
 
   async teacherDetail(id: number) {
@@ -245,7 +307,7 @@ export class StaffService {
       && !!semester
       && cert.contractSemesterId === semester.id;
     return {
-      ...this.presentUser(user),
+      ...this.presentUser(user, semester),
       idCard: cert?.idCard || '',
       idCardBack: cert?.idCardBack || '',
       idNumber: cert?.idNumber || '',
@@ -659,7 +721,12 @@ export class StaffService {
     // 已实名未签/未审合同：允许预分配，锁定到签合同审核通过
     const lockState = contractValid ? 'active' : 'pending_contract';
     if (data.primary && course.teacherId && course.teacherId !== userId) {
-      throw new BadRequestException('该课程已安排其他老师');
+      const occupied = await this.prisma.user.findUnique({
+        where: { id: course.teacherId },
+        select: { nickname: true, teacherCert: { select: { realName: true } } },
+      });
+      const name = occupied?.teacherCert?.realName || occupied?.nickname || `教师#${course.teacherId}`;
+      throw new BadRequestException(`该课程已预分配给「${name}」，请先解除分配后再指定其他教师`);
     }
     await this.prisma.teacherCourseGrant.upsert({
       where: { userId_courseId: { userId, courseId } },
@@ -735,8 +802,14 @@ export class StaffService {
     } as const;
   }
 
-  private presentUser(item: any) {
+  private presentUser(item: any, semester?: { id: number; name?: string } | null) {
     const cert = item.teacherCert;
+    const contractValid = !!cert
+      && cert.contractStatus === 'signed'
+      && !!semester
+      && cert.contractSemesterId === semester.id;
+    const contractPending = cert?.contractStatus === 'pending_review';
+    const contractDue = cert?.status === 'approved' && !contractPending && !contractValid;
     return {
       id: item.id,
       avatar: item.avatar,
@@ -749,7 +822,12 @@ export class StaffService {
       realName: cert?.realName || '',
       certStatus: cert?.status || 'none',
       contractStatus: cert?.contractStatus || 'none',
-      contractSigned: cert?.contractStatus === 'signed',
+      // 与用户端一致：仅本学期合同生效才算已签
+      contractSigned: contractValid,
+      contractValid,
+      contractPending,
+      contractDue,
+      semesterName: semester?.name || '',
       teacherNo: cert?.teacherNo || '',
       gender: cert?.gender || item.gender || '',
       bio: cert?.bio || '',

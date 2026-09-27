@@ -163,8 +163,11 @@
           </button>
           <div style="position: relative">
             <button type="button" class="avatar-btn" @click="userMenu = !userMenu">
-              <span class="avatar">管</span>
-              {{ profile?.name || '管理员' }}
+              <span class="avatar">{{ (profile?.name || '管').slice(0, 1) }}</span>
+              <span class="avatar-meta">
+                <strong>{{ profile?.name || '管理员' }}</strong>
+                <small>{{ profile?.role === 'school' ? '学校账号' : (profile?.isSuper ? '超级管理员' : '管理员') }}</small>
+              </span>
             </button>
             <div v-if="userMenu" class="menu">
               <button type="button" @click="logout">退出登录</button>

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
@@ -39,9 +39,19 @@ export class StaffAdminController {
     return this.staff.freeze(Number(id), !!body.frozen);
   }
 
+  @Get('grants')
+  listGrants() {
+    return this.staff.listGrants();
+  }
+
   @Post('faculty/:id/grants')
   grant(@Param('id') id: string, @Body() body: any) {
     return this.staff.saveGrant(Number(id), body);
+  }
+
+  @Delete('faculty/:id/grants/:courseId')
+  revokeGrant(@Param('id') id: string, @Param('courseId') courseId: string) {
+    return this.staff.revokeGrant(Number(id), Number(courseId));
   }
 
   @Get('certs')
