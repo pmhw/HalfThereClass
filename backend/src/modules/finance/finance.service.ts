@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { calculateSessionProfit, moneyPct, monthKey, prevMonthKey } from './profit';
 import { calculateFee, roundMoney } from '@/modules/staff/fee';
+import { StaffService } from '@/modules/staff/staff.service';
 
 type Scope = {
   organizationId?: number | null;
@@ -11,7 +12,10 @@ type Scope = {
 
 @Injectable()
 export class FinanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => StaffService)) private staff: StaffService,
+  ) {}
 
   /**
    * 按已结算课次写入利润快照：
@@ -74,19 +78,284 @@ export class FinanceService {
     return this.prisma.profitRecord.create({ data });
   }
 
-  async syncAllSessions() {
-    // 清掉旧的订单型快照（无 sessionIncomeId）
-    await this.prisma.profitRecord.deleteMany({ where: { sessionIncomeId: null } });
-    const rows = await this.prisma.sessionIncome.findMany({
-      where: { status: { not: 'unconfigured' }, teacherFee: { not: null } },
-      select: { id: true },
+  /** 可供勾选同步的课程列表（含课次统计与预估单节利润） */
+  async listSyncCourses() {
+    const courses = await this.prisma.course.findMany({
+      where: { status: 1 },
+      orderBy: { id: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        price: true,
+        sessionFee: true,
+        school: true,
+        teacherId: true,
+        teacher: {
+          select: {
+            nickname: true,
+            teacherCert: { select: { realName: true } },
+            organization: {
+              select: { id: true, name: true, commissionMode: true, commissionValue: true, status: true },
+            },
+          },
+        },
+      },
+      take: 500,
     });
-    let synced = 0;
-    for (const row of rows) {
-      await this.syncSessionProfit(row.id, { forceRecalc: true });
-      synced += 1;
+
+    const today = this.formatDate(new Date());
+    const result = [];
+    for (const course of courses) {
+      const [sessionTotal, completedCount, dueCount] = await Promise.all([
+        this.prisma.courseSession.count({ where: { courseId: course.id } }),
+        this.prisma.courseSession.count({ where: { courseId: course.id, status: 'completed' } }),
+        this.prisma.courseSession.count({
+          where: {
+            courseId: course.id,
+            status: 'scheduled',
+            completionMode: 'auto',
+            date: { lte: today },
+          },
+        }),
+      ]);
+      const org = course.teacher?.organization?.status === 1 ? course.teacher.organization : null;
+      const fee = calculateFee({
+        base: course.sessionFee,
+        hasOrg: !!org,
+        mode: org?.commissionMode,
+        value: org?.commissionValue,
+      });
+      const preview = calculateSessionProfit({
+        schoolPrice: course.price,
+        sessionFee: fee.configured ? fee.baseFee : course.sessionFee,
+        teacherFee: fee.configured ? fee.teacherFee : course.sessionFee,
+        commission: fee.configured ? (fee.commission || 0) : 0,
+      });
+      result.push({
+        id: course.id,
+        title: course.title,
+        school: course.school || '—',
+        price: course.price,
+        sessionFee: course.sessionFee,
+        teacherName: course.teacher?.teacherCert?.realName || course.teacher?.nickname || '未安排',
+        organizationName: org?.name || '—',
+        sessionTotal,
+        syncableCount: completedCount + dueCount,
+        preview,
+      });
     }
-    return { synced };
+    return result;
+  }
+
+  /**
+   * 同步课次收益（可勾选课程）：
+   * - 不强制已安排教师：无教师时按 校方价格 − 课时费 计算（分佣 0）
+   * - 有教师时按机构分佣规则计算
+   * - 先把勾选课程的到期课次标为已上，再按课次写利润快照
+   */
+  async syncAllSessions(opts?: { courseIds?: number[] }) {
+    const courseIds = [...new Set((opts?.courseIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+    if (!courseIds.length) throw new BadRequestException('请先勾选要同步的课程');
+
+    const stats = {
+      completedDue: 0,
+      synced: 0,
+      skippedNoFee: 0,
+      skippedError: 0,
+      withTeacher: 0,
+      withoutTeacher: 0,
+      profitTotal: 0,
+    };
+
+    stats.completedDue = await this.completePastSessions(courseIds);
+
+    const completed = await this.prisma.courseSession.findMany({
+      where: { status: 'completed', courseId: { in: courseIds } },
+      select: {
+        id: true,
+        courseId: true,
+        date: true,
+        semesterId: true,
+        course: {
+          select: {
+            teacherId: true,
+            sessionFee: true,
+            price: true,
+            title: true,
+          },
+        },
+      },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    });
+
+    for (const session of completed) {
+      try {
+        const saved = await this.syncCourseSessionProfit(session);
+        if (!saved) {
+          stats.skippedNoFee += 1;
+          continue;
+        }
+        stats.synced += 1;
+        if (saved.teacherId) stats.withTeacher += 1;
+        else stats.withoutTeacher += 1;
+      } catch {
+        stats.skippedError += 1;
+      }
+    }
+
+    const scopeWhere = { courseId: { in: courseIds } };
+    stats.profitTotal = await this.prisma.profitRecord.count({ where: scopeWhere });
+    const byMonth = await this.prisma.profitRecord.groupBy({
+      by: ['settlementMonth'],
+      where: scopeWhere,
+      _count: true,
+      orderBy: { settlementMonth: 'asc' },
+    });
+    const byCourse = await this.prisma.profitRecord.groupBy({
+      by: ['courseId'],
+      where: scopeWhere,
+      _count: true,
+    });
+
+    return {
+      ...stats,
+      courseCount: byCourse.length,
+      selectedCourseCount: courseIds.length,
+      byMonth: byMonth.map((row) => ({ month: row.settlementMonth, count: row._count })),
+    };
+  }
+
+  /** 按课次写利润；有教师则走分佣报价，无教师则课时费全部记教师成本、分佣为 0 */
+  private async syncCourseSessionProfit(session: {
+    courseId: number;
+    date: string;
+    semesterId: number;
+    course?: { teacherId?: number | null; sessionFee?: number | null; price?: number | null } | null;
+  }) {
+    const course = session.course || await this.prisma.course.findUnique({
+      where: { id: session.courseId },
+      select: { teacherId: true, sessionFee: true, price: true },
+    });
+    if (!course) return null;
+
+    const teacherId = await this.resolveSessionTeacher({
+      courseId: session.courseId,
+      semesterId: session.semesterId,
+      course,
+    });
+
+    let teacherAmount: number | null = null;
+    let institutionAmount = 0;
+    let institutionId: number | null = null;
+    let sessionIncomeId: number | null = null;
+
+    if (teacherId) {
+      const income = await this.staff.settle(teacherId, session.courseId, session.date);
+      sessionIncomeId = income.id;
+      if (income.status !== 'unconfigured' && income.teacherFee != null) {
+        teacherAmount = Number(income.teacherFee);
+        institutionAmount = Number(income.commission || 0);
+        institutionId = income.organizationId || null;
+      }
+    }
+
+    // 无教师或结算未配置：直接用课程上的校方价格 / 课时费
+    if (teacherAmount == null) {
+      if (course.sessionFee == null || Number.isNaN(Number(course.sessionFee))) return null;
+      teacherAmount = roundMoney(Number(course.sessionFee));
+      institutionAmount = 0;
+    }
+
+    const schoolPrice = roundMoney(Number(course.price) || 0);
+    const split = calculateSessionProfit({
+      schoolPrice,
+      sessionFee: teacherAmount,
+      teacherFee: teacherAmount,
+      commission: institutionAmount,
+    });
+
+    const existing = await this.prisma.profitRecord.findFirst({
+      where: { courseId: session.courseId, sessionDate: session.date },
+    });
+
+    const data = {
+      sessionIncomeId: sessionIncomeId || existing?.sessionIncomeId || null,
+      courseId: session.courseId,
+      teacherId: teacherId || null,
+      institutionId,
+      sessionDate: session.date,
+      totalAmount: split.schoolPrice,
+      refundAmount: 0,
+      teacherAmount: split.teacherAmount,
+      institutionAmount: split.institutionAmount,
+      platformAmount: split.platformAmount,
+      teacherRate: split.teacherRate,
+      institutionRate: split.institutionRate,
+      platformRate: split.platformRate,
+      teacherShareMode: 'session_fee',
+      institutionShareMode: institutionAmount ? 'org_commission' : 'none',
+      settlementMonth: existing?.settlementMonth || monthKey(session.date),
+      orderStatus: 'session',
+      settlementStatus: existing?.settlementStatus === 'settled' ? 'settled' : 'pending',
+      settledAt: existing?.settledAt || null,
+    };
+
+    if (existing) {
+      return this.prisma.profitRecord.update({ where: { id: existing.id }, data });
+    }
+    return this.prisma.profitRecord.create({ data });
+  }
+
+  /** 过期未完课的 auto 课次 → completed */
+  private async completePastSessions(courseIds?: number[]) {
+    const today = this.formatDate(new Date());
+    const nowHm = this.formatHm(new Date());
+    const due = await this.prisma.courseSession.findMany({
+      where: {
+        status: 'scheduled',
+        completionMode: 'auto',
+        ...(courseIds?.length ? { courseId: { in: courseIds } } : {}),
+        OR: [
+          { date: { lt: today } },
+          { date: today, endTime: { lte: nowHm } },
+          { date: today, endTime: null, startTime: { lte: nowHm } },
+        ],
+      },
+      select: { id: true },
+      take: 2000,
+    });
+    if (!due.length) return 0;
+    await this.prisma.courseSession.updateMany({
+      where: { id: { in: due.map((item) => item.id) } },
+      data: { status: 'completed', completedAt: new Date() },
+    });
+    return due.length;
+  }
+
+  private async resolveSessionTeacher(session: {
+    courseId: number;
+    semesterId: number;
+    course?: { teacherId?: number | null } | null;
+  }) {
+    const term = await this.prisma.courseTermTeacher.findUnique({
+      where: { courseId_semesterId: { courseId: session.courseId, semesterId: session.semesterId } },
+    });
+    if (term?.teacherId) return term.teacherId;
+    if (session.course?.teacherId) return session.course.teacherId;
+    const grant = await this.prisma.teacherCourseGrant.findFirst({
+      where: { courseId: session.courseId, lockState: 'active' },
+      orderBy: { id: 'asc' },
+      select: { userId: true },
+    });
+    return grant?.userId || null;
+  }
+
+  private formatDate(date: Date) {
+    return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+  }
+
+  private formatHm(date: Date) {
+    return `${`${date.getHours()}`.padStart(2, '0')}:${`${date.getMinutes()}`.padStart(2, '0')}`;
   }
 
   /** @deprecated 订单不再驱动利润；保留手动改订单状态能力 */

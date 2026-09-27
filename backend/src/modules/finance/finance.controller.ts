@@ -77,9 +77,14 @@ export class FinanceAdminController {
     return this.finance.saveCourseRule(Number(courseId), body);
   }
 
+  @Get('sync-courses')
+  syncCourses() {
+    return this.finance.listSyncCourses();
+  }
+
   @Post('sync')
-  sync() {
-    return this.finance.syncAllSessions();
+  sync(@Body() body: { courseIds?: number[] }) {
+    return this.finance.syncAllSessions({ courseIds: body?.courseIds || [] });
   }
 
   @Post('settle/:month')

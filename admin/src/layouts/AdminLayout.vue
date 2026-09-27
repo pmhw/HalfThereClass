@@ -29,7 +29,8 @@
         >
           <div class="version-head">
             <strong>系统版本</strong>
-            <em v-if="updates.hasUpdate" class="new">有更新</em>
+            <em v-if="updates.hasUpdate && !applying" class="new">有更新</em>
+            <em v-else-if="applying" class="doing">更新中</em>
           </div>
           <p class="version-current">当前版本 <b>v{{ updates.current || version.current || '—' }}</b></p>
           <p v-if="updates.latest" class="version-latest">
@@ -37,36 +38,42 @@
             <small v-if="updates.latest.publishedAt"> · {{ formatTime(updates.latest.publishedAt) }}</small>
           </p>
           <p v-else class="version-latest muted">{{ versionLoading ? '正在检测更新…' : '暂未检测到可更新版本' }}</p>
-          <div v-if="updates.updates?.length" class="version-list">
-            <div v-for="item in updates.updates" :key="item.tag" class="version-item">
-              <div>
-                <strong>{{ item.tag }}</strong>
-                <small>{{ item.assetName || '发布包' }}</small>
-              </div>
-              <button class="link" type="button" :disabled="applying" @click="applyUpdate(item.tag)">更新</button>
+
+          <div v-if="applying" class="update-progress">
+            <div class="update-progress-meta">
+              <span>{{ applyMessage || '正在更新…' }}</span>
+              <b>{{ applyPercent }}%</b>
+            </div>
+            <div class="update-progress-track">
+              <i :style="{ width: `${applyPercent}%` }"></i>
             </div>
           </div>
-          <div class="version-actions">
-            <button type="button" class="link" :disabled="versionLoading || applying" @click="refreshUpdates(true)">
-              {{ versionLoading ? '检测中…' : '立即检测' }}
-            </button>
-            <button
-              v-if="updates.hasUpdate"
-              class="btn tiny primary"
-              type="button"
-              :disabled="applying"
-              @click="applyUpdate()"
-            >{{ applying ? '更新中…' : '一键更新并重启' }}</button>
-          </div>
+
+          <template v-else>
+            <div v-if="updates.updates?.length" class="version-list">
+              <div v-for="item in updates.updates" :key="item.tag" class="version-item">
+                <div>
+                  <strong>{{ item.tag }}</strong>
+                  <small>{{ item.assetName || '发布包' }}</small>
+                </div>
+                <button class="link" type="button" @click="applyUpdate(item.tag)">更新</button>
+              </div>
+            </div>
+            <div class="version-actions">
+              <button type="button" class="link" :disabled="versionLoading" @click="refreshUpdates(true)">
+                {{ versionLoading ? '检测中…' : '立即检测' }}
+              </button>
+              <button
+                v-if="updates.hasUpdate"
+                class="btn tiny primary"
+                type="button"
+                @click="applyUpdate()"
+              >一键更新</button>
+            </div>
+          </template>
           <p v-if="versionError" class="version-error">{{ versionError }}</p>
         </div>
       </Teleport>
-      <div v-if="applying" class="update-mask">
-        <div class="update-card">
-          <strong>正在更新并重启面板</strong>
-          <p>{{ applyMessage || '下载安装包、替换文件后将自动重启，请稍候…' }}</p>
-        </div>
-      </div>
       <div v-for="group in menus" :key="group.key" class="nav-group">
         <router-link
           v-if="!group.children"
@@ -209,6 +216,7 @@ const versionOpen = ref(false);
 const versionLoading = ref(false);
 const applying = ref(false);
 const applyMessage = ref('');
+const applyPercent = ref(0);
 const versionError = ref('');
 const versionStyle = ref({ left: '12px', top: '64px' });
 const version = ref({ current: '', repo: '' });
@@ -216,6 +224,7 @@ const updates = ref({ current: '', hasUpdate: false, updates: [], latest: null, 
 let versionTimer = 0;
 let updateTimer = 0;
 let pollTimer = 0;
+let progressTimer = 0;
 const collapsed = ref(localStorage.getItem('admin_nav_collapsed') === '1');
 const opened = ref({ course: true, trade: false, admin: true, finance: true });
 const result = ref({ courses: [], users: [], orders: [] });
@@ -430,15 +439,41 @@ function closeVersion() {
   versionTimer = window.setTimeout(() => { versionOpen.value = false; }, 180);
 }
 
+function stopProgressPoll() {
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    progressTimer = 0;
+  }
+}
+
+function startProgressPoll() {
+  stopProgressPoll();
+  progressTimer = window.setInterval(async () => {
+    try {
+      const p = await api.updateProgress();
+      if (typeof p.percent === 'number') applyPercent.value = Math.max(applyPercent.value, Math.min(99, p.percent));
+      if (p.message) applyMessage.value = p.message;
+      if (p.phase === 'error' && p.error) {
+        versionError.value = p.error;
+        applyMessage.value = p.error;
+      }
+    } catch {
+      /* 重启期间接口短暂不可用 */
+    }
+  }, 700);
+}
+
 async function waitForRestart(expectVersion) {
-  applyMessage.value = '服务重启中，正在等待面板恢复…';
+  applyPercent.value = Math.max(applyPercent.value, 96);
+  applyMessage.value = '服务重启中，即将刷新界面…';
   const started = Date.now();
   while (Date.now() - started < 120000) {
-    await new Promise((resolve) => { setTimeout(resolve, 1500); });
+    await new Promise((resolve) => { setTimeout(resolve, 1200); });
     try {
       const info = await api.systemVersion();
       if (!expectVersion || String(info.current) === String(expectVersion) || info.current) {
-        applyMessage.value = '更新完成，正在刷新面板…';
+        applyPercent.value = 100;
+        applyMessage.value = '更新完成';
         window.location.reload();
         return;
       }
@@ -446,26 +481,29 @@ async function waitForRestart(expectVersion) {
       /* still restarting */
     }
   }
-  applyMessage.value = '等待超时，请手动刷新页面';
+  versionError.value = '等待超时，请手动刷新页面';
   applying.value = false;
+  stopProgressPoll();
 }
 
 async function applyUpdate(tag) {
   if (applying.value) return;
-  const label = tag || updates.value.latest?.tag || '最新版';
-  if (!window.confirm(`确定更新到 ${label} 并自动重启面板？\n数据库与 .env 会保留。`)) return;
   applying.value = true;
   versionOpen.value = true;
   versionError.value = '';
-  applyMessage.value = '正在下载并安装更新包…';
+  applyPercent.value = 4;
+  applyMessage.value = '开始更新…';
+  startProgressPoll();
   try {
     const result = await api.applyUpdate(tag);
-    applyMessage.value = result.message || '安装完成，准备重启…';
+    applyPercent.value = Math.max(applyPercent.value, 96);
+    applyMessage.value = result.message || '安装完成，正在重启…';
     await waitForRestart(result.version);
   } catch (err) {
     versionError.value = err.message || '更新失败';
-    applyMessage.value = '';
+    applyMessage.value = err.message || '更新失败';
     applying.value = false;
+    stopProgressPoll();
   }
 }
 
@@ -527,6 +565,7 @@ onUnmounted(() => {
   clearTimeout(versionTimer);
   clearInterval(updateTimer);
   clearInterval(pollTimer);
+  stopProgressPoll();
   window.removeEventListener('resize', placeVersionPop);
 });
 </script>

@@ -1296,11 +1296,35 @@ export class AdminService implements OnModuleInit {
           });
           lastStatus = download.status;
           if (!download.ok) continue;
-          const bytes = Buffer.from(await download.arrayBuffer());
+          const total = Number(download.headers.get('content-length') || 0);
+          const reader = download.body?.getReader?.();
+          let bytes: Buffer;
+          if (reader) {
+            const chunks: Buffer[] = [];
+            let received = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = Buffer.from(value);
+              chunks.push(chunk);
+              received += chunk.length;
+              if (total > 0) {
+                const pct = 18 + Math.min(32, Math.round((received / total) * 32));
+                this.setUpdateProgress(pct, 'download', `正在下载 ${target.tag}… ${Math.round(received / 1024 / 1024 * 10) / 10}MB`);
+              } else if (received % (512 * 1024) < chunk.length) {
+                const pct = Math.min(48, 18 + Math.floor(received / (256 * 1024)));
+                this.setUpdateProgress(pct, 'download', `正在下载 ${target.tag}… ${Math.round(received / 1024 / 1024 * 10) / 10}MB`);
+              }
+            }
+            bytes = Buffer.concat(chunks);
+          } else {
+            bytes = Buffer.from(await download.arrayBuffer());
+          }
           if (bytes.length < 100_000) continue;
           if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) continue;
           writeFileSync(archive, bytes);
           downloaded = true;
+          this.setUpdateProgress(50, 'download', `下载完成 ${target.tag}`);
           break;
         } catch {
           // next mirror
