@@ -25,7 +25,6 @@ Page({
     origin: config.origin,
     realName: '',
     idNumber: '',
-    address: '',
     email: '',
     files: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
     sources: { idCard: '', idCardBack: '', diploma: '', clearance: '', certificate: '' },
@@ -95,7 +94,6 @@ Page({
         step,
         realName: cert.realName || this.data.realName,
         idNumber: cert.idNumber || this.data.idNumber,
-        address: cert.address || this.data.address,
         email: cert.email || this.data.email,
         files,
         sources: {
@@ -117,7 +115,6 @@ Page({
 
   onName(e) { this.setData({ realName: e.detail.value }); },
   onIdNumber(e) { this.setData({ idNumber: e.detail.value }); },
-  onAddress(e) { this.setData({ address: e.detail.value }); },
   onEmail(e) { this.setData({ email: e.detail.value }); },
 
   choose(e) {
@@ -247,7 +244,7 @@ Page({
   async submit() {
     if (this.data.saving) return;
     const {
-      realName, idNumber, address, email, files, cert,
+      realName, idNumber, email, files, cert,
     } = this.data;
     const onlyClearance = cert.status === 'approved' && cert.clearanceDue;
     const onlyProfile = cert.status === 'approved' && cert.profileIncomplete && !onlyClearance;
@@ -257,10 +254,6 @@ Page({
     }
     if (!onlyClearance && !/^[0-9]{17}[0-9Xx]$/.test(String(idNumber || '').trim())) {
       wx.showToast({ title: '请填写正确身份证号', icon: 'none' });
-      return;
-    }
-    if (!onlyClearance && !String(address || '').trim()) {
-      wx.showToast({ title: '请填写身份证住址', icon: 'none' });
       return;
     }
     if (!onlyClearance && !onlyProfile && (!files.idCard || !files.idCardBack)) {
@@ -280,7 +273,6 @@ Page({
       await userService.submitCert({
         realName: realName.trim(),
         idNumber: String(idNumber || '').trim(),
-        address: String(address || '').trim(),
         email: String(email || '').trim(),
         idCard: files.idCard,
         idCardBack: files.idCardBack,

@@ -111,7 +111,7 @@ export class UserService {
       && !!semester
       && cert.contractSemesterId === semester.id;
     const contractDue = cert.status === 'approved' && !contractPending && !contractValid;
-    const profileIncomplete = cert.status === 'approved' && (!cert.idNumber || !cert.address);
+    const profileIncomplete = cert.status === 'approved' && !cert.idNumber;
     return {
       ...cert,
       clearanceDue,
@@ -576,13 +576,12 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
 
     const realName = data.realName?.trim() || current?.realName || '';
     const idNumber = String(data.idNumber || '').trim().toUpperCase();
-    const address = String(data.address || '').trim();
+    const address = String(data.address || '').trim() || current?.address || '';
     const email = String(data.email || '').trim();
-    // 认证阶段不采集收款信息；收款开户行/收款名/账号在签订合同时强制填写
+    // 认证阶段不采集收款信息与住址；签合同时 OCR/填写住址，并强制绑定收款账户
     // 已认证教师：仅补全合同所需身份信息，不重新走审核
     if (current?.status === 'approved') {
       if (!/^[0-9]{17}[0-9X]$/.test(idNumber)) throw new BadRequestException('请填写正确的身份证号码');
-      if (!address) throw new BadRequestException('请填写身份证住址');
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         throw new BadRequestException('电子邮箱格式不正确');
       }
@@ -591,7 +590,7 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
         data: {
           ...(realName ? { realName } : {}),
           idNumber,
-          address,
+          ...(address ? { address } : {}),
           email: email || null,
         },
       });
@@ -602,7 +601,6 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
     const diploma = this.certFile(data.diploma);
     if (!realName) throw new BadRequestException('请填写姓名');
     if (!/^[0-9]{17}[0-9X]$/.test(idNumber)) throw new BadRequestException('请填写正确的身份证号码');
-    if (!address) throw new BadRequestException('请填写身份证住址');
     if (!idCard || !idCardBack) throw new BadRequestException('请上传身份证正反面');
     if (!diploma) throw new BadRequestException('请上传学历证明');
     if (!clearance) throw new BadRequestException('请上传无犯罪证明');
@@ -614,7 +612,7 @@ ${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="�
     const profile = {
       realName,
       idNumber,
-      address,
+      ...(address ? { address } : {}),
       email: email || null,
       idCard,
       idCardBack,
