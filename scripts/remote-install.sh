@@ -115,6 +115,20 @@ run_npx() {
   fi
 }
 
+# 优先用项目内 prisma，避免 npm exec 拉到错误大版本
+run_prisma() {
+  ensure_node_bins
+  local root="${1:-.}"
+  shift || true
+  if [[ -x "${root}/node_modules/.bin/prisma" ]]; then
+    "${root}/node_modules/.bin/prisma" "$@"
+  elif [[ -f "${root}/node_modules/prisma/build/index.js" ]]; then
+    "${NODE_BIN}" "${root}/node_modules/prisma/build/index.js" "$@"
+  else
+    run_npx prisma "$@"
+  fi
+}
+
 ensure_env_kv() {
   local file="$1" key="$2" val="$3"
   if grep -q "^${key}=" "${file}" 2>/dev/null; then
@@ -134,6 +148,47 @@ ensure_strong_jwt() {
     ensure_env_kv "${file}" JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
     yellow "已自动生成强 JWT_SECRET 并写入 ${file}"
   fi
+}
+
+# 12 位后台入口后缀（与 backend ensureAdminEntry 规则一致）
+gen_admin_entry() {
+  tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12
+}
+
+ensure_admin_entry() {
+  local file="$1"
+  [[ -f "${file}" ]] || return 0
+  local entry
+  entry="$(grep '^ADMIN_ENTRY=' "${file}" 2>/dev/null | cut -d= -f2- | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
+  if [[ "${entry}" =~ ^[a-z0-9]{12}$ ]]; then
+    ADMIN_ENTRY_VALUE="${entry}"
+    return 0
+  fi
+  ADMIN_ENTRY_VALUE="$(gen_admin_entry)"
+  ensure_env_kv "${file}" ADMIN_ENTRY "${ADMIN_ENTRY_VALUE}"
+  yellow "已生成后台入口后缀 ADMIN_ENTRY=${ADMIN_ENTRY_VALUE}"
+}
+
+read_env_kv() {
+  local file="$1" key="$2"
+  grep "^${key}=" "${file}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true
+}
+
+write_initial_admin_file() {
+  local user="$1" pass="$2" entry="$3" port="$4" ip="$5"
+  umask 077
+  {
+    echo "HalfThereClass 首次安装凭证（请登录后立即改密，并删除本文件）"
+    echo "================================================"
+    echo "后台地址: http://${ip}:${port}/${entry}/"
+    echo "账号:     ${user}"
+    echo "密码:     ${pass}"
+    echo "入口后缀: ${entry}"
+    echo "================================================"
+    echo "手机端:   http://${ip}:${port}/m/"
+    echo "接口:     http://${ip}:${port}/api"
+  } > "${INSTALL_DIR}/INITIAL_ADMIN.txt"
+  chmod 600 "${INSTALL_DIR}/INITIAL_ADMIN.txt" || true
 }
 
 restore_apt_sources() {
@@ -450,22 +505,38 @@ setup_app() {
   ensure_env_kv .env NODE_ENV production
   ensure_env_kv .env GITHUB_REPO "${REPO}"
 
-  # 强制生成强 JWT / 初始管理员密码，杜绝示例弱口令上线
+  # 强制生成强 JWT / 12 位入口 / 初始管理员密码，杜绝示例弱口令上线
   ensure_strong_jwt .env
-  local admin_pass_now
-  admin_pass_now="$(grep '^ADMIN_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)"
+  ensure_admin_entry .env
+  local admin_user_now admin_pass_now port_now ip_now
+  admin_user_now="$(read_env_kv .env ADMIN_USER)"
+  admin_user_now="${admin_user_now:-admin}"
+  admin_pass_now="$(read_env_kv .env ADMIN_PASSWORD)"
+  port_now="$(read_env_kv .env PORT)"
+  port_now="${port_now:-${PORT}}"
+  ip_now="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  # 优先公网可读地址：若 hostname -I 是内网，安装结束时用公网探测再回写
+  ip_now="${ip_now:-服务器IP}"
+  PUBLIC_IP_HINT="${ip_now}"
+  if command -v curl >/dev/null 2>&1; then
+    local pub
+    pub="$(curl -fsS --connect-timeout 3 --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+    if [[ "${pub}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      PUBLIC_IP_HINT="${pub}"
+      ip_now="${pub}"
+    fi
+  fi
+  FIRST_INSTALL_CREDENTIALS=0
   if [[ "${created_env}" == "1" || -z "${admin_pass_now}" || "${admin_pass_now}" == "admin123" || "${admin_pass_now}" == *"CHANGE_ME"* || ${#admin_pass_now} -lt 10 ]]; then
     admin_pass_now="$(openssl rand -base64 18 | tr -d '\n=/+' | cut -c1-20)"
-    ensure_env_kv .env ADMIN_USER admin
+    ensure_env_kv .env ADMIN_USER "${admin_user_now}"
     ensure_env_kv .env ADMIN_PASSWORD "${admin_pass_now}"
-    umask 077
-    {
-      echo "ADMIN_USER=admin"
-      echo "ADMIN_PASSWORD=${admin_pass_now}"
-      echo "请登录后台后立即修改密码，并删除本文件"
-    } > "${INSTALL_DIR}/INITIAL_ADMIN.txt"
-    chmod 600 "${INSTALL_DIR}/INITIAL_ADMIN.txt" || true
+    write_initial_admin_file "${admin_user_now}" "${admin_pass_now}" "${ADMIN_ENTRY_VALUE}" "${port_now}" "${ip_now}"
+    FIRST_INSTALL_CREDENTIALS=1
     yellow "已生成初始管理员密码，见 ${INSTALL_DIR}/INITIAL_ADMIN.txt"
+  elif [[ ! -f "${INSTALL_DIR}/INITIAL_ADMIN.txt" && "${created_env}" == "1" ]]; then
+    write_initial_admin_file "${admin_user_now}" "${admin_pass_now}" "${ADMIN_ENTRY_VALUE}" "${port_now}" "${ip_now}"
+    FIRST_INSTALL_CREDENTIALS=1
   fi
 
   if [[ "${CN_MIRROR}" == "1" || "${CN_MIRROR}" == "true" || "${CN_MIRROR}" == "yes" ]]; then
@@ -476,12 +547,12 @@ setup_app() {
   fi
 
   "${NPM_BIN}" ci --omit=dev
-  run_npx prisma generate
+  run_prisma . generate
   if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
     cp prisma/init.db prisma/dev.db
     green "已用 init.db 初始化运行库"
   fi
-  run_npx prisma migrate deploy || true
+  run_prisma . migrate deploy || true
   chmod +x "${INSTALL_DIR}/start.sh" "${INSTALL_DIR}/install.sh" 2>/dev/null || true
   mkdir -p "${INSTALL_DIR}/backend/uploads/backups" "${INSTALL_DIR}/backend/uploads/updates" "${INSTALL_DIR}/backend/uploads/certs" "${INSTALL_DIR}/backend/uploads/signs" "${INSTALL_DIR}/backend/uploads/avatars"
 }
@@ -489,13 +560,12 @@ setup_app() {
 write_systemd() {
   step "写入 systemd 并开机自启..."
   ensure_node_bins
-  local node_bin npm_bin prisma_cmd
+  local node_bin prisma_bin
   node_bin="${NODE_BIN}"
-  npm_bin="${NPM_BIN}"
-  if [[ -n "${NPX_BIN}" ]]; then
-    prisma_cmd="${NPX_BIN} prisma"
+  if [[ -x "${INSTALL_DIR}/backend/node_modules/.bin/prisma" ]]; then
+    prisma_bin="${INSTALL_DIR}/backend/node_modules/.bin/prisma"
   else
-    prisma_cmd="${npm_bin} exec -- prisma"
+    prisma_bin="${NPM_BIN} exec -- prisma"
   fi
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -514,7 +584,7 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 EnvironmentFile=-${INSTALL_DIR}/backend/.env
 ExecStart=${node_bin} --enable-source-maps ${INSTALL_DIR}/backend/dist/src/main.js
 ExecStartPre=/bin/bash -lc 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH; cd ${INSTALL_DIR}/backend && if [ ! -f prisma/dev.db ] && [ -f prisma/init.db ]; then cp prisma/init.db prisma/dev.db; fi'
-ExecStartPre=/bin/bash -lc 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH; cd ${INSTALL_DIR}/backend && ${prisma_cmd} migrate deploy'
+ExecStartPre=/bin/bash -lc 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:\$PATH; cd ${INSTALL_DIR}/backend && ${prisma_bin} migrate deploy'
 Restart=always
 RestartSec=3
 KillMode=mixed
@@ -552,11 +622,27 @@ if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"
   fi
   echo "已自动生成强 JWT_SECRET"
 fi
+# 后台入口 12 位后缀
+entry_now="\$(grep '^ADMIN_ENTRY=' .env 2>/dev/null | cut -d= -f2- | tr -d '\\r' || true)"
+if [[ ! "\${entry_now}" =~ ^[a-z0-9]{12}\$ ]]; then
+  new_entry="\$(tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12)"
+  if grep -q '^ADMIN_ENTRY=' .env; then
+    sed -i "s|^ADMIN_ENTRY=.*|ADMIN_ENTRY=\${new_entry}|" .env
+  else
+    echo "ADMIN_ENTRY=\${new_entry}" >> .env
+  fi
+  echo "已生成后台入口 ADMIN_ENTRY=\${new_entry}"
+fi
 if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
   cp prisma/init.db prisma/dev.db
 fi
-${prisma_cmd} migrate deploy
-${prisma_cmd} generate
+if [[ -x node_modules/.bin/prisma ]]; then
+  ./node_modules/.bin/prisma migrate deploy
+  ./node_modules/.bin/prisma generate
+else
+  ${prisma_bin} migrate deploy
+  ${prisma_bin} generate
+fi
 exec ${node_bin} --enable-source-maps dist/src/main.js
 EOF
   chmod +x "${INSTALL_DIR}/start.sh"
@@ -575,9 +661,40 @@ open_firewall() {
 }
 
 print_done() {
-  local ip
-  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  local ip port entry user pass env_file
+  env_file="${INSTALL_DIR}/backend/.env"
+  port="$(read_env_kv "${env_file}" PORT)"
+  port="${port:-${PORT}}"
+  entry="$(read_env_kv "${env_file}" ADMIN_ENTRY)"
+  entry="$(printf '%s' "${entry}" | tr 'A-Z' 'a-z')"
+  if [[ ! "${entry}" =~ ^[a-z0-9]{12}$ ]]; then
+    entry="${ADMIN_ENTRY_VALUE:-}"
+  fi
+  user="$(read_env_kv "${env_file}" ADMIN_USER)"
+  user="${user:-admin}"
+  pass="$(read_env_kv "${env_file}" ADMIN_PASSWORD)"
+
+  ip="${PUBLIC_IP_HINT:-}"
+  if [[ -z "${ip}" || "${ip}" == 10.* || "${ip}" == 172.1[6-9].* || "${ip}" == 172.2[0-9].* || "${ip}" == 172.3[0-1].* || "${ip}" == 192.168.* ]]; then
+    if command -v curl >/dev/null 2>&1; then
+      local pub
+      pub="$(curl -fsS --connect-timeout 3 --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+      if [[ "${pub}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ip="${pub}"
+      fi
+    fi
+  fi
+  if [[ -z "${ip}" ]]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
   ip="${ip:-服务器IP}"
+
+  # 服务启动后 Node 可能刚写出 ADMIN_ENTRY，再读一次
+  if [[ ! "${entry}" =~ ^[a-z0-9]{12}$ ]]; then
+    sleep 1
+    entry="$(read_env_kv "${env_file}" ADMIN_ENTRY | tr 'A-Z' 'a-z')"
+  fi
+
   echo
   green "========================================"
   green " HalfThereClass 安装完成"
@@ -585,23 +702,42 @@ print_done() {
   echo " 版本:   v${VERSION_RESOLVED:-unknown}"
   echo " 目录:   ${INSTALL_DIR}"
   echo " 服务:   ${SERVICE_NAME}"
-  echo " 后台:   http://${ip}:${PORT}/"
-  echo " 接口:   http://${ip}:${PORT}/api"
-  echo " 手机端: http://${ip}:${PORT}/m/"
+  if [[ "${entry}" =~ ^[a-z0-9]{12}$ ]]; then
+    echo " 后台:   http://${ip}:${port}/${entry}/"
+    yellow " （入口受保护，根路径 / 无法打开后台；请收藏上方完整地址）"
+  else
+    echo " 后台:   http://${ip}:${port}/（未读到 ADMIN_ENTRY，请查看 .env）"
+  fi
+  echo " 手机端: http://${ip}:${port}/m/"
+  echo " 接口:   http://${ip}:${port}/api"
   echo
   if [[ -f "${INSTALL_DIR}/INITIAL_ADMIN.txt" ]]; then
-    yellow "初始管理员账号密码已写入："
-    echo "   ${INSTALL_DIR}/INITIAL_ADMIN.txt"
+    # 用最新入口/端口回写一次，保证文件与控制台一致
+    if [[ -n "${pass}" && "${entry}" =~ ^[a-z0-9]{12}$ ]]; then
+      write_initial_admin_file "${user}" "${pass}" "${entry}" "${port}" "${ip}"
+    fi
+    yellow "-------- 初始管理员（请立即改密） --------"
+    cat "${INSTALL_DIR}/INITIAL_ADMIN.txt"
+    yellow "------------------------------------------"
+    echo " 凭证文件: ${INSTALL_DIR}/INITIAL_ADMIN.txt"
     yellow "登录后请立即修改密码，并删除该文件。"
+  elif [[ "${FIRST_INSTALL_CREDENTIALS:-0}" == "1" && -n "${pass}" ]]; then
+    yellow "-------- 初始管理员（请立即改密） --------"
+    echo " 后台地址: http://${ip}:${port}/${entry}/"
+    echo " 账号:     ${user}"
+    echo " 密码:     ${pass}"
+    yellow "------------------------------------------"
+  else
+    echo " 管理员账号见库内已有账号；入口后缀 ADMIN_ENTRY=${entry:-未设置}"
   fi
+  echo
   echo " 常用命令:"
   echo "   sudo systemctl status ${SERVICE_NAME}"
   echo "   sudo systemctl restart ${SERVICE_NAME}"
   echo "   sudo journalctl -u ${SERVICE_NAME} -f"
   echo "   sudo nano ${INSTALL_DIR}/backend/.env"
+  echo "   sudo cat ${INSTALL_DIR}/INITIAL_ADMIN.txt"
   echo
-  yellow "请确认 JWT_SECRET / 微信 / 支付等生产配置已设置，然后执行："
-  echo "   sudo systemctl restart ${SERVICE_NAME}"
   green "已设置开机自启。"
 }
 

@@ -328,15 +328,40 @@ export class AdminService implements OnModuleInit {
         permissions: '[]',
       },
     });
-    if (generated) {
-      console.warn('============================================================');
-      console.warn(`已创建初始超级管理员账号：${username}`);
-      console.warn(`初始密码（仅显示一次）：${password}`);
-      console.warn('请立即登录后台修改密码，并妥善保存。切勿使用默认弱口令。');
-      console.warn('============================================================');
-    } else {
-      console.warn(`已创建初始超级管理员账号：${username}（密码来自 ADMIN_PASSWORD）`);
+    const entry = String(process.env.ADMIN_ENTRY || '').trim().toLowerCase();
+    const port = String(process.env.PORT || 3000).trim() || '3000';
+    const adminUrl = entry
+      ? `http://<服务器IP>:${port}/${entry}/`
+      : `http://<服务器IP>:${port}/`;
+    try {
+      const tipPath = join(process.cwd(), '..', 'INITIAL_ADMIN.txt');
+      const altPath = join(process.cwd(), 'INITIAL_ADMIN.txt');
+      const out = existsSync(join(process.cwd(), '..')) ? tipPath : altPath;
+      writeFileSync(
+        out,
+        [
+          'HalfThereClass 首次启动凭证（请登录后立即改密，并删除本文件）',
+          '================================================',
+          `后台地址: ${adminUrl}`,
+          `账号:     ${username}`,
+          `密码:     ${password}`,
+          entry ? `入口后缀: ${entry}` : '',
+          '================================================',
+          `手机端:   http://<服务器IP>:${port}/m/`,
+        ].filter(Boolean).join('\n') + '\n',
+        { encoding: 'utf8', mode: 0o600 },
+      );
+      console.warn(`初始管理员凭证已写入: ${out}`);
+    } catch {
+      /* ignore */
     }
+    console.warn('============================================================');
+    console.warn(`已创建初始超级管理员账号：${username}`);
+    console.warn(`后台地址: ${adminUrl}`);
+    if (generated) console.warn(`初始密码（仅显示一次）：${password}`);
+    else console.warn('初始密码来自环境变量 ADMIN_PASSWORD（见 INITIAL_ADMIN.txt）');
+    console.warn('请立即登录后台修改密码，并妥善保存。切勿使用默认弱口令。');
+    console.warn('============================================================');
   }
 
   private async rotateWeakDefaultPasswords() {
