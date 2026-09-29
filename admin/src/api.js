@@ -1,4 +1,5 @@
 import { reactive } from 'vue';
+import { withAdminBase } from './adminBase';
 
 const TOKEN_KEY = 'admin_token';
 const PROFILE_KEY = 'admin_profile';
@@ -105,7 +106,7 @@ async function rawFetch(url, options = {}, attempt = 0) {
     if (payload.code === 401) {
       clearToken();
       accountLock.message = '';
-      if (!location.pathname.endsWith('/login')) location.href = '/login';
+      if (!location.pathname.endsWith('/login')) location.href = withAdminBase('/login');
     }
     const message = Array.isArray(payload.message) ? payload.message[0] : payload.message;
     const text = message || '请求失败';

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { clearToken, getProfile, getToken } from './api';
+import { adminBase } from './adminBase';
 import Login from './views/Login.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import Dashboard from './views/Dashboard.vue';
@@ -28,7 +29,7 @@ import DocEdit from './views/DocEdit.vue';
 import { allow, landingPath } from './access';
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(adminBase()),
   routes: [
     { path: '/login', component: Login, meta: { public: true } },
     {

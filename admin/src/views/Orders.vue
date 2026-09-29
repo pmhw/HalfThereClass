@@ -81,6 +81,7 @@ import ActionBtn from '../components/ActionBtn.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 const route = useRoute();
 const keyword = ref('');
@@ -112,21 +113,35 @@ function statusClass(value) {
   return '';
 }
 async function markPaid(item) {
-  if (!confirm(`确认将订单 ${item.orderNo} 标记为已支付？将按课程收益规则生成利润快照。`)) return;
+  const ok = await notify.confirm({
+    title: '标记已支付',
+    message: `确认将订单 ${item.orderNo} 标记为已支付？将按课程收益规则生成利润快照。`,
+    okText: '确认标记',
+    icon: 'check',
+  });
+  if (!ok) return;
   try {
     await api.financeMarkPaid(item.id);
+    notify.success('已标记为已支付');
     await load();
   } catch (e) {
-    alert(e.message || '操作失败');
+    notify.error(e.message || '操作失败');
   }
 }
 async function refund(item) {
-  if (!confirm(`确认对订单 ${item.orderNo} 全额退款？将同步冲减教师/机构/平台收益。`)) return;
+  const ok = await notify.confirm({
+    title: '全额退款',
+    message: `确认对订单 ${item.orderNo} 全额退款？将同步冲减教师/机构/平台收益。`,
+    okText: '确认退款',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api.financeRefund(item.id);
+    notify.success('退款成功');
     await load();
   } catch (e) {
-    alert(e.message || '退款失败');
+    notify.error(e.message || '退款失败');
   }
 }
 watch(() => route.query.status, (value) => {

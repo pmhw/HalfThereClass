@@ -77,6 +77,7 @@ import { money } from '../format';
 import PageLoad from '../components/PageLoad.vue';
 import PageModal from '../components/PageModal.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 const list = ref([]);
 const form = ref(null);
@@ -107,11 +108,11 @@ async function save() {
   saving.value = true;
   try {
     await api.financeSaveRule(form.value.id, form.value);
-    alert('已保存');
+    notify.success('已保存');
     form.value = null;
     await load();
   } catch (e) {
-    alert(e.message || '保存失败');
+    notify.error(e.message || '保存失败');
   } finally {
     saving.value = false;
   }

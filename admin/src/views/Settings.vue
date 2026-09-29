@@ -16,6 +16,15 @@
       @retry="load"
     >
     <div class="settings-grid">
+      <article class="settings-card entry-card">
+        <span class="settings-icon lock">锁</span>
+        <span class="settings-copy">
+          <strong>后台入口地址</strong>
+          <small>带 12 位随机后缀，域名根路径无法打开。请收藏，勿泄露。</small>
+          <code class="entry-url">{{ entryUrl }}</code>
+        </span>
+        <button type="button" class="btn" @click="copyEntry">{{ entryCopied ? '已复制' : '复制' }}</button>
+      </article>
       <button type="button" class="settings-card" @click="openWx">
         <span class="settings-icon wx">微</span>
         <span class="settings-copy">
@@ -220,11 +229,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api';
+import { adminEntryUrl } from '../adminBase';
 import Icon from '../components/Icon.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
+const entryUrl = ref(adminEntryUrl());
+const entryCopied = ref(false);
 const form = ref({ key: '', security: '' });
 const wx = ref({ appId: '', secret: '', ready: false });
 const sms = ref({
@@ -256,6 +269,33 @@ function formatSize(size) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(2)} MB`;
+}
+
+async function copyEntry() {
+  const url = entryUrl.value || adminEntryUrl();
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+    else {
+      const input = document.createElement('textarea');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    entryCopied.value = true;
+    notify.success('已复制后台入口地址');
+    setTimeout(() => { entryCopied.value = false; }, 2000);
+  } catch {
+    await notify.prompt({
+      title: '复制后台入口',
+      message: '自动复制失败，请手动选中复制：',
+      value: url,
+      okText: '关闭',
+      cancelText: '取消',
+      required: false,
+    });
+  }
 }
 
 function formatTime(value) {
@@ -422,7 +462,13 @@ async function importDb(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (!file) return;
-  if (!window.confirm(`确定用「${file.name}」覆盖当前数据库？导入前会自动备份。`)) return;
+  const ok = await notify.confirm({
+    title: '导入数据库',
+    message: `确定用「${file.name}」覆盖当前数据库？导入前会自动备份。`,
+    okText: '确认导入',
+    danger: true,
+  });
+  if (!ok) return;
   busy.value = 'import';
   dialogError.value = '';
   dialogOk.value = '';
@@ -438,7 +484,13 @@ async function importDb(event) {
 }
 
 async function saveInit() {
-  if (!window.confirm('把当前运行库写入 prisma/init.db，作为 Git 初始快照？')) return;
+  const ok = await notify.confirm({
+    title: '另存为初始库',
+    message: '把当前运行库写入 prisma/init.db，作为 Git 初始快照？',
+    okText: '确认写入',
+    danger: true,
+  });
+  if (!ok) return;
   busy.value = 'init';
   dialogError.value = '';
   dialogOk.value = '';
@@ -499,6 +551,23 @@ onMounted(load);
 .settings-icon.file { background: #fff7ed; color: #c2410c; }
 .settings-icon.corp { background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 16px; }
 .settings-icon.db { background: #f5f3ff; color: #7c3aed; }
+.settings-icon.lock { background: #fff7ed; color: #c2410c; font-weight: 700; font-size: 15px; }
+.entry-card {
+  grid-column: 1 / -1;
+  cursor: default;
+}
+.entry-card:hover { border-color: var(--line, #e5e7eb); }
+.entry-url {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 13px;
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .form label.check {
   display: flex;
   align-items: center;

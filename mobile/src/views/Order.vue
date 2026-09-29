@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>我的订单</span>
     </header>
     <div class="tabs">
@@ -35,7 +35,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getOrders } from '../api';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const router = useRouter();
 

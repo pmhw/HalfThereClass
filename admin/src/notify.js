@@ -65,6 +65,7 @@ export const notify = {
     if (state.dialog?.resolve) state.dialog.resolve(false);
     return new Promise((resolve) => {
       state.dialog = {
+        mode: 'confirm',
         title: options.title || '请确认',
         message: options.message || '',
         okText: options.okText || '确定',
@@ -74,6 +75,31 @@ export const notify = {
         resolve: (ok) => {
           state.dialog = null;
           resolve(!!ok);
+        },
+      };
+    });
+  },
+  /** Promise 输入框：确定返回字符串，取消返回 null */
+  prompt(options = {}) {
+    if (state.dialog?.resolve) {
+      if (state.dialog.mode === 'prompt') state.dialog.resolve(null);
+      else state.dialog.resolve(false);
+    }
+    return new Promise((resolve) => {
+      state.dialog = {
+        mode: 'prompt',
+        title: options.title || '请输入',
+        message: options.message || '',
+        value: String(options.value ?? ''),
+        placeholder: options.placeholder || '',
+        okText: options.okText || '确定',
+        cancelText: options.cancelText || '取消',
+        danger: !!options.danger,
+        required: options.required !== false,
+        icon: options.icon || 'pencil',
+        resolve: (ok, value) => {
+          state.dialog = null;
+          resolve(ok ? String(value ?? '') : null);
         },
       };
     });

@@ -1,7 +1,7 @@
 <template>
   <div v-if="course" class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/courses')">‹ 返回</button>
       <span>课程详情</span>
       <button type="button" class="share" @click="copyLink">复制链接</button>
     </header>
@@ -53,7 +53,7 @@ import { onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getCourseDetail, grabCourse } from '../api';
 import { showToast } from '../api/request';
-import { countdownText, requireLogin, weekdayText } from '../utils/helpers';
+import { goBack, countdownText, requireLogin, weekdayText } from '../utils/helpers';
 
 const route = useRoute();
 const router = useRouter();

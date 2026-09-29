@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/certify')">‹ 返回</button>
       <span>{{ sideLabel }}拍摄</span>
     </header>
 
@@ -29,6 +29,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { goBack } from '../utils/helpers';
 import { showToast } from '../api/request';
 
 const ID_SHOT_KEY = 'novis_id_shot';
@@ -98,7 +99,7 @@ function usePhoto() {
     JSON.stringify({ key: fileKey.value, dataUrl: previewUrl.value }),
   );
   showToast('已保存，返回认证页上传');
-  router.back();
+  goBack(router, '/certify');
 }
 </script>
 

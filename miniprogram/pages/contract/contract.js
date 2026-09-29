@@ -116,30 +116,30 @@ Page({
     wx.downloadFile({
       url: `${config.baseUrl}/user/contract/export-file${query}`,
       header: { Authorization: token ? `Bearer ${token}` : '' },
-      success: (res) => {
+      success: async (res) => {
         wx.hideLoading();
         if (res.statusCode >= 400 || !res.tempFilePath) {
           this.exportPdfFallback(id);
           return;
         }
-        const openPath = res.tempFilePath;
+        // 部分机型 downloadFile 无扩展名，复制为 .html 再打开
+        let openPath = res.tempFilePath;
+        try {
+          const fs = wx.getFileSystemManager();
+          const dest = `${wx.env.USER_DATA_PATH}/教师服务合同-${id || 'export'}.html`;
+          fs.copyFileSync(res.tempFilePath, dest);
+          openPath = dest;
+        } catch (err) {
+          /* 使用原路径 */
+        }
         wx.openDocument({
           filePath: openPath,
+          fileType: 'html',
           showMenu: true,
           success: () => {
-            wx.showToast({ title: '可转发后用浏览器打开并另存 PDF', icon: 'none', duration: 2500 });
+            wx.showToast({ title: '打开后可转发，用浏览器打印为 PDF', icon: 'none', duration: 2800 });
           },
-          fail: () => {
-            if (typeof wx.shareFileMessage === 'function') {
-              wx.shareFileMessage({
-                filePath: openPath,
-                fileName: `教师服务合同-${id || 'export'}.html`,
-                fail: () => this.exportPdfFallback(id),
-              });
-            } else {
-              this.exportPdfFallback(id);
-            }
-          },
+          fail: () => this.exportPdfFallback(id),
         });
       },
       fail: () => {
@@ -153,18 +153,22 @@ Page({
     try {
       const data = await userService.exportContract(id);
       const fs = wx.getFileSystemManager();
-      const path = `${wx.env.USER_DATA_PATH}/contract-${data.id || 'latest'}.html`;
+      const path = `${wx.env.USER_DATA_PATH}/教师服务合同-${data.id || 'latest'}.html`;
       fs.writeFileSync(path, data.html || '', 'utf8');
       wx.openDocument({
         filePath: path,
+        fileType: 'html',
         showMenu: true,
+        success: () => {
+          wx.showToast({ title: '打开后可转发，用浏览器打印为 PDF', icon: 'none', duration: 2800 });
+        },
         fail: () => {
           wx.setClipboardData({
             data: `${config.origin}/m/contract`,
             success: () => wx.showToast({
-              title: '已复制手机版链接，浏览器打开后可导出 PDF',
+              title: '本机无法预览，已复制手机网页链接，浏览器打开后可导出 PDF',
               icon: 'none',
-              duration: 2800,
+              duration: 3000,
             }),
           });
         },

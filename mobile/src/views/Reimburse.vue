@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>报销单</span>
     </header>
 
@@ -76,7 +76,7 @@ import {
 } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl } from '../store';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const router = useRouter();
 const categories = [

@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>登记调课</span>
     </header>
     <form class="form card" @submit.prevent="submit">
@@ -47,7 +47,7 @@ import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { adjustSchedule, getTeachingSchedule } from '../api';
 import { showToast } from '../api/request';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const route = useRoute();
 const router = useRouter();
@@ -121,7 +121,7 @@ async function submit() {
       note: note.value,
     });
     showToast('课表已更新');
-    setTimeout(() => router.back(), 600);
+    setTimeout(() => goBack(router, '/my'), 600);
   } catch (err) {
     showToast(err.message || '提交失败');
   }

@@ -7,7 +7,7 @@
         placeholder="搜索课程"
         @keyup.enter="onSearch"
       />
-      <button type="button" class="cancel" @click="router.back()">取消</button>
+      <button type="button" class="cancel" @click="goBack(router, '/')">取消</button>
     </div>
 
     <template v-if="!isSearched">
@@ -60,6 +60,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { goBack } from '../utils/helpers';
 import { getCourseList } from '../api';
 import CourseCard from '../components/CourseCard.vue';
 

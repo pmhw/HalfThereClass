@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>我的收入</span>
     </header>
     <div v-if="total" class="summary card">
@@ -24,6 +24,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { goBack } from '../utils/helpers';
 import { getTeacherIncomes } from '../api';
 
 const router = useRouter();

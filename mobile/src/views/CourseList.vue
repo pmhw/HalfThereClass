@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/')">‹ 返回</button>
       <span>课程大厅</span>
       <router-link to="/search" class="search">搜索</router-link>
     </header>
@@ -43,6 +43,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { goBack } from '../utils/helpers';
 import { getCategories, getCourseList } from '../api';
 import CourseCard from '../components/CourseCard.vue';
 

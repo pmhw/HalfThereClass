@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>课程签到</span>
     </header>
     <div v-if="!info" class="empty">加载中…</div>
@@ -29,7 +29,7 @@ import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { checkIn, getCheckIn } from '../api';
 import { showToast } from '../api/request';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const route = useRoute();
 const router = useRouter();

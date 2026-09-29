@@ -48,6 +48,16 @@ export function requireLogin(router) {
   return false;
 }
 
+/** 有站内历史则后退，否则跳到兜底页（直链进入时 router.back 无效） */
+export function goBack(router, fallback = '/my') {
+  const back = router?.options?.history?.state?.back;
+  if (back != null && back !== '') {
+    router.back();
+    return;
+  }
+  router.replace(fallback || '/my');
+}
+
 export function toast(message) {
   if (window.__novisToast) window.__novisToast(message);
   else window.alert(message);

@@ -5,6 +5,14 @@
         <h1>教师认证</h1>
         <p>实名材料、无犯罪证明与每学期合同审核。合同按学期生效，历史签名全部保留。</p>
       </div>
+      <div class="actions">
+        <button type="button" class="btn" @click="copyMobileLink('certify')">
+          <Icon name="link" />复制认证链接
+        </button>
+        <button type="button" class="btn" @click="copyMobileLink('contract')">
+          <Icon name="link" />复制合同链接
+        </button>
+      </div>
     </div>
     <PageLoad
       :loading="loading"
@@ -47,6 +55,11 @@
             <td class="col-actions">
               <div class="row-actions">
                 <ActionBtn icon="user" tip="资料" :to="`/faculty/${item.userId}`" />
+                <ActionBtn
+                  icon="link"
+                  :tip="rowLinkTip(item)"
+                  @click="copyMobileLink(rowLinkKind(item))"
+                />
                 <template v-if="item.status === 'pending'">
                   <ActionBtn icon="check" tip="通过" tone="plan" @click="review(item, 'approve')" />
                   <ActionBtn icon="x" tip="驳回" tone="danger" @click="openReject(item)" />
@@ -79,6 +92,7 @@
             <td class="col-actions">
               <div class="row-actions">
                 <ActionBtn icon="eye" tip="预览" @click="contractView = item" />
+                <ActionBtn icon="link" tip="复制合同链接" @click="copyMobileLink('contract')" />
                 <template v-if="item.status === 'pending'">
                   <ActionBtn icon="check" tip="通过" tone="plan" @click="reviewContract(item, 'approve')" />
                   <ActionBtn icon="x" tip="驳回" tone="danger" @click="reviewContract(item, 'reject')" />
@@ -216,9 +230,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
+import Icon from '../components/Icon.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 const list = ref([]);
 const contracts = ref([]);
@@ -236,6 +252,37 @@ const tab = ref('certs');
 const certMap = { pending: '审核中', approved: '已认证', rejected: '已驳回', frozen: '冻结' };
 
 const pendingContracts = computed(() => contracts.value.filter((item) => item.status === 'pending'));
+
+function rowLinkKind(item) {
+  if (item.status === 'approved' && (item.contractDue || item.contractPending || !item.contractValid)) {
+    return 'contract';
+  }
+  return 'certify';
+}
+
+function rowLinkTip(item) {
+  return rowLinkKind(item) === 'contract' ? '复制合同链接' : '复制认证链接';
+}
+
+async function copyMobileLink(kind) {
+  const path = kind === 'contract' ? '/m/contract' : '/m/certify';
+  const url = `${window.location.origin}${path}`;
+  const label = kind === 'contract' ? '合同' : '认证';
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+    else {
+      const input = document.createElement('textarea');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    notify.success(`已复制${label}链接`);
+  } catch {
+    notify.error(`复制失败，请手动复制：${url}`);
+  }
+}
 
 function ocrStatusText(status) {
   return ({
@@ -335,33 +382,67 @@ async function review(item, action) {
     await api.reviewCert(item.userId, { action, reason: reason.value });
     rejecting.value = null;
     reason.value = '资料不完整';
-    notice.value = '已处理';
+    notify.success('已处理');
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '操作失败');
   }
 }
 async function reviewContract(item, action) {
-  const rejectReason = action === 'reject' ? window.prompt('请填写驳回原因') : '';
-  if (action === 'reject' && !rejectReason) return;
+  let rejectReason = '';
+  if (action === 'reject') {
+    rejectReason = await notify.prompt({
+      title: '驳回合同',
+      message: '请填写驳回原因，将展示给教师。',
+      value: '资料不完整，请修改后重签',
+      placeholder: '驳回原因',
+      okText: '确认驳回',
+      danger: true,
+      icon: 'x',
+    });
+    if (rejectReason == null || !rejectReason.trim()) return;
+  } else {
+    const ok = await notify.confirm({
+      title: '通过合同',
+      message: `确认通过「${item.user?.teacherCert?.realName || item.user?.nickname || '教师'}」的合同？通过后预分配课程将自动解锁。`,
+      okText: '确认通过',
+      icon: 'check',
+    });
+    if (!ok) return;
+  }
   try {
     await api.reviewContract(item.id, { action, reason: rejectReason });
-    notice.value = action === 'approve' ? '合同已通过，预分配课程已解锁' : '合同已驳回';
+    notify.success(action === 'approve' ? '合同已通过，预分配课程已解锁' : '合同已驳回');
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '操作失败');
   }
 }
 async function revokeContract(item) {
-  const reason = window.prompt('撤销原因（将提示给教师）', '请重新签订本学期合同');
-  if (reason === null) return;
-  if (!window.confirm('确定撤销该合同？历史保留，教师需重新签字审核，课程将重新锁定。')) return;
+  const revokeReason = await notify.prompt({
+    title: '撤销合同并要求重签',
+    message: '历史记录会保留。教师需重新签字审核，课程将重新锁定。',
+    value: '请重新签订本学期合同',
+    placeholder: '撤销原因（将提示给教师）',
+    okText: '下一步',
+    danger: true,
+    icon: 'refresh',
+  });
+  if (revokeReason == null) return;
+  const ok = await notify.confirm({
+    title: '确认撤销？',
+    message: `确定撤销该合同？\n原因：${revokeReason.trim() || '（未填写）'}`,
+    okText: '确认撤销',
+    danger: true,
+    icon: 'trash',
+  });
+  if (!ok) return;
   try {
-    await api.revokeContract(item.id, { reason });
-    notice.value = '合同已撤销，教师需重新签字';
+    await api.revokeContract(item.id, { reason: revokeReason });
+    notify.success('合同已撤销，教师需重新签字');
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '撤销失败');
   }
 }
 onMounted(load);

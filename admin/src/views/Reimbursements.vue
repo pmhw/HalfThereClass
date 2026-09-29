@@ -118,6 +118,7 @@ import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 const list = ref([]);
 const tab = ref('pending');
@@ -181,15 +182,20 @@ async function review(item, action) {
 }
 
 async function pay(item) {
-  if (!window.confirm(`确认已向「${item.user?.teacherCert?.realName || item.user?.nickname || '教师'}」打款 ¥${Number(item.amount).toFixed(2)}？`)) {
-    return;
-  }
+  const name = item.user?.teacherCert?.realName || item.user?.nickname || '教师';
+  const ok = await notify.confirm({
+    title: '确认打款',
+    message: `确认已向「${name}」打款 ¥${Number(item.amount).toFixed(2)}？`,
+    okText: '已打款',
+    icon: 'check',
+  });
+  if (!ok) return;
   try {
     await api.markReimbursementPaid(item.id);
-    notice.value = '已标记为已报销';
+    notify.success('已标记为已报销');
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '操作失败');
   }
 }
 

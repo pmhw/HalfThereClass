@@ -587,6 +587,7 @@ import PageLoad from '../components/PageLoad.vue';
 import GradePicker from '../components/GradePicker.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 import { parseGrades } from '../grades';
+import { notify } from '../notify';
 
 const router = useRouter();
 const schoolAccount = getProfile()?.role === 'school';
@@ -1122,7 +1123,14 @@ async function copyGrabLink(item) {
       if (notice.value.startsWith('已复制')) notice.value = '';
     }, 2500);
   } catch {
-    window.prompt('复制以下抢课链接', url);
+    await notify.prompt({
+      title: '复制抢课链接',
+      message: '自动复制失败，请手动选中复制：',
+      value: url,
+      okText: '关闭',
+      cancelText: '取消',
+      required: false,
+    });
   }
 }
 

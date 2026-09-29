@@ -125,6 +125,48 @@ export function generatePassword(bytes = 12) {
   return randomBytes(bytes).toString('base64url');
 }
 
+const ADMIN_ENTRY_RE = /^[a-z0-9]{12}$/;
+
+export function isValidAdminEntry(value?: string | null) {
+  return ADMIN_ENTRY_RE.test(String(value || '').trim());
+}
+
+/** 生成 12 位小写字母数字入口后缀（排除易混字符） */
+export function generateAdminEntry() {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = randomBytes(12);
+  let out = '';
+  for (let i = 0; i < 12; i += 1) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+/**
+ * 保证 ADMIN_ENTRY 存在且为 12 位随机串；缺失/非法则生成并持久化到 .env。
+ * 已配置的合法入口不会被覆盖。
+ */
+export function ensureAdminEntry() {
+  const current = String(process.env.ADMIN_ENTRY || '').trim().toLowerCase();
+  if (isValidAdminEntry(current)) {
+    process.env.ADMIN_ENTRY = current;
+    return current;
+  }
+
+  const entry = generateAdminEntry();
+  process.env.ADMIN_ENTRY = entry;
+  const envPath = resolveEnvPath();
+  try {
+    if (!existsSync(envPath)) {
+      writeFileSync(envPath, 'NODE_ENV=production\n', { encoding: 'utf8', mode: 0o600 });
+    }
+    persistEnvKv(envPath, 'ADMIN_ENTRY', entry);
+    console.warn(`[安全] 已生成后台入口后缀 ADMIN_ENTRY=${entry} → ${envPath}`);
+    console.warn('[安全] 请收藏带后缀的后台地址；域名根路径将无法打开管理端。');
+  } catch (err: any) {
+    console.warn(`[安全] ADMIN_ENTRY 已在内存生效，写入 .env 失败: ${err?.message || err}`);
+  }
+  return entry;
+}
+
 export function maskSecret(value?: string | null) {
   const text = String(value || '').trim();
   if (!text) return '';

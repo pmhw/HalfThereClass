@@ -157,6 +157,7 @@ import { money } from '../format';
 import PageLoad from '../components/PageLoad.vue';
 import PageModal from '../components/PageModal.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 function currentMonth() {
   const d = new Date();
@@ -227,7 +228,7 @@ async function openSync() {
     selectedIds.value = syncCourses.value.filter((item) => item.syncableCount > 0).map((item) => item.id);
     if (!selectedIds.value.length) selectedIds.value = syncCourses.value.map((item) => item.id);
   } catch (e) {
-    alert(e.message || '加载课程失败');
+    notify.error(e.message || '加载课程失败');
     syncOpen.value = false;
   } finally {
     syncLoading.value = false;
@@ -236,7 +237,7 @@ async function openSync() {
 
 async function doSync() {
   if (!selectedIds.value.length) {
-    alert('请先勾选课程');
+    notify.warn('请先勾选课程');
     return;
   }
   syncing.value = true;
@@ -252,25 +253,31 @@ async function doSync() {
     if (res.byMonth?.length) {
       lines.push('按月：' + res.byMonth.map((m) => `${m.month} ${m.count}节`).join('，'));
     }
-    alert(lines.join('\n'));
+    notify.success(lines.join('；'), { duration: 5200 });
     syncOpen.value = false;
     await load();
   } catch (e) {
-    alert(e.message || '同步失败');
+    notify.error(e.message || '同步失败');
   } finally {
     syncing.value = false;
   }
 }
 
 async function settle() {
-  if (!confirm(`确认将 ${month.value} 标记为已结算？结算后该月收益快照锁定。`)) return;
+  const ok = await notify.confirm({
+    title: '月度结算',
+    message: `确认将 ${month.value} 标记为已结算？结算后该月收益快照锁定。`,
+    okText: '确认结算',
+    danger: true,
+  });
+  if (!ok) return;
   settling.value = true;
   try {
     await api.financeSettle(month.value);
-    alert('月度已结算');
+    notify.success('月度已结算');
     await load();
   } catch (e) {
-    alert(e.message || '结算失败');
+    notify.error(e.message || '结算失败');
   } finally {
     settling.value = false;
   }

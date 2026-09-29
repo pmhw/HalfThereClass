@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/courses')">‹ 返回</button>
       <span>{{ lesson?.title || '学习' }}</span>
     </header>
     <div v-if="loading" class="empty">加载中…</div>
@@ -28,6 +28,7 @@
 <script setup>
 import { computed, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { goBack } from '../utils/helpers';
 import { getLesson, postLessonProgress } from '../api';
 import { showToast } from '../api/request';
 

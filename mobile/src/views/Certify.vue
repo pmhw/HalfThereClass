@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()" aria-label="返回" />
+      <button type="button" class="back" @click="goBack(router, '/my')" aria-label="返回" />
       <span class="nav-title">教师认证</span>
     </header>
 
@@ -176,7 +176,7 @@ import { useRouter } from 'vue-router';
 import { getCert, submitCert, uploadCertFile } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl } from '../store';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const ID_SHOT_KEY = 'novis_id_shot';
 

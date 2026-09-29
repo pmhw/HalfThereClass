@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>教师服务合同</span>
     </header>
 
@@ -11,6 +11,7 @@
       <div class="badge amber">审核中</div>
       <h2>签名已提交</h2>
       <p class="sub">{{ paper.tip }}</p>
+      <button class="btn btn-primary btn-block" type="button" @click="exportPdf()">导出 PDF</button>
     </div>
 
     <div v-else-if="paper.signed" class="card done">
@@ -208,7 +209,7 @@ import {
 } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl } from '../store';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 import { renderMarkdown } from '../utils/markdown';
 
 const router = useRouter();
@@ -517,16 +518,26 @@ async function submit() {
 async function exportPdf(id) {
   try {
     const data = await exportContract(id);
-    const blob = new Blob([data.html || ''], { type: 'text/html;charset=utf-8' });
+    const html = data.html || '';
+    if (!html) {
+      showToast('合同内容为空');
+      return;
+    }
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = data.fileName || `教师服务合同-${data.id || 'export'}.html`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    const win = window.open(url, '_blank');
+    if (!win) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.fileName || `教师服务合同-${data.id || 'export'}.html`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      showToast('已下载合同文件，请打开后选择「打印 → 另存为 PDF」');
+    } else {
+      showToast('请在打开的页面中选择「打印 / 另存为 PDF」');
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
   } catch (err) {
     showToast(err.message || '导出失败');
   }

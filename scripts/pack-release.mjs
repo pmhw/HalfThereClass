@@ -107,6 +107,17 @@ if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"
   fi
   echo "已自动生成强 JWT_SECRET"
 fi
+# 后台入口后缀：缺失则生成 12 位（Node 启动也会兜底）
+entry_now="$(grep '^ADMIN_ENTRY=' .env 2>/dev/null | cut -d= -f2- | tr -d '\\r' || true)"
+if [[ ! "\${entry_now}" =~ ^[a-z0-9]{12}$ ]]; then
+  new_entry="$(tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12)"
+  if grep -q '^ADMIN_ENTRY=' .env; then
+    sed -i "s|^ADMIN_ENTRY=.*|ADMIN_ENTRY=\${new_entry}|" .env
+  else
+    echo "ADMIN_ENTRY=\${new_entry}" >> .env
+  fi
+  echo "已生成后台入口 ADMIN_ENTRY=\${new_entry}"
+fi
 if [[ ! -f prisma/dev.db && -f prisma/init.db ]]; then
   cp prisma/init.db prisma/dev.db
   echo "已从 init.db 初始化本地数据库"
@@ -151,11 +162,22 @@ if [[ -z "\${jwt_now}" || "\${#jwt_now}" -lt 32 || "\${jwt_now}" == *"CHANGE_ME"
   fi
   echo "已自动生成强 JWT_SECRET"
 fi
+entry_now="$(grep '^ADMIN_ENTRY=' .env 2>/dev/null | cut -d= -f2- | tr -d '\\r' || true)"
+if [[ ! "\${entry_now}" =~ ^[a-z0-9]{12}$ ]]; then
+  new_entry="$(tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12)"
+  if grep -q '^ADMIN_ENTRY=' .env; then
+    sed -i "s|^ADMIN_ENTRY=.*|ADMIN_ENTRY=\${new_entry}|" .env
+  else
+    echo "ADMIN_ENTRY=\${new_entry}" >> .env
+  fi
+  echo "已生成后台入口 ADMIN_ENTRY=\${new_entry}"
+fi
 if ! grep -q '^NODE_ENV=' .env; then
   echo "NODE_ENV=production" >> .env
 fi
 chmod +x "$ROOT/start.sh"
 echo "安装完成。启动: $ROOT/start.sh"
+echo "后台地址形如 http://服务器IP:3000/\${ADMIN_ENTRY:-随机12位}/ （见 backend/.env 的 ADMIN_ENTRY）"
 echo "或安装 systemd: sudo cp $ROOT/systemd/halfthereclass.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now halfthereclass"
 `,
   );
@@ -207,9 +229,9 @@ bash install.sh
 bash start.sh
 \`\`\`
 
-后台与接口同一端口（默认 3000）：\`http://服务器IP:3000/\`
+后台入口（带 12 位随机后缀，见 \`backend/.env\` 的 \`ADMIN_ENTRY\`）：\`http://服务器IP:3000/{ADMIN_ENTRY}/\`
 
-手机端教师网页：\`http://服务器IP:3000/m/\`
+域名根路径 \`/\` 不会打开管理后台。手机端教师网页：\`http://服务器IP:3000/m/\`
 
 首次安装会用 \`backend/prisma/init.db\` 初始化 \`dev.db\`。之后数据只保存在服务器，不要把 \`dev.db\` 再提交回 Git。请定期备份 \`backend/prisma/dev.db\`。
 `,

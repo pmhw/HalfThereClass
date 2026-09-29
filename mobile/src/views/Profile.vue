@@ -1,7 +1,7 @@
 <template>
   <div class="page safe-bottom">
     <header class="nav">
-      <button type="button" class="back" @click="router.back()">‹ 返回</button>
+      <button type="button" class="back" @click="goBack(router, '/my')">‹ 返回</button>
       <span>编辑资料</span>
     </header>
     <form class="form" @submit.prevent="onSave">
@@ -24,7 +24,7 @@ import { useRouter } from 'vue-router';
 import { updateProfile, uploadAvatar } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl, getUser, setSession } from '../store';
-import { requireLogin } from '../utils/helpers';
+import { goBack, requireLogin } from '../utils/helpers';
 
 const router = useRouter();
 const nickname = ref('');
@@ -69,7 +69,7 @@ async function onSave() {
     const user = { ...(getUser() || {}), ...profile, nickname: name, avatar: nextAvatar };
     setSession(localStorage.getItem('token'), user);
     showToast('保存成功');
-    setTimeout(() => router.back(), 800);
+    setTimeout(() => goBack(router, '/my'), 800);
   } catch (err) {
     showToast(err.message || '保存失败');
   } finally {

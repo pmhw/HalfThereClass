@@ -9,7 +9,7 @@ import { verify } from 'jsonwebtoken';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { ensureJwtSecret } from './common/security';
+import { ensureAdminEntry, ensureJwtSecret } from './common/security';
 
 function resolveWww() {
   const candidates = [
@@ -63,6 +63,7 @@ function requireUploadAuth(req: any, res: any, next: () => void) {
 
 async function bootstrap() {
   ensureJwtSecret();
+  const adminEntry = ensureAdminEntry();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const uploadsRoot = join(process.cwd(), 'uploads');
@@ -77,8 +78,10 @@ async function bootstrap() {
   app.useStaticAssets(join(uploadsRoot, 'reimbursements'), { prefix: '/uploads/reimbursements/' });
 
   const www = resolveWww();
+  const adminPrefix = `/${adminEntry}`;
   if (www) {
-    app.useStaticAssets(www, { index: false });
+    // 管理后台仅挂在 /{ADMIN_ENTRY}/ 下，域名根路径不提供后台
+    app.useStaticAssets(www, { prefix: `${adminPrefix}/`, index: false });
   }
   const mobileWww = resolveMobileWww();
   if (mobileWww) {
@@ -111,7 +114,6 @@ async function bootstrap() {
       credentials: true,
     });
   } else {
-    // 反射请求 Origin；无 Origin（同源/服务端）一律放行。避免生产 origin:false 导致跨域 Failed to fetch
     app.enableCors({ origin: true, credentials: true });
   }
 
@@ -129,8 +131,9 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
+  const server = app.getHttpAdapter().getInstance();
+
   if (mobileWww) {
-    const server = app.getHttpAdapter().getInstance();
     server.get(/^\/m(?:\/.*)?$/, (req, res, next) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
       const rel = String(req.path || '').replace(/^\/m\/?/, '');
@@ -140,13 +143,19 @@ async function bootstrap() {
   }
 
   if (www) {
-    const server = app.getHttpAdapter().getInstance();
-    server.get(/^\/(?!api(?:\/|$)|uploads(?:\/|$)|m(?:\/|$)).*/, (req, res, next) => {
+    const entryRe = new RegExp(`^/${adminEntry}(?:/.*)?$`);
+    server.get(entryRe, (req, res, next) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-      if (req.path !== '/' && existsSync(join(www, req.path))) return next();
+      const rel = String(req.path || '').replace(new RegExp(`^/${adminEntry}/?`), '');
+      if (rel && existsSync(join(www, rel))) return next();
       return res.sendFile(join(www, 'index.html'));
     });
   }
+
+  // 域名根及其他未知路径不暴露后台
+  server.get('/', (_req, res) => {
+    res.status(404).type('text/plain').send('Not Found');
+  });
 
   const port = Number(process.env.PORT || 3000);
   try {
@@ -161,7 +170,10 @@ async function bootstrap() {
   if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === '1') {
     console.log(`📖 API 文档: http://localhost:${port}/api/docs`);
   }
-  if (www) console.log(`🖥️  管理后台: http://localhost:${port}/`);
+  if (www) {
+    console.log(`🖥️  管理后台: http://localhost:${port}${adminPrefix}/`);
+    console.log(`🔒 后台入口后缀 ADMIN_ENTRY=${adminEntry}（请收藏完整地址，勿泄露）`);
+  }
   if (mobileWww) console.log(`📱 手机端: http://localhost:${port}/m/`);
   console.log(`📦 版本: ${version}`);
 }

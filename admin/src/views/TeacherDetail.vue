@@ -197,6 +197,7 @@ import ActionBtn from '../components/ActionBtn.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notify } from '../notify';
 
 const route = useRoute();
 const detail = ref(null);
@@ -275,40 +276,87 @@ async function freeze() {
   }
 }
 async function reviewContract(item, action) {
-  const reason = action === 'reject' ? window.prompt('请填写驳回原因') : '';
-  if (action === 'reject' && !reason) return;
+  let reason = '';
+  if (action === 'reject') {
+    reason = await notify.prompt({
+      title: '驳回合同',
+      message: '请填写驳回原因，将展示给教师。',
+      value: '资料不完整，请修改后重签',
+      placeholder: '驳回原因',
+      okText: '确认驳回',
+      danger: true,
+      icon: 'x',
+    });
+    if (reason == null || !reason.trim()) return;
+  } else {
+    const ok = await notify.confirm({
+      title: '通过合同',
+      message: '确认通过该合同？通过后预分配课程将自动解锁。',
+      okText: '确认通过',
+      icon: 'check',
+    });
+    if (!ok) return;
+  }
   try {
     await api.reviewContract(item.id, { action, reason });
-    notice.value = action === 'approve' ? '合同已通过，课程已解锁' : '合同已驳回';
+    notify.success(action === 'approve' ? '合同已通过，课程已解锁' : '合同已驳回');
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '操作失败');
   }
 }
 async function revokeOne(item) {
-  const reason = window.prompt('撤销原因（将提示给教师）', '请重新签订本学期合同');
-  if (reason === null) return;
-  if (!window.confirm('确定撤销该合同？历史记录会保留，教师需重新签字并审核，课程将重新锁定。')) return;
+  const reason = await notify.prompt({
+    title: '撤销合同并要求重签',
+    message: '历史记录会保留。教师需重新签字审核，课程将重新锁定。',
+    value: '请重新签订本学期合同',
+    placeholder: '撤销原因（将提示给教师）',
+    okText: '下一步',
+    danger: true,
+    icon: 'refresh',
+  });
+  if (reason == null) return;
+  const ok = await notify.confirm({
+    title: '确认撤销？',
+    message: `确定撤销该合同？\n原因：${reason.trim() || '（未填写）'}`,
+    okText: '确认撤销',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api.revokeContract(item.id, { reason });
-    notice.value = '合同已撤销，教师需重新签字';
+    notify.success('合同已撤销，教师需重新签字');
     tab.value = '合同记录';
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '撤销失败');
   }
 }
 async function revokeCurrent() {
-  const reason = window.prompt('撤销原因（将提示给教师）', '请重新签订本学期合同');
-  if (reason === null) return;
-  if (!window.confirm('确定撤销当前合同并要求教师重签？历史保留，课程将重新锁定。')) return;
+  const reason = await notify.prompt({
+    title: '撤销当前合同并要求重签',
+    message: '历史保留，课程将重新锁定，教师需重新签字审核。',
+    value: '请重新签订本学期合同',
+    placeholder: '撤销原因（将提示给教师）',
+    okText: '下一步',
+    danger: true,
+    icon: 'refresh',
+  });
+  if (reason == null) return;
+  const ok = await notify.confirm({
+    title: '确认撤销？',
+    message: `确定撤销当前合同？\n原因：${reason.trim() || '（未填写）'}`,
+    okText: '确认撤销',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api.revokeFacultyContract(detail.value.id, { reason });
-    notice.value = '合同已撤销，教师需重新签字';
+    notify.success('合同已撤销，教师需重新签字');
     tab.value = '合同记录';
     await load();
   } catch (err) {
-    error.value = err.message;
+    notify.error(err.message || '撤销失败');
   }
 }
 function openContract(item) {

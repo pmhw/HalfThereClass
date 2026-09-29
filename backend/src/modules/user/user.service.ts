@@ -12,6 +12,7 @@ import {
   buildFilledContract,
   parsePartyA,
 } from '@/common/contract';
+import { renderMarkdown } from '@/common/markdown';
 import { calculateFee, teacherFeeView } from '@/modules/staff/fee';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SubmitCertDto } from './dto/submit-cert.dto';
@@ -313,7 +314,7 @@ export class UserService {
       userId,
       signedAt: new Date(),
     });
-    const exportHtml = this.buildContractHtml(text.title, body, contractSign, semester.name);
+    const exportHtml = await this.buildContractHtml(text.title, body, contractSign, semester.name);
 
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.teacherContract.updateMany({
@@ -373,7 +374,14 @@ export class UserService {
     const semester = row.semesterId
       ? await this.prisma.semester.findUnique({ where: { id: row.semesterId }, select: { name: true } })
       : null;
-    const html = row.exportHtml || this.buildContractHtml(row.title, row.body, row.signPath, semester?.name || '');
+    // 每次导出重新生成：Markdown 渲染 + 签名 base64 内嵌（避免 blob/打印页鉴权失败）
+    const html = await this.buildContractHtml(row.title, row.body, row.signPath, semester?.name || '');
+    if (html && html !== row.exportHtml) {
+      await this.prisma.teacherContract.update({
+        where: { id: row.id },
+        data: { exportHtml: html },
+      }).catch(() => undefined);
+    }
     return {
       id: row.id,
       title: row.title,
@@ -461,39 +469,62 @@ export class UserService {
     return `课时费 ${money(view.teacherFee)}`;
   }
 
-  private buildContractHtml(title: string, body: string, signPath: string, semesterName: string) {
-    const safeBody = String(body || '')
+  private async buildContractHtml(title: string, body: string, signPath: string, semesterName: string) {
+    const bodyHtml = renderMarkdown(body);
+    const signSrc = await this.signDataUri(signPath);
+    const safeTitle = String(title || '教师服务合同')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br/>');
-    const origin = (process.env.PUBLIC_ORIGIN || process.env.APP_ORIGIN || '').replace(/\/$/, '');
-    const signSrc = signPath
-      ? (signPath.startsWith('http') ? signPath : `${origin}${signPath}`)
-      : '';
-    const safeTitle = String(title || '教师服务合同')
+      .replace(/>/g, '&gt;');
+    const safeSemester = String(semesterName || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${safeTitle}</title>
 <style>
-body{font-family:"PingFang SC","Microsoft YaHei",serif;max-width:800px;margin:24px auto;padding:0 16px 48px;color:#111;line-height:1.7;background:#fff}
-h1{text-align:center;font-size:22px} .meta{color:#667085;font-size:13px;text-align:center;margin-bottom:24px}
-.toolbar{position:sticky;top:0;background:#fff;padding:12px 0;margin-bottom:8px;border-bottom:1px solid #eef2f6;display:flex;gap:8px;flex-wrap:wrap}
-.toolbar button{padding:10px 14px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-size:14px}
-.sign{margin-top:32px} .sign img{max-width:280px;border:1px solid #e5e7eb;background:#fff}
-@media print{.toolbar{display:none!important} body{margin:0;padding:12px}}
+*{box-sizing:border-box}
+body{font-family:"PingFang SC","Microsoft YaHei",serif;max-width:800px;margin:24px auto;padding:0 16px 48px;color:#111;line-height:1.75;background:#fff;font-size:14px}
+h1{text-align:center;font-size:22px;margin:8px 0 12px}
+h2{font-size:17px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid #e5e7eb}
+h3{font-size:15px;margin:16px 0 8px}
+p{margin:8px 0} ul,ol{margin:8px 0;padding-left:1.4em} li{margin:4px 0}
+blockquote{margin:10px 0;padding:8px 12px;background:#f8fafc;border-left:3px solid #cbd5e1;color:#475569}
+.meta{color:#667085;font-size:13px;text-align:center;margin-bottom:20px}
+.toolbar{position:sticky;top:0;z-index:2;background:#fff;padding:12px 0;margin-bottom:8px;border-bottom:1px solid #eef2f6;display:flex;gap:8px;flex-wrap:wrap}
+.toolbar button{padding:10px 14px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-size:14px;cursor:pointer}
+.sign{margin-top:28px;page-break-inside:avoid}
+.sign img{max-width:280px;border:1px solid #e5e7eb;background:#fff}
+@media print{.toolbar{display:none!important} body{margin:0;padding:12px} a{color:inherit;text-decoration:none}}
 </style></head><body>
 <div class="toolbar">
   <button type="button" onclick="window.print()">打印 / 另存为 PDF</button>
 </div>
-<script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},400)});</script>
+<script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},500)});</script>
 <h1>${safeTitle}</h1>
-${semesterName ? `<p class="meta">适用学期：${semesterName}</p>` : ''}
-<div>${safeBody}</div>
-${signSrc ? `<div class="sign"><div>签名：</div><img src="${signSrc}" alt="签名"/></div>` : ''}
+${safeSemester ? `<p class="meta">适用学期：${safeSemester}</p>` : ''}
+<article class="body">${bodyHtml}</article>
+${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" alt="签名"/></div>` : ''}
 </body></html>`;
+  }
+
+  /** 签名内嵌为 data URI，导出后不依赖鉴权静态资源 */
+  private async signDataUri(signPath?: string | null) {
+    const path = String(signPath || '').trim();
+    if (!path) return '';
+    if (path.startsWith('data:')) return path;
+    const rel = path.replace(/^\//, '');
+    if (!rel.startsWith('uploads/signs/')) return '';
+    try {
+      const buf = await readFile(join(process.cwd(), rel));
+      if (!buf?.length) return '';
+      let mime = 'image/png';
+      if (buf[0] === 0xff && buf[1] === 0xd8) mime = 'image/jpeg';
+      else if (buf.slice(0, 4).toString('ascii') === 'RIFF') mime = 'image/webp';
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch {
+      return '';
+    }
   }
 
   private async contractText() {
