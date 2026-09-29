@@ -20,11 +20,11 @@ const assetUrl = (path) => {
 const courseShareUrl = (courseId) => `${config.origin}/m/course/${courseId}`;
 
 const uploadAvatar = (filePath) => {
-  return new Promise((resolve, reject) => {
+  const doUpload = (path) => new Promise((resolve, reject) => {
     const token = wx.getStorageSync('token');
     wx.uploadFile({
       url: `${config.baseUrl}/user/avatar`,
-      filePath,
+      filePath: path,
       name: 'file',
       header: { Authorization: token ? `Bearer ${token}` : '' },
       success: (res) => {
@@ -39,6 +39,20 @@ const uploadAvatar = (filePath) => {
         else reject(new Error(body.message || '头像上传失败'));
       },
       fail: () => reject(new Error('头像上传失败')),
+    });
+  });
+
+  // 手机相册原图常超限，先压缩再传
+  return new Promise((resolve, reject) => {
+    wx.compressImage({
+      src: filePath,
+      quality: 70,
+      success: (res) => {
+        doUpload(res.tempFilePath || filePath).then(resolve).catch(reject);
+      },
+      fail: () => {
+        doUpload(filePath).then(resolve).catch(reject);
+      },
     });
   });
 };

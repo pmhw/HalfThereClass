@@ -20,22 +20,35 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : (exception as any)?.name === 'MulterError' && (exception as any)?.code === 'LIMIT_FILE_SIZE'
+          ? HttpStatus.PAYLOAD_TOO_LARGE
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : '服务器内部错误';
+    let errorMessage: string | string[];
+    if (exception instanceof HttpException) {
+      const message = exception.getResponse();
+      errorMessage = typeof message === 'string' ? message : (message as any).message;
+    } else if ((exception as any)?.name === 'MulterError' && (exception as any)?.code === 'LIMIT_FILE_SIZE') {
+      errorMessage = '图片过大，请选择较小的图片（建议 8MB 以内）';
+    } else if ((exception as any)?.message === 'File too large') {
+      errorMessage = '图片过大，请选择较小的图片（建议 8MB 以内）';
+      // keep status as payload too large when possible
+    } else {
+      errorMessage = '服务器内部错误';
+    }
 
-    const errorMessage =
-      typeof message === 'string' ? message : (message as any).message;
+    const finalStatus =
+      status === HttpStatus.INTERNAL_SERVER_ERROR
+      && (exception as any)?.message === 'File too large'
+        ? HttpStatus.PAYLOAD_TOO_LARGE
+        : status;
 
     this.logger.error(
-      `${request.method} ${request.url} - ${status} - ${errorMessage}`,
+      `${request.method} ${request.url} - ${finalStatus} - ${errorMessage}`,
     );
 
-    response.status(status).json({
-      code: status,
+    response.status(finalStatus).json({
+      code: finalStatus,
       message: errorMessage,
       data: null,
       timestamp: new Date().toISOString(),

@@ -72,6 +72,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getAgreement, getSmsStatus, sendSmsCode, smsLogin, updateProfile, uploadAvatar } from '../api';
 import { assetUrl, setSession, getUser } from '../store';
 import { lock as freezeLock } from '../utils/freeze';
+import { compressImageFile } from '../utils/image';
 import { showToast } from '../api/request';
 import { renderMarkdown } from '../utils/markdown';
 
@@ -221,8 +222,15 @@ function onAvatar(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (!file) return;
-  avatarFile.value = file;
-  avatar.value = URL.createObjectURL(file);
+  compressImageFile(file)
+    .then((compressed) => {
+      avatarFile.value = compressed;
+      avatar.value = URL.createObjectURL(compressed);
+    })
+    .catch(() => {
+      avatarFile.value = file;
+      avatar.value = URL.createObjectURL(file);
+    });
 }
 
 async function onProfile() {

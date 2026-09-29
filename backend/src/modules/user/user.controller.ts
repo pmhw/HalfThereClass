@@ -28,7 +28,7 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '上传微信头像' })
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
   uploadAvatar(
     @CurrentUser('userId') userId: number,
     @UploadedFile() file: { buffer?: Buffer },

@@ -25,6 +25,7 @@ import { updateProfile, uploadAvatar } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl, getUser, setSession } from '../store';
 import { goBack, requireLogin } from '../utils/helpers';
+import { compressImageFile } from '../utils/image';
 
 const router = useRouter();
 const nickname = ref('');
@@ -39,12 +40,18 @@ onMounted(() => {
   avatar.value = assetUrl(user.avatar);
 });
 
-function onAvatar(event) {
+async function onAvatar(event) {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (!file) return;
-  avatarFile.value = file;
-  avatar.value = URL.createObjectURL(file);
+  try {
+    const compressed = await compressImageFile(file);
+    avatarFile.value = compressed;
+    avatar.value = URL.createObjectURL(compressed);
+  } catch {
+    avatarFile.value = file;
+    avatar.value = URL.createObjectURL(file);
+  }
 }
 
 async function onSave() {

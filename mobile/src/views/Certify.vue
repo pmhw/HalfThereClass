@@ -111,8 +111,8 @@
             </label>
           </div>
           <div class="cam-links">
-            <router-link :to="{ path: '/id-shot', query: { key: 'idCard', side: 'portrait' } }">摄像头拍人像面</router-link>
-            <router-link :to="{ path: '/id-shot', query: { key: 'idCardBack', side: 'emblem' } }">摄像头拍国徽面</router-link>
+            <button type="button" class="cam-link" @click="goIdShot('idCard', 'portrait')">摄像头拍人像面</button>
+            <button type="button" class="cam-link" @click="goIdShot('idCardBack', 'emblem')">摄像头拍国徽面</button>
           </div>
 
           <div class="row">
@@ -171,14 +171,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { getCert, submitCert, uploadCertFile } from '../api';
 import { showToast } from '../api/request';
 import { assetUrl } from '../store';
 import { goBack, requireLogin } from '../utils/helpers';
 
+defineOptions({ name: 'Certify' });
+
 const ID_SHOT_KEY = 'novis_id_shot';
+const DRAFT_KEY = 'novis_certify_draft';
 
 const router = useRouter();
 
@@ -203,6 +206,7 @@ const previews = reactive({
 });
 const uploading = ref('');
 const saving = ref(false);
+let draftReady = false;
 
 const onlyClearance = computed(
   () => cert.value.status === 'approved' && cert.value.clearanceDue,
@@ -219,9 +223,68 @@ const isPending = computed(
 
 onMounted(async () => {
   if (!requireLogin(router)) return;
+  restoreDraft();
   await load();
+  draftReady = true;
   await consumeIdShot();
 });
+
+onActivated(async () => {
+  await consumeIdShot();
+});
+
+watch([realName, idNumber, email, files, previews], () => {
+  if (draftReady) persistDraft();
+}, { deep: true });
+
+function persistDraft() {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+      realName: realName.value,
+      idNumber: idNumber.value,
+      email: email.value,
+      files: { ...files },
+      // blob: 预览只缓存 dataURL / http(s)，避免挂掉的 object URL
+      previews: Object.fromEntries(
+        Object.entries(previews).map(([k, v]) => [
+          k,
+          typeof v === 'string' && (v.startsWith('data:') || v.startsWith('http') || v.startsWith('/'))
+            ? v
+            : '',
+        ]),
+      ),
+    }));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function restoreDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.realName) realName.value = d.realName;
+    if (d.idNumber) idNumber.value = d.idNumber;
+    if (d.email) email.value = d.email;
+    if (d.files && typeof d.files === 'object') {
+      Object.keys(files).forEach((k) => {
+        if (d.files[k]) files[k] = d.files[k];
+      });
+    }
+    if (d.previews && typeof d.previews === 'object') {
+      Object.keys(previews).forEach((k) => {
+        if (d.previews[k]) previews[k] = d.previews[k];
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+}
 
 function preview(key) {
   if (previews[key]) return previews[key];
@@ -239,9 +302,10 @@ async function load() {
         : data.status === 'pending' || data.clearancePending
           ? 2
           : 1;
-    realName.value = data.realName || realName.value;
-    idNumber.value = data.idNumber || idNumber.value;
-    email.value = data.email || email.value;
+    // 服务端有值才覆盖；本地草稿优先保留用户正在填的内容
+    realName.value = realName.value || data.realName || '';
+    idNumber.value = idNumber.value || data.idNumber || '';
+    email.value = email.value || data.email || '';
     files.idCard = files.idCard || data.idCard || '';
     files.idCardBack = files.idCardBack || data.idCardBack || '';
     files.diploma = files.diploma || data.diploma || '';
@@ -264,9 +328,15 @@ async function consumeIdShot() {
     const blob = await res.blob();
     const file = new File([blob], `${key}.jpg`, { type: 'image/jpeg' });
     await uploadKey(key, file, dataUrl);
+    persistDraft();
   } catch {
     showToast('证件照处理失败');
   }
+}
+
+function goIdShot(key, side) {
+  persistDraft();
+  router.push({ path: '/id-shot', query: { key, side } });
 }
 
 function onFile(key, event) {
@@ -283,6 +353,7 @@ async function uploadKey(key, file, localPreview) {
   try {
     const data = await uploadCertFile(file);
     files[key] = data.url;
+    persistDraft();
   } catch (err) {
     previews[key] = '';
     showToast(err.message || '上传失败');
@@ -325,6 +396,7 @@ async function submit() {
       clearance: files.clearance,
       certificate: files.certificate,
     });
+    clearDraft();
     showToast(onlyProfile.value ? '已保存' : '已提交，等待审核');
     await load();
   } catch (err) {
@@ -679,7 +751,15 @@ async function submit() {
   margin: calc(10 * var(--r)) 0 calc(4 * var(--r));
   font-size: calc(22 * var(--r));
 }
-.cam-links a { color: #2563eb; }
+.cam-links a,
+.cam-link {
+  color: #2563eb;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
 .warn { color: #b45309; font-size: calc(26 * var(--r)); line-height: 1.5; }
 .h { font-size: calc(34 * var(--r)); font-weight: 700; color: #059669; }
 .wait .h { color: #2563eb; }
