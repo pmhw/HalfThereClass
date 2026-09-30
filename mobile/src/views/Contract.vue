@@ -7,6 +7,12 @@
 
     <div v-if="!loaded" class="card muted">加载中…</div>
 
+    <div v-else-if="wrongTeacher" class="card wait">
+      <h2>链接无效</h2>
+      <p class="sub">此合同签订链接仅供指定教师使用。请使用管理员发给您的链接，并用本人账号登录后打开。</p>
+      <button class="btn btn-primary btn-block" type="button" @click="goBack(router, '/my')">返回</button>
+    </div>
+
     <div v-else-if="paper.contractPending" class="card wait">
       <div class="badge amber">审核中</div>
       <h2>签名已提交</h2>
@@ -196,7 +202,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   advanceContractPreview,
   confirmContractPreview,
@@ -208,17 +214,19 @@ import {
   signContract,
 } from '../api';
 import { showToast } from '../api/request';
-import { assetUrl } from '../store';
+import { assetUrl, getUser } from '../store';
 import { goBack, requireLogin } from '../utils/helpers';
 import { renderMarkdown } from '../utils/markdown';
 
 const router = useRouter();
+const route = useRoute();
 const paper = ref({ title: '教师服务合同', status: 'none', signed: false, content: '', tip: '', partyA: {} });
 const identity = ref({ hasPhotos: false, ocrStatus: 'none', fields: {}, idCard: '', idCardBack: '' });
 const draft = ref({ step: 1, formData: {} });
 const resume = ref(null);
 const showResume = ref(false);
 const loaded = ref(false);
+const wrongTeacher = ref(false);
 const step = ref(1);
 const ocrRunning = ref(false);
 const viewPhotos = ref(false);
@@ -280,6 +288,13 @@ function readLocal() {
 
 onMounted(async () => {
   if (!requireLogin(router)) return;
+  const expectId = Number(route.query.for || 0);
+  const me = getUser();
+  if (expectId && me?.id && Number(me.id) !== expectId) {
+    wrongTeacher.value = true;
+    loaded.value = true;
+    return;
+  }
   await load();
 });
 

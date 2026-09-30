@@ -98,8 +98,8 @@ export class StaffAdminController {
   }
 
   @Post('certs/:userId/review')
-  review(@Param('userId') userId: string, @Body() body: { action: string; reason?: string }) {
-    return this.staff.review(Number(userId), body.action, body.reason);
+  review(@Param('userId') userId: string, @Body() body: { action: string; reason?: string; rejectFields?: string[] }) {
+    return this.staff.review(Number(userId), body.action, body.reason, body.rejectFields);
   }
 
   @Get('orgs')

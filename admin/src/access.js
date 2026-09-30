@@ -33,7 +33,7 @@ export const PERMISSION_GROUPS = [
   {
     key: 'fee',
     label: '费用结算',
-    items: [{ key: 'fee', label: '课程费用与收入', desc: '教师分配和收入记录', icon: 'receipt' }],
+    items: [{ key: 'fee', label: '课程费用与收入', desc: '预先排课和收入记录', icon: 'receipt' }],
   },
   {
     key: 'finance',

@@ -14,6 +14,7 @@ import {
 } from '@/common/contract';
 import { renderMarkdown } from '@/common/markdown';
 import { calculateFee, teacherFeeView } from '@/modules/staff/fee';
+import { normalizeRejectFields, rejectFieldLabels } from '@/common/cert-reject';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SubmitCertDto } from './dto/submit-cert.dto';
 import { ContractFlowService } from './contract-flow.service';
@@ -113,8 +114,11 @@ export class UserService {
       && cert.contractSemesterId === semester.id;
     const contractDue = cert.status === 'approved' && !contractPending && !contractValid;
     const profileIncomplete = cert.status === 'approved' && !cert.idNumber;
+    const rejectFields = normalizeRejectFields(cert.rejectFields);
     return {
       ...cert,
+      rejectFields,
+      rejectFieldLabels: rejectFieldLabels(rejectFields),
       clearanceDue,
       clearancePending,
       semesterName,
@@ -597,18 +601,23 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
     const updatingClearance = current?.status === 'approved'
       && !!semester
       && current.clearanceSemesterId !== semester.id;
-    if (updatingClearance) {
+    if (updatingClearance || (current?.status === 'approved' && current.clearanceStatus === 'rejected')) {
       if (!clearance) throw new BadRequestException('请上传本学期无犯罪证明');
       return this.prisma.teacherCert.update({
         where: { userId },
-        data: { clearance, clearanceStatus: 'pending' },
+        data: {
+          clearance,
+          clearanceStatus: 'pending',
+          rejectReason: null,
+          rejectFields: null,
+        },
       });
     }
 
     const realName = data.realName?.trim() || current?.realName || '';
-    const idNumber = String(data.idNumber || '').trim().toUpperCase();
+    const idNumber = String(data.idNumber || '').trim().toUpperCase() || String(current?.idNumber || '').trim().toUpperCase();
     const address = String(data.address || '').trim() || current?.address || '';
-    const email = String(data.email || '').trim();
+    const email = String(data.email || '').trim() || String(current?.email || '').trim();
     // 认证阶段不采集收款信息与住址；签合同时 OCR/填写住址，并强制绑定收款账户
     // 已认证教师：仅补全合同所需身份信息，不重新走审核
     if (current?.status === 'approved') {
@@ -627,29 +636,55 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
       });
     }
 
-    const idCard = this.certFile(data.idCard);
-    const idCardBack = this.certFile(data.idCardBack);
-    const diploma = this.certFile(data.diploma);
-    if (!realName) throw new BadRequestException('请填写姓名');
-    if (!/^[0-9]{17}[0-9X]$/.test(idNumber)) throw new BadRequestException('请填写正确的身份证号码');
-    if (!idCard || !idCardBack) throw new BadRequestException('请上传身份证正反面');
-    if (!diploma) throw new BadRequestException('请上传学历证明');
-    if (!clearance) throw new BadRequestException('请上传无犯罪证明');
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // 驳回后局部修改：只校验/更新 rejectFields，其余沿用库内已有材料
+    const rejectFields = current?.status === 'rejected'
+      ? normalizeRejectFields(current.rejectFields)
+      : [];
+    const partial = current?.status === 'rejected' && rejectFields.length > 0;
+
+    const idCard = this.certFile(data.idCard) || (partial && !rejectFields.includes('idCard') ? current?.idCard : '') || '';
+    const idCardBack = this.certFile(data.idCardBack) || (partial && !rejectFields.includes('idCardBack') ? current?.idCardBack : '') || '';
+    const diploma = this.certFile(data.diploma) || (partial && !rejectFields.includes('diploma') ? current?.diploma : '') || '';
+    const clearanceFinal = clearance || (partial && !rejectFields.includes('clearance') ? current?.clearance : '') || '';
+    const certificate = this.certFile(data.certificate)
+      || (partial && !rejectFields.includes('certificate') ? current?.certificate : '')
+      || '';
+
+    const need = (key: string) => !partial || rejectFields.includes(key as any);
+
+    if (need('realName') && !realName) throw new BadRequestException('请填写姓名');
+    if (need('idNumber') && !/^[0-9]{17}[0-9X]$/.test(idNumber)) {
+      throw new BadRequestException('请填写正确的身份证号码');
+    }
+    if (need('idCard') && !idCard) throw new BadRequestException('请重新上传身份证人像面');
+    if (need('idCardBack') && !idCardBack) throw new BadRequestException('请重新上传身份证国徽面');
+    if (need('diploma') && !diploma) throw new BadRequestException('请重新上传学历证明');
+    if (need('clearance') && !clearanceFinal) throw new BadRequestException('请重新上传无犯罪证明');
+    if (need('email') && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException('电子邮箱格式不正确');
     }
-    const certificate = this.certFile(data.certificate);
-    const teacherNo = `TEA-${new Date().getFullYear()}${String(userId).padStart(4, '0')}`;
+    if (!partial) {
+      if (!realName) throw new BadRequestException('请填写姓名');
+      if (!/^[0-9]{17}[0-9X]$/.test(idNumber)) throw new BadRequestException('请填写正确的身份证号码');
+      if (!idCard || !idCardBack) throw new BadRequestException('请上传身份证正反面');
+      if (!diploma) throw new BadRequestException('请上传学历证明');
+      if (!clearanceFinal) throw new BadRequestException('请上传无犯罪证明');
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new BadRequestException('电子邮箱格式不正确');
+      }
+    }
+
+    const teacherNo = current?.teacherNo || `TEA-${new Date().getFullYear()}${String(userId).padStart(4, '0')}`;
     const profile = {
-      realName,
-      idNumber,
+      realName: realName || current?.realName || '',
+      idNumber: idNumber || current?.idNumber || '',
       ...(address ? { address } : {}),
       email: email || null,
-      idCard,
-      idCardBack,
-      diploma,
-      clearance,
-      certificate,
+      idCard: idCard || current?.idCard || null,
+      idCardBack: idCardBack || current?.idCardBack || null,
+      diploma: diploma || current?.diploma || null,
+      clearance: clearanceFinal || current?.clearance || null,
+      certificate: certificate || current?.certificate || null,
     };
     const cert = await this.prisma.teacherCert.upsert({
       where: { userId },
@@ -658,6 +693,7 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
         status: 'pending',
         clearanceStatus: 'pending',
         rejectReason: null,
+        rejectFields: null,
       },
       create: {
         userId,
@@ -667,7 +703,7 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
         teacherNo,
       },
     });
-    await this.prisma.user.update({ where: { id: userId }, data: { nickname: realName } });
+    await this.prisma.user.update({ where: { id: userId }, data: { nickname: profile.realName } });
     return cert;
   }
 

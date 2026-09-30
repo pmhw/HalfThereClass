@@ -4,6 +4,7 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { buildPaginationResult, getPaginationParams } from '@/common/utils/pagination.util';
+import { normalizeRejectFields, serializeRejectFields } from '@/common/cert-reject';
 import { calculateFee, teacherFeeView, FeeQuote } from './fee';
 import { FinanceService } from '@/modules/finance/finance.service';
 
@@ -623,7 +624,7 @@ export class StaffService {
     return this.revokeContract(current.id, reason, adminId);
   }
 
-  async review(userId: number, action: string, reason?: string) {
+  async review(userId: number, action: string, reason?: string, rejectFieldsInput?: string[]) {
     const cert = await this.prisma.teacherCert.findUnique({ where: { userId } });
     if (!cert) throw new NotFoundException('还没有认证申请');
     const semester = await this.openSemester();
@@ -631,7 +632,12 @@ export class StaffService {
       if (cert.clearanceStatus !== 'pending') throw new BadRequestException('没有待审核的无犯罪证明');
       await this.prisma.teacherCert.update({
         where: { userId },
-        data: { clearanceStatus: 'approved', clearanceSemesterId: semester?.id || cert.clearanceSemesterId },
+        data: {
+          clearanceStatus: 'approved',
+          clearanceSemesterId: semester?.id || cert.clearanceSemesterId,
+          rejectReason: null,
+          rejectFields: null,
+        },
       });
       return { status: 'approved' };
     }
@@ -643,6 +649,7 @@ export class StaffService {
           status: 'approved',
           teacherNo,
           rejectReason: null,
+          rejectFields: null,
           clearanceStatus: 'approved',
           clearanceSemesterId: semester?.id || null,
         },
@@ -651,14 +658,30 @@ export class StaffService {
       return { status: 'approved' };
     }
     if (action === 'reject') {
+      const tip = String(reason || '').trim();
+      if (!tip) throw new BadRequestException('请填写驳回原因');
       const clearanceOnly = cert.status === 'approved' && cert.clearanceStatus === 'pending';
+      const fields = clearanceOnly
+        ? normalizeRejectFields(['clearance'])
+        : normalizeRejectFields(rejectFieldsInput);
+      if (!clearanceOnly && !fields.length) {
+        throw new BadRequestException('请勾选需要教师修改的项目');
+      }
       await this.prisma.teacherCert.update({
         where: { userId },
         data: clearanceOnly
-          ? { clearanceStatus: 'rejected', rejectReason: reason || '无犯罪证明未通过' }
-          : { status: 'rejected', rejectReason: reason || '资料不完整' },
+          ? {
+            clearanceStatus: 'rejected',
+            rejectReason: tip,
+            rejectFields: serializeRejectFields(fields),
+          }
+          : {
+            status: 'rejected',
+            rejectReason: tip,
+            rejectFields: serializeRejectFields(fields),
+          },
       });
-      return { status: clearanceOnly ? 'approved' : 'rejected' };
+      return { status: clearanceOnly ? 'approved' : 'rejected', rejectFields: fields };
     }
     throw new BadRequestException('未知审核操作');
   }

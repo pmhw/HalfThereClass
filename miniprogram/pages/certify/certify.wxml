@@ -38,71 +38,78 @@
     <view class="sub" wx:else>资料已提交，请等待后台审核。通过后即可授课</view>
   </view>
 
-  <block wx:elif="{{cert.status !== 'approved' || cert.clearanceDue || cert.profileIncomplete}}">
+  <block wx:elif="{{cert.status !== 'approved' || cert.clearanceDue || cert.profileIncomplete || cert.clearanceStatus === 'rejected'}}">
     <view class="card form" wx:if="{{cert.profileIncomplete && cert.status === 'approved'}}">
       <view class="warn">请补全身份证号，签署合同时将自动填入合同</view>
     </view>
-    <view class="card form" wx:if="{{cert.rejectReason && cert.status === 'rejected'}}">
-      <view class="warn">上次未通过：{{cert.rejectReason}}</view>
-    </view>
-    <view class="card form" wx:if="{{cert.clearanceStatus === 'rejected'}}">
-      <view class="warn">无犯罪证明未通过：{{cert.rejectReason || '请重新上传'}}</view>
+    <view class="card form" wx:if="{{showRejectTip}}">
+      <view class="warn">{{rejectTipTitle}}：{{cert.rejectReason || '请按标注项修改后重新提交'}}</view>
+      <view class="desc gap" wx:if="{{rejectLabelsText}}">需修改：{{rejectLabelsText}}。其余材料已保留，无需重传。</view>
     </view>
 
     <view class="card form">
-      <block wx:if="{{cert.status !== 'approved' || cert.profileIncomplete}}">
-        <view class="label">真实姓名<text class="req">*</text></view>
-        <view class="input">
-          <view class="person"></view>
-          <input placeholder="请输入姓名" placeholder-class="ph" value="{{realName}}" bindinput="onName" />
-        </view>
-        <view class="label gap">身份证号码<text class="req">*</text></view>
-        <view class="input">
-          <input placeholder="18位身份证号" placeholder-class="ph" value="{{idNumber}}" maxlength="18" bindinput="onIdNumber" />
-        </view>
-        <view class="label gap">电子邮箱</view>
-        <view class="input">
-          <input placeholder="选填，用于合同送达" placeholder-class="ph" value="{{email}}" bindinput="onEmail" />
-        </view>
-        <view class="desc gap">收款开户行、收款名与银行账号将在签订合同时填写（必填）。身份证住址在签订合同时由识别或核对填入。</view>
+      <block wx:if="{{showTextBlock}}">
+        <block wx:if="{{need.realName}}">
+          <view class="label">真实姓名<text class="req">*</text></view>
+          <view class="input">
+            <view class="person"></view>
+            <input placeholder="请输入姓名" placeholder-class="ph" value="{{realName}}" bindinput="onName" />
+          </view>
+        </block>
+        <block wx:if="{{need.idNumber}}">
+          <view class="label {{need.realName ? 'gap' : ''}}">身份证号码<text class="req">*</text></view>
+          <view class="input">
+            <input placeholder="18位身份证号" placeholder-class="ph" value="{{idNumber}}" maxlength="18" bindinput="onIdNumber" />
+          </view>
+        </block>
+        <block wx:if="{{need.email}}">
+          <view class="label gap">电子邮箱<text class="req" wx:if="{{partialEdit}}">*</text></view>
+          <view class="input">
+            <input placeholder="选填，用于合同送达" placeholder-class="ph" value="{{email}}" bindinput="onEmail" />
+          </view>
+        </block>
+        <view class="desc gap" wx:if="{{!partialEdit && !onlyClearance}}">收款开户行、收款名与银行账号将在签订合同时填写（必填）。身份证住址在签订合同时由识别或核对填入。</view>
       </block>
-      <block wx:if="{{cert.status !== 'approved'}}">
+
+      <block wx:if="{{showFileBlock}}">
         <view class="label gap">上传证明材料<text class="req">*</text></view>
-        <view class="desc">请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式</view>
+        <view class="desc">{{partialEdit ? '请重新上传被驳回的材料' : '请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式'}}</view>
 
-        <view class="row id-row">
-          <view class="badge id">
-            <view class="id-card"><view class="id-face"></view></view>
+        <block wx:if="{{need.idCard || need.idCardBack}}">
+          <view class="row id-row">
+            <view class="badge id">
+              <view class="id-card"><view class="id-face"></view></view>
+            </view>
+            <view class="txt">
+              <view>身份证<text class="req">*</text></view>
+              <view class="sub">{{idCardSubTip}}</view>
+            </view>
           </view>
-          <view class="txt">
-            <view>身份证<text class="req">*</text></view>
-            <view class="sub">拍摄、相册或文件，正反面都要上传</view>
+          <view class="slots">
+            <view class="slot" wx:if="{{need.idCard}}" data-key="idCard" bindtap="choose">
+              <image wx:if="{{previews.idCard || files.idCard}}" src="{{previews.idCard || sources.idCard}}" mode="aspectFit"></image>
+              <view wx:if="{{previews.idCard || files.idCard}}" class="slot-tag">{{uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍'}}</view>
+              <block wx:else>
+                <view class="mark tl"></view><view class="mark tr"></view>
+                <view class="mark bl"></view><view class="mark br"></view>
+                <view class="slot-name">人像面</view>
+                <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '横向拍摄'}}</view>
+              </block>
+            </view>
+            <view class="slot" wx:if="{{need.idCardBack}}" data-key="idCardBack" bindtap="choose">
+              <image wx:if="{{previews.idCardBack || files.idCardBack}}" src="{{previews.idCardBack || sources.idCardBack}}" mode="aspectFit"></image>
+              <view wx:if="{{previews.idCardBack || files.idCardBack}}" class="slot-tag">{{uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍'}}</view>
+              <block wx:else>
+                <view class="mark tl"></view><view class="mark tr"></view>
+                <view class="mark bl"></view><view class="mark br"></view>
+                <view class="slot-name">国徽面</view>
+                <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '横向拍摄'}}</view>
+              </block>
+            </view>
           </view>
-        </view>
-        <view class="slots">
-          <view class="slot" data-key="idCard" bindtap="choose">
-            <image wx:if="{{previews.idCard || files.idCard}}" src="{{previews.idCard || sources.idCard}}" mode="aspectFit"></image>
-            <view wx:if="{{previews.idCard || files.idCard}}" class="slot-tag">{{uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍'}}</view>
-            <block wx:else>
-              <view class="mark tl"></view><view class="mark tr"></view>
-              <view class="mark bl"></view><view class="mark br"></view>
-              <view class="slot-name">人像面</view>
-              <view class="slot-tip">{{uploading === 'idCard' ? '上传中' : '横向拍摄'}}</view>
-            </block>
-          </view>
-          <view class="slot" data-key="idCardBack" bindtap="choose">
-            <image wx:if="{{previews.idCardBack || files.idCardBack}}" src="{{previews.idCardBack || sources.idCardBack}}" mode="aspectFit"></image>
-            <view wx:if="{{previews.idCardBack || files.idCardBack}}" class="slot-tag">{{uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍'}}</view>
-            <block wx:else>
-              <view class="mark tl"></view><view class="mark tr"></view>
-              <view class="mark bl"></view><view class="mark br"></view>
-              <view class="slot-name">国徽面</view>
-              <view class="slot-tip">{{uploading === 'idCardBack' ? '上传中' : '横向拍摄'}}</view>
-            </block>
-          </view>
-        </view>
+        </block>
 
-        <view class="row">
+        <view class="row" wx:if="{{need.diploma}}">
           <view class="badge edu">
             <view class="cap"></view>
             <view class="tassel"></view>
@@ -114,19 +121,19 @@
           <view class="plus {{files.diploma ? 'done' : ''}}" data-key="diploma" bindtap="choose">{{uploading === 'diploma' ? '…' : (files.diploma ? '✓' : '+')}}</view>
         </view>
 
-        <view class="row">
+        <view class="row" wx:if="{{need.certificate}}">
           <view class="badge cert">
             <view class="sheet"><view class="seal"></view></view>
           </view>
           <view class="txt">
-            <view>教师资格证</view>
-            <view class="sub">选填，有则上传</view>
+            <view>教师资格证<text class="req" wx:if="{{partialEdit}}">*</text></view>
+            <view class="sub">{{partialEdit ? '请重新上传' : '选填，有则上传'}}</view>
           </view>
           <view class="plus {{files.certificate ? 'done' : ''}}" data-key="certificate" bindtap="choose">{{files.certificate ? '✓' : '+'}}</view>
         </view>
       </block>
 
-      <view class="row" wx:if="{{cert.status !== 'approved' || cert.clearanceDue}}">
+      <view class="row" wx:if="{{need.clearance}}">
         <view class="badge law">
           <view class="doc"></view>
         </view>
@@ -138,8 +145,8 @@
       </view>
     </view>
 
-    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{cert.profileIncomplete ? '保存身份信息' : (cert.clearanceDue ? '提交本学期证明' : '提交认证')}}</button>
-    <view class="foot">提交后将进入审核流程，请耐心等待审核结果</view>
+    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">{{submitLabel}}</button>
+    <view class="foot">{{partialEdit ? '仅需修改标注项，提交后重新进入审核' : '提交后将进入审核流程，请耐心等待审核结果'}}</view>
   </block>
 
   <privacy-popup />

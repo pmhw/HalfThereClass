@@ -48,74 +48,80 @@
       <div v-if="cert.profileIncomplete && cert.status === 'approved'" class="card form">
         <div class="warn">请补全身份证号，签署合同时将自动填入合同</div>
       </div>
-      <div v-if="cert.rejectReason && cert.status === 'rejected'" class="card form">
-        <div class="warn">上次未通过：{{ cert.rejectReason }}</div>
-      </div>
-      <div v-if="cert.clearanceStatus === 'rejected'" class="card form">
-        <div class="warn">无犯罪证明未通过：{{ cert.rejectReason || '请重新上传' }}</div>
+      <div v-if="showRejectTip" class="card form">
+        <div class="warn">{{ rejectTipTitle }}：{{ cert.rejectReason || '请按标注项修改后重新提交' }}</div>
+        <p v-if="rejectLabels.length" class="desc gap">需修改：{{ rejectLabels.join('、') }}。其余材料已保留，无需重传。</p>
       </div>
 
       <div class="card form">
-        <template v-if="cert.status !== 'approved' || cert.profileIncomplete">
-          <div class="label">真实姓名<em class="req">*</em></div>
-          <div class="input">
-            <span class="person" />
-            <input v-model="realName" type="text" placeholder="请输入姓名" />
-          </div>
-          <div class="label gap">身份证号码<em class="req">*</em></div>
-          <div class="input">
-            <input v-model="idNumber" type="text" maxlength="18" placeholder="18位身份证号" />
-          </div>
-          <div class="label gap">电子邮箱</div>
-          <div class="input">
-            <input v-model="email" type="email" placeholder="选填，用于合同送达" />
-          </div>
-          <p class="desc gap">收款开户行、收款名与银行账号将在签订合同时填写（必填）。</p>
+        <template v-if="showTextBlock">
+          <template v-if="needField('realName')">
+            <div class="label">真实姓名<em class="req">*</em></div>
+            <div class="input">
+              <span class="person" />
+              <input v-model="realName" type="text" placeholder="请输入姓名" />
+            </div>
+          </template>
+          <template v-if="needField('idNumber')">
+            <div class="label" :class="{ gap: needField('realName') }">身份证号码<em class="req">*</em></div>
+            <div class="input">
+              <input v-model="idNumber" type="text" maxlength="18" placeholder="18位身份证号" />
+            </div>
+          </template>
+          <template v-if="needField('email')">
+            <div class="label gap">电子邮箱<em v-if="partialEdit" class="req">*</em></div>
+            <div class="input">
+              <input v-model="email" type="email" placeholder="选填，用于合同送达" />
+            </div>
+          </template>
+          <p v-if="!partialEdit && !onlyClearance" class="desc gap">收款开户行、收款名与银行账号将在签订合同时填写（必填）。</p>
         </template>
 
-        <template v-if="cert.status !== 'approved'">
+        <template v-if="showFileBlock">
           <div class="label gap">上传证明材料<em class="req">*</em></div>
-          <p class="desc">请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式</p>
+          <p class="desc">{{ partialEdit ? '请重新上传被驳回的材料' : '请上传清晰、完整的证件照片或扫描件，支持 JPG、PNG、PDF 格式' }}</p>
 
-          <div class="row id-row">
-            <div class="badge id"><div class="id-card"><div class="id-face" /></div></div>
-            <div class="txt">
-              <div>身份证<em class="req">*</em></div>
-              <div class="sub">拍摄、相册或文件，正反面都要上传</div>
+          <template v-if="needField('idCard') || needField('idCardBack')">
+            <div class="row id-row">
+              <div class="badge id"><div class="id-card"><div class="id-face" /></div></div>
+              <div class="txt">
+                <div>身份证<em class="req">*</em></div>
+                <div class="sub">{{ idCardSubTip }}</div>
+              </div>
             </div>
-          </div>
-          <div class="slots">
-            <label class="slot">
-              <img v-if="preview('idCard')" :src="preview('idCard')" alt="" />
-              <span v-if="preview('idCard') || files.idCard" class="slot-tag">
-                {{ uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍' }}
-              </span>
-              <template v-else>
-                <i class="mark tl" /><i class="mark tr" /><i class="mark bl" /><i class="mark br" />
-                <span class="slot-name">人像面</span>
-                <span class="slot-tip">{{ uploading === 'idCard' ? '上传中' : '横向拍摄' }}</span>
-              </template>
-              <input type="file" accept="image/*,.pdf" hidden @change="(e) => onFile('idCard', e)" />
-            </label>
-            <label class="slot">
-              <img v-if="preview('idCardBack')" :src="preview('idCardBack')" alt="" />
-              <span v-if="preview('idCardBack') || files.idCardBack" class="slot-tag">
-                {{ uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍' }}
-              </span>
-              <template v-else>
-                <i class="mark tl" /><i class="mark tr" /><i class="mark bl" /><i class="mark br" />
-                <span class="slot-name">国徽面</span>
-                <span class="slot-tip">{{ uploading === 'idCardBack' ? '上传中' : '横向拍摄' }}</span>
-              </template>
-              <input type="file" accept="image/*,.pdf" hidden @change="(e) => onFile('idCardBack', e)" />
-            </label>
-          </div>
-          <div class="cam-links">
-            <button type="button" class="cam-link" @click="goIdShot('idCard', 'portrait')">摄像头拍人像面</button>
-            <button type="button" class="cam-link" @click="goIdShot('idCardBack', 'emblem')">摄像头拍国徽面</button>
-          </div>
+            <div class="slots">
+              <label v-if="needField('idCard')" class="slot">
+                <img v-if="preview('idCard')" :src="preview('idCard')" alt="" />
+                <span v-if="preview('idCard') || files.idCard" class="slot-tag">
+                  {{ uploading === 'idCard' ? '上传中' : '人像面 · 点击重拍' }}
+                </span>
+                <template v-else>
+                  <i class="mark tl" /><i class="mark tr" /><i class="mark bl" /><i class="mark br" />
+                  <span class="slot-name">人像面</span>
+                  <span class="slot-tip">{{ uploading === 'idCard' ? '上传中' : '横向拍摄' }}</span>
+                </template>
+                <input type="file" accept="image/*,.pdf" hidden @change="(e) => onFile('idCard', e)" />
+              </label>
+              <label v-if="needField('idCardBack')" class="slot">
+                <img v-if="preview('idCardBack')" :src="preview('idCardBack')" alt="" />
+                <span v-if="preview('idCardBack') || files.idCardBack" class="slot-tag">
+                  {{ uploading === 'idCardBack' ? '上传中' : '国徽面 · 点击重拍' }}
+                </span>
+                <template v-else>
+                  <i class="mark tl" /><i class="mark tr" /><i class="mark bl" /><i class="mark br" />
+                  <span class="slot-name">国徽面</span>
+                  <span class="slot-tip">{{ uploading === 'idCardBack' ? '上传中' : '横向拍摄' }}</span>
+                </template>
+                <input type="file" accept="image/*,.pdf" hidden @change="(e) => onFile('idCardBack', e)" />
+              </label>
+            </div>
+            <div class="cam-links">
+              <button v-if="needField('idCard')" type="button" class="cam-link" @click="goIdShot('idCard', 'portrait')">摄像头拍人像面</button>
+              <button v-if="needField('idCardBack')" type="button" class="cam-link" @click="goIdShot('idCardBack', 'emblem')">摄像头拍国徽面</button>
+            </div>
+          </template>
 
-          <div class="row">
+          <div v-if="needField('diploma')" class="row">
             <div class="badge edu"><div class="cap" /><div class="tassel" /></div>
             <div class="txt">
               <div>学历证明<em class="req">*</em></div>
@@ -127,11 +133,11 @@
             </label>
           </div>
 
-          <div class="row">
+          <div v-if="needField('certificate')" class="row">
             <div class="badge cert"><div class="sheet"><div class="seal" /></div></div>
             <div class="txt">
-              <div>教师资格证</div>
-              <div class="sub">选填，有则上传</div>
+              <div>教师资格证<em v-if="partialEdit" class="req">*</em></div>
+              <div class="sub">{{ partialEdit ? '请重新上传' : '选填，有则上传' }}</div>
             </div>
             <label class="plus" :class="{ done: !!files.certificate }">
               {{ files.certificate ? '✓' : '+' }}
@@ -140,7 +146,7 @@
           </div>
         </template>
 
-        <div v-if="cert.status !== 'approved' || cert.clearanceDue" class="row">
+        <div v-if="needField('clearance')" class="row">
           <div class="badge law"><div class="doc" /></div>
           <div class="txt">
             <div>无犯罪证明<em class="req">*</em></div>
@@ -162,10 +168,14 @@
         {{
           saving
             ? '提交中…'
-            : (cert.profileIncomplete ? '保存身份信息' : (cert.clearanceDue ? '提交本学期证明' : '提交认证'))
+            : (cert.profileIncomplete
+              ? '保存身份信息'
+              : (partialEdit || onlyClearance
+                ? '提交修改'
+                : '提交认证'))
         }}
       </button>
-      <p class="foot">提交后将进入审核流程，请耐心等待审核结果</p>
+      <p class="foot">{{ partialEdit ? '仅需修改标注项，提交后重新进入审核' : '提交后将进入审核流程，请耐心等待审核结果' }}</p>
     </template>
   </div>
 </template>
@@ -209,10 +219,32 @@ const saving = ref(false);
 let draftReady = false;
 
 const onlyClearance = computed(
-  () => cert.value.status === 'approved' && cert.value.clearanceDue,
+  () => cert.value.status === 'approved'
+    && (cert.value.clearanceDue || cert.value.clearanceStatus === 'rejected'),
 );
 const onlyProfile = computed(
   () => cert.value.status === 'approved' && cert.value.profileIncomplete && !onlyClearance.value,
+);
+const rejectFieldSet = computed(() => {
+  const list = Array.isArray(cert.value.rejectFields) ? cert.value.rejectFields : [];
+  return new Set(list);
+});
+const partialEdit = computed(
+  () => (cert.value.status === 'rejected' || cert.value.clearanceStatus === 'rejected')
+    && rejectFieldSet.value.size > 0,
+);
+const rejectLabels = computed(() => {
+  if (Array.isArray(cert.value.rejectFieldLabels) && cert.value.rejectFieldLabels.length) {
+    return cert.value.rejectFieldLabels;
+  }
+  return [];
+});
+const showRejectTip = computed(
+  () => !!((cert.value.rejectReason && cert.value.status === 'rejected')
+    || cert.value.clearanceStatus === 'rejected'),
+);
+const rejectTipTitle = computed(
+  () => (cert.value.status === 'rejected' ? '上次未通过' : '无犯罪证明未通过'),
 );
 const isDone = computed(
   () => step.value === 3 && !cert.value.profileIncomplete,
@@ -220,6 +252,31 @@ const isDone = computed(
 const isPending = computed(
   () => cert.value.status === 'pending' || !!cert.value.clearancePending,
 );
+
+function needField(key) {
+  if (onlyClearance.value) return key === 'clearance';
+  if (onlyProfile.value) return key === 'realName' || key === 'idNumber' || key === 'email';
+  if (partialEdit.value) return rejectFieldSet.value.has(key);
+  // 首次填写 / 旧版整份驳回（无 rejectFields）
+  if (cert.value.status === 'approved') return false;
+  if (key === 'certificate') return true; // 选填仍展示
+  return true;
+}
+
+const showTextBlock = computed(
+  () => needField('realName') || needField('idNumber') || needField('email'),
+);
+const showFileBlock = computed(
+  () => needField('idCard') || needField('idCardBack') || needField('diploma') || needField('certificate'),
+);
+const idCardSubTip = computed(() => {
+  const a = needField('idCard');
+  const b = needField('idCardBack');
+  if (a && b) return '拍摄、相册或文件，正反面都要上传';
+  if (a) return '请重新上传人像面';
+  if (b) return '请重新上传国徽面';
+  return '';
+});
 
 onMounted(async () => {
   if (!requireLogin(router)) return;
@@ -298,6 +355,7 @@ async function load() {
     cert.value = data;
     step.value =
       data.status === 'approved' && !data.clearanceDue && !data.clearancePending && !data.profileIncomplete
+        && data.clearanceStatus !== 'rejected'
         ? 3
         : data.status === 'pending' || data.clearancePending
           ? 2
@@ -306,12 +364,26 @@ async function load() {
     realName.value = realName.value || data.realName || '';
     idNumber.value = idNumber.value || data.idNumber || '';
     email.value = email.value || data.email || '';
-    files.idCard = files.idCard || data.idCard || '';
-    files.idCardBack = files.idCardBack || data.idCardBack || '';
-    files.diploma = files.diploma || data.diploma || '';
-    files.clearance =
-      data.clearanceStatus === 'rejected' ? '' : files.clearance || data.clearance || '';
-    files.certificate = files.certificate || data.certificate || '';
+    const rejected = new Set(
+      (data.status === 'rejected' || data.clearanceStatus === 'rejected')
+        ? (Array.isArray(data.rejectFields) ? data.rejectFields : [])
+        : [],
+    );
+    const keepFile = (key, remote) => {
+      if (rejected.has(key) || (key === 'clearance' && data.clearanceStatus === 'rejected')) {
+        return files[key] && files[key] !== remote ? files[key] : '';
+      }
+      return files[key] || remote || '';
+    };
+    files.idCard = keepFile('idCard', data.idCard);
+    files.idCardBack = keepFile('idCardBack', data.idCardBack);
+    files.diploma = keepFile('diploma', data.diploma);
+    files.clearance = keepFile('clearance', data.clearance);
+    files.certificate = keepFile('certificate', data.certificate);
+    // 被驳回的文件清掉旧预览，避免误以为已重新上传
+    ['idCard', 'idCardBack', 'diploma', 'clearance', 'certificate'].forEach((key) => {
+      if (!files[key]) previews[key] = '';
+    });
   } catch (err) {
     showToast(err.message || '加载失败');
   }
@@ -364,24 +436,32 @@ async function uploadKey(key, file, localPreview) {
 
 async function submit() {
   if (saving.value) return;
-  if (!onlyClearance.value && !realName.value.trim()) {
+  if (needField('realName') && !realName.value.trim()) {
     showToast('请填写姓名');
     return;
   }
-  if (!onlyClearance.value && !/^[0-9]{17}[0-9Xx]$/.test(idNumber.value.trim())) {
+  if (needField('idNumber') && !/^[0-9]{17}[0-9Xx]$/.test(idNumber.value.trim())) {
     showToast('请填写正确身份证号');
     return;
   }
-  if (!onlyClearance.value && !onlyProfile.value && (!files.idCard || !files.idCardBack)) {
-    showToast('请上传身份证正反面');
+  if (needField('idCard') && !files.idCard) {
+    showToast('请重新上传身份证人像面');
     return;
   }
-  if (!onlyClearance.value && !onlyProfile.value && !files.diploma) {
-    showToast('请上传学历证明');
+  if (needField('idCardBack') && !files.idCardBack) {
+    showToast('请重新上传身份证国徽面');
     return;
   }
-  if (!onlyProfile.value && !files.clearance) {
-    showToast('请上传无犯罪证明');
+  if (needField('diploma') && !files.diploma) {
+    showToast('请重新上传学历证明');
+    return;
+  }
+  if (needField('clearance') && !files.clearance) {
+    showToast('请重新上传无犯罪证明');
+    return;
+  }
+  if (needField('certificate') && partialEdit.value && !files.certificate) {
+    showToast('请重新上传教师资格证');
     return;
   }
   saving.value = true;

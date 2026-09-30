@@ -290,6 +290,7 @@ const menuSource = [
     icon: 'book',
     children: [
       { to: '/courses', label: '课程列表', icon: 'list', perm: 'course' },
+      { to: '/assign', label: '预先排课', icon: 'list', perm: 'fee' },
       { to: '/term', label: '学期排课', icon: 'cal', perm: 'schedule' },
       { to: '/categories', label: '分类管理', icon: 'folder', perm: 'course' },
       { to: '/schools', label: '学校管理', icon: 'building', perm: 'course' },
@@ -327,7 +328,6 @@ const menuSource = [
     label: '费用结算',
     icon: 'receipt',
     children: [
-      { to: '/assign', label: '教师分配', icon: 'list', perm: 'fee' },
       { to: '/incomes', label: '收入记录', icon: 'chart', perm: 'fee' },
     ],
   },

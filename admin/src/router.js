@@ -48,7 +48,7 @@ const router = createRouter({
         { path: 'faculty/:id', component: TeacherDetail, meta: { title: '教师详情', crumb: '用户 / 教师详情', perm: 'people' } },
         { path: 'certs', component: Certs, meta: { title: '教师认证', crumb: '用户 / 教师认证', perm: 'people' } },
         { path: 'orgs', component: Orgs, meta: { title: '机构管理', crumb: '机构 / 机构列表', perm: 'org' } },
-        { path: 'assign', component: Assign, meta: { title: '教师分配', crumb: '课程 / 教师分配', perm: 'fee' } },
+        { path: 'assign', component: Assign, meta: { title: '预先排课', crumb: '课程 / 预先排课', perm: 'fee' } },
         { path: 'incomes', component: Incomes, meta: { title: '收入记录', crumb: '数据 / 教师收入', perm: 'fee' } },
         { path: 'finance', component: Finance, meta: { title: '收益概览', crumb: '财务 / 收益概览', perm: 'finance' } },
         { path: 'finance/monthly', component: FinanceMonthly, meta: { title: '月度收益', crumb: '财务 / 月度收益', perm: 'finance' } },

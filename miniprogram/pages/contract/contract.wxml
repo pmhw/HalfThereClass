@@ -1,7 +1,12 @@
 <view class="page">
-  <view class="tip" wx:if="{{paper.tip && loaded}}">{{paper.tip}}</view>
+  <view class="tip" wx:if="{{paper.tip && loaded && !wrongTeacher}}">{{paper.tip}}</view>
 
-  <view class="card wait" wx:if="{{paper.contractPending}}">
+  <view class="card wait" wx:if="{{wrongTeacher}}">
+    <view class="h">链接无效</view>
+    <view class="sub">此合同签订链接仅供指定教师使用。请使用管理员发给您的链接，并用本人账号登录后打开。</view>
+  </view>
+
+  <view class="card wait" wx:elif="{{paper.contractPending}}">
     <view class="badge amber">审核中</view>
     <view class="h">签名已提交</view>
     <view class="sub">管理员审核通过后，本学期合同生效，预分配课程将自动解锁。</view>

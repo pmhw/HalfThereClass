@@ -343,6 +343,8 @@ model TeacherCert {
   bio         String?  @map("bio")
   skills      String?  @map("skills")
   rejectReason String? @map("reject_reason")
+  /// JSON 数组：被驳回需修改的字段，如 ["idCard","diploma"]
+  rejectFields String? @map("reject_fields")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

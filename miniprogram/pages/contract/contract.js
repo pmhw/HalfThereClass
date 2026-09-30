@@ -16,6 +16,7 @@ Page({
     drew: false,
     saving: false,
     loaded: false,
+    wrongTeacher: false,
   },
 
   onShow() {
@@ -23,6 +24,19 @@ Page({
       wx.navigateTo({ url: '/pages/login/login' });
       return;
     }
+    const pages = getCurrentPages();
+    const cur = pages[pages.length - 1];
+    const expectId = Number((cur && cur.options && cur.options.for) || 0);
+    const me = wx.getStorageSync('userInfo') || {};
+    if (expectId && me.id && Number(me.id) !== expectId) {
+      this.setData({
+        loaded: true,
+        wrongTeacher: true,
+        paper: { title: '教师服务合同', status: 'none', signed: false, history: [] },
+      });
+      return;
+    }
+    this.setData({ wrongTeacher: false });
     this.load();
   },
 

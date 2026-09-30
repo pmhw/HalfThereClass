@@ -110,10 +110,10 @@
             <td>{{ moneyOf(item.quote.commission) }}</td>
             <td>{{ moneyOf(item.quote.teacherFee) }}</td>
           </tr>
-          <tr v-if="!detail.grants.length"><td colspan="5" class="empty">还没有授权课程。到「教师分配」里配置。</td></tr>
+          <tr v-if="!detail.grants.length"><td colspan="5" class="empty">还没有授权课程。到「预先排课」里配置。</td></tr>
         </tbody>
       </table>
-      <router-link class="btn" to="/assign">去分配课程</router-link>
+      <router-link class="btn" to="/assign">去预先排课</router-link>
     </article>
 
     <article v-if="tab === '合同记录'" class="card card-pad">

@@ -2,9 +2,9 @@
   <section class="assign-page">
     <div class="page-head">
       <div>
-        <h1>教师分配</h1>
+        <h1>预先排课</h1>
         <p>
-          可预分配给已实名认证的教师。预分配可随时解除；
+          可预先把课程排给已实名认证的教师。预排可随时解除；
           <strong>不等于合同已签订</strong>——本学期合同未生效时课程锁定，审核通过后自动解锁并写入合同附件。
         </p>
       </div>
@@ -97,7 +97,7 @@
                 <input v-model="baseFee" type="number" min="0" step="0.01" placeholder="请输入金额" @input="preview" />
                 <span class="unit">/ 节</span>
               </div>
-              <small class="help">该金额将在教师端按授权课程展示。</small>
+              <small class="help">默认取自课程设置的课时费，可按本次授权调整；留空则教师端不显示金额。</small>
             </label>
 
             <template v-if="selectedTeacher?.organization">
@@ -160,46 +160,57 @@
         <div class="list-head">
           <div>
             <h2>当前预分配</h2>
-            <p class="muted">共 {{ grants.length }} 条 · 解除后可改派其他教师</p>
+            <p class="muted">
+              {{ grantGroups.length }} 位教师 · {{ grants.length }} 门课 · 解除后可改派；合同链接需该教师本人登录后打开
+            </p>
           </div>
           <button class="btn" type="button" @click="loadGrants"><Icon name="refresh" />刷新</button>
         </div>
 
-        <table v-if="grants.length">
-          <thead>
-            <tr>
-              <th>课程</th>
-              <th>教师</th>
-              <th>状态</th>
-              <th>课时费</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in grants" :key="item.id">
-              <td>
-                <strong>{{ item.title }}</strong>
-                <div class="muted tiny">{{ item.school || '—' }}</div>
-              </td>
-              <td>
-                <div>{{ item.teacherName }}</div>
-                <div class="muted tiny">{{ item.organizationName || '独立教师' }}</div>
-              </td>
-              <td>
-                <span class="tag" :class="item.locked ? 'warn' : 'ok'">{{ item.locked ? '预分配·待解锁' : '已解锁' }}</span>
-                <span v-if="item.contractPending" class="tag">合同待审</span>
-                <span v-else-if="item.contractDue" class="tag">本学期未签</span>
-                <span v-else-if="item.contractValid" class="tag ok">合同有效</span>
-              </td>
-              <td>{{ item.baseFee == null ? '—' : `¥${item.baseFee}` }}</td>
-              <td class="col-actions">
-                <button class="link danger" type="button" :disabled="revoking === item.id" @click="revoke(item)">
-                  {{ revoking === item.id ? '解除中…' : '解除分配' }}
+        <div v-if="grantGroups.length" class="teacher-grant-list">
+          <article v-for="group in grantGroups" :key="group.userId" class="teacher-grant">
+            <div class="tg-head">
+              <div class="tg-who">
+                <span class="teacher-avatar sm">{{ (group.teacherName || '师').slice(0, 1) }}</span>
+                <div>
+                  <strong>{{ group.teacherName }}</strong>
+                  <div class="muted tiny">{{ group.organizationName || '独立教师' }} · {{ group.courses.length }} 门课</div>
+                </div>
+              </div>
+              <div class="tg-actions">
+                <span v-if="group.contractPending" class="tag">合同待审</span>
+                <span v-else-if="group.contractValid" class="tag ok">合同有效</span>
+                <span v-else class="tag warn">本学期未签</span>
+                <button
+                  class="btn"
+                  type="button"
+                  :title="'复制后发给该教师，需其本人登录后才能签订'"
+                  @click="copyContractLink(group)"
+                >
+                  <Icon name="link" />
+                  {{ group.contractValid ? '复制合同页' : '复制签订链接' }}
                 </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <router-link class="btn ghost" :to="`/faculty/${group.userId}`">资料</router-link>
+              </div>
+            </div>
+
+            <ul class="tg-courses">
+              <li v-for="item in group.courses" :key="item.id">
+                <div class="tg-course-main">
+                  <strong>{{ item.title }}</strong>
+                  <div class="muted tiny">{{ item.school || '—' }}</div>
+                </div>
+                <div class="tg-course-meta">
+                  <span class="tag" :class="item.locked ? 'warn' : 'ok'">{{ item.locked ? '待解锁' : '已解锁' }}</span>
+                  <span class="fee">{{ item.baseFee == null ? '课时费 —' : `¥${item.baseFee}/节` }}</span>
+                  <button class="link danger" type="button" :disabled="revoking === item.id" @click="revoke(item)">
+                    {{ revoking === item.id ? '解除中…' : '解除' }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </article>
+        </div>
         <p v-else class="empty soft">暂无预分配记录，请在上方选择课程与教师后保存</p>
       </article>
     </PageLoad>
@@ -241,16 +252,21 @@ const visibilityOptions = [
 ];
 
 const selectedTeacher = computed(() => teachers.value.find((item) => String(item.id) === String(teacherId.value)) || null);
+const selectedCourse = computed(() => courses.value.find((item) => String(item.id) === String(courseId.value)) || null);
 
-const courseOptions = computed(() => courses.value.map((item) => {
-  const grant = grants.value.find((g) => g.courseId === item.id && g.primary);
-  return {
+/** 已有主预分配的课程不可再选，解除后才回到选项里 */
+const assignedCourseIds = computed(() => new Set(
+  grants.value.filter((g) => g.primary).map((g) => String(g.courseId)),
+));
+
+const courseOptions = computed(() => courses.value
+  .filter((item) => !assignedCourseIds.value.has(String(item.id)))
+  .map((item) => ({
     value: String(item.id),
     title: item.title,
-    hint: grant ? `已分配给 ${grant.teacherName}` : (item.school || ''),
-    search: `${item.title} ${item.school || ''} ${grant?.teacherName || ''}`,
-  };
-}));
+    hint: item.sessionFee != null ? `课时费 ¥${item.sessionFee}` : (item.school || ''),
+    search: `${item.title} ${item.school || ''}`,
+  })));
 
 const teacherOptions = computed(() => teachers.value.map((item) => ({
   value: String(item.id),
@@ -260,6 +276,30 @@ const teacherOptions = computed(() => teachers.value.map((item) => ({
   teacherNo: item.teacherNo || '',
   search: `${item.realName || ''} ${item.nickname || ''} ${item.phone || ''} ${item.organization?.name || ''} ${contractLabel(item)}`,
 })));
+
+/** 同一教师的多门课合并展示 */
+const grantGroups = computed(() => {
+  const map = new Map();
+  for (const item of grants.value) {
+    if (!item.primary) continue;
+    const key = String(item.userId);
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        userId: item.userId,
+        teacherName: item.teacherName,
+        organizationName: item.organizationName || '',
+        contractValid: !!item.contractValid,
+        contractPending: !!item.contractPending,
+        contractDue: !!item.contractDue,
+        courses: [],
+      };
+      map.set(key, group);
+    }
+    group.courses.push(item);
+  }
+  return [...map.values()].sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'zh'));
+});
 
 function contractLabel(item) {
   if (!item) return '';
@@ -296,15 +336,28 @@ function resetForm() {
   quote.value = null;
 }
 
-function onCourse() {
-  const grant = grants.value.find((item) => String(item.courseId) === String(courseId.value) && item.primary);
-  if (grant) {
-    teacherId.value = String(grant.userId);
-    baseFee.value = grant.baseFee == null ? '' : String(grant.baseFee);
-    onTeacher();
+/** 从课程设置带入课时费（创建课程时填的 sessionFee） */
+function applyFeeFromCourse() {
+  const course = selectedCourse.value;
+  if (!course) return;
+  if (course.sessionFee != null && course.sessionFee !== '') {
+    baseFee.value = String(course.sessionFee);
   } else {
-    preview();
+    baseFee.value = '';
   }
+}
+
+function onCourse() {
+  // 已预分配的课程不会出现在选项里；若仍残留已分配 id，清空
+  if (courseId.value && assignedCourseIds.value.has(String(courseId.value))) {
+    courseId.value = '';
+    baseFee.value = '';
+    quote.value = null;
+    return;
+  }
+  applyFeeFromCourse();
+  if (teacherId.value) preview();
+  else quote.value = null;
 }
 
 function onTeacher() {
@@ -314,7 +367,29 @@ function onTeacher() {
     mode.value = 'percent';
     value.value = 0;
   }
+  if (courseId.value && (baseFee.value === '' || baseFee.value == null)) {
+    applyFeeFromCourse();
+  }
   preview();
+}
+
+async function copyContractLink(group) {
+  // for=教师id：其他人登录打开会提示无权；合同内容始终按登录账号本人读取
+  const url = `${window.location.origin}/m/contract?for=${group.userId}`;
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+    else {
+      const input = document.createElement('textarea');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    notify.success(`已复制「${group.teacherName}」的签订链接（仅该教师本人可签）`);
+  } catch {
+    notify.error(`复制失败，请手动复制：${url}`);
+  }
 }
 
 async function preview() {
@@ -380,6 +455,7 @@ async function save() {
         ? '已预分配：课程待解锁，待本学期合同生效后自动解锁'
         : '已保存授权，课程已解锁',
     );
+    resetForm();
     await loadGrants();
   } catch (err) {
     notify.error(err.message || '保存失败');
@@ -406,6 +482,7 @@ async function revoke(item) {
       quote.value = null;
     }
     await loadGrants();
+    // 解除后该课程重新出现在选项中，可直接选中继续排
   } catch (err) {
     notify.error(err.message || '解除失败');
   } finally {
@@ -584,6 +661,57 @@ onMounted(load);
 .list-head .muted { margin-top: 4px; font-size: 12px; }
 .list-head .btn { display: inline-flex; align-items: center; gap: 6px; }
 .list-head .btn :deep(svg) { width: 14px; height: 14px; }
+.teacher-grant-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.teacher-grant {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.tg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--line);
+}
+.tg-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tg-who strong { font-size: 14px; }
+.teacher-avatar.sm {
+  width: 36px; height: 36px; font-size: 14px;
+}
+.tg-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.tg-actions .btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 10px; font-size: 12px;
+}
+.tg-actions .btn :deep(svg) { width: 14px; height: 14px; }
+.tg-actions .btn.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: #475467;
+}
+.tg-courses { list-style: none; margin: 0; padding: 0; }
+.tg-courses li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-top: 1px solid #f1f5f9;
+}
+.tg-courses li:first-child { border-top: 0; }
+.tg-course-main strong { font-size: 13px; }
+.tg-course-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.tg-course-meta .fee { font-size: 13px; color: #334155; font-variant-numeric: tabular-nums; }
 .tiny { font-size: 12px !important; }
 .tag {
   display: inline-flex; margin: 0 4px 4px 0; padding: 2px 8px; border-radius: 999px;

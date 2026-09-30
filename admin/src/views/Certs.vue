@@ -216,7 +216,15 @@
       @close="rejecting = null"
     >
       <form class="form" @submit.prevent="review(rejecting, 'reject')">
-        <label>驳回原因<textarea v-model="reason" required placeholder="请填写驳回原因"></textarea></label>
+        <p class="muted" style="margin:0 0 8px">请勾选需要教师修改的项目，并填写原因。未勾选的材料将保留，教师无需重传。</p>
+        <div v-if="!rejectClearanceOnly" class="reject-fields">
+          <label v-for="item in rejectFieldOptions" :key="item.key" class="reject-field">
+            <input v-model="rejectFields" type="checkbox" :value="item.key" />
+            <span>{{ item.label }}</span>
+          </label>
+        </div>
+        <p v-else class="muted">本次仅驳回「无犯罪证明」，教师只需重新上传该项。</p>
+        <label>驳回原因<textarea v-model="reason" required placeholder="请填写驳回原因，将展示给教师"></textarea></label>
         <div class="form-actions">
           <button class="btn primary" type="submit">确认驳回</button>
           <button class="btn" type="button" @click="rejecting = null">取消</button>
@@ -225,7 +233,6 @@
     </PageModal>
   </section>
 </template>
-
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api, protectedAssetUrl } from '../api';
@@ -245,6 +252,20 @@ const { loading, ready, error, run } = usePageLoad();
 const notice = ref('');
 const rejecting = ref(null);
 const reason = ref('资料不完整');
+const rejectFields = ref(['idCard', 'idCardBack', 'diploma', 'clearance']);
+const rejectFieldOptions = [
+  { key: 'realName', label: '真实姓名' },
+  { key: 'idNumber', label: '身份证号' },
+  { key: 'email', label: '电子邮箱' },
+  { key: 'idCard', label: '身份证人像面' },
+  { key: 'idCardBack', label: '身份证国徽面' },
+  { key: 'diploma', label: '学历证明' },
+  { key: 'clearance', label: '无犯罪证明' },
+  { key: 'certificate', label: '教师资格证' },
+];
+const rejectClearanceOnly = computed(
+  () => rejecting.value?.status === 'approved' && rejecting.value?.clearanceStatus === 'pending',
+);
 const viewing = ref(null);
 const previewFile = ref(null);
 const contractView = ref(null);
@@ -335,7 +356,15 @@ function filesOf(item) {
     pdf: /\.pdf$/i.test(url || ''),
   }));
 }
-function openReject(item) { rejecting.value = item; reason.value = '资料不完整'; }
+function openReject(item) {
+  rejecting.value = item;
+  reason.value = item.status === 'approved' && item.clearanceStatus === 'pending'
+    ? '无犯罪证明未通过，请重新上传清晰完整材料'
+    : '资料不完整，请按标注项修改后重新提交';
+  rejectFields.value = item.status === 'approved' && item.clearanceStatus === 'pending'
+    ? ['clearance']
+    : ['idCard', 'idCardBack', 'diploma', 'clearance'];
+}
 async function load() {
   await run(async () => {
     const [certs, rows, ocrs] = await Promise.all([
@@ -377,9 +406,22 @@ async function saveOcr() {
   }
 }
 async function review(item, action) {
-  if (action === 'reject' && !reason.value.trim()) return;
+  if (action === 'reject') {
+    if (!reason.value.trim()) {
+      notify.warn('请填写驳回原因');
+      return;
+    }
+    if (!rejectClearanceOnly.value && !rejectFields.value.length) {
+      notify.warn('请勾选需要教师修改的项目');
+      return;
+    }
+  }
   try {
-    await api.reviewCert(item.userId, { action, reason: reason.value });
+    await api.reviewCert(item.userId, {
+      action,
+      reason: reason.value,
+      rejectFields: rejectClearanceOnly.value ? ['clearance'] : [...rejectFields.value],
+    });
     rejecting.value = null;
     reason.value = '资料不完整';
     notify.success('已处理');
@@ -503,5 +545,26 @@ onMounted(load);
 }
 @media (max-width: 860px) {
   .ocr-grid { grid-template-columns: 1fr; }
+}
+.reject-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+}
+.reject-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+.reject-field input {
+  margin: 0;
 }
 </style>
