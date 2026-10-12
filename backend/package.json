@@ -1,6 +1,6 @@
 {
   "name": "half-there-class-backend",
-  "version": "1.0.77",
+  "version": "1.0.78",
   "description": "半堂课 - 课程平台后端接口",
   "private": true,
   "scripts": {
@@ -36,7 +36,8 @@
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",
     "uuid": "^9.0.0",
-    "wechatpay-node-v3": "^2.0.0"
+    "wechatpay-node-v3": "^2.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
