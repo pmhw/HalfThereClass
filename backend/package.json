@@ -1,6 +1,6 @@
 {
   "name": "half-there-class-backend",
-  "version": "1.0.88",
+  "version": "1.0.89",
   "description": "半堂课 - 课程平台后端接口",
   "private": true,
   "scripts": {
@@ -29,6 +29,7 @@
     "chinese-days": "^1.5.9",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
+    "exceljs": "^4.4.0",
     "ioredis": "^5.3.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
