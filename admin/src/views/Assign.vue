@@ -19,20 +19,28 @@
         </div>
 
         <div class="fields">
-          <label class="field-block">
-            <span>课程 <em>*</em></span>
+          <label class="field-block course-field">
+            <span>课程 <em>*</em>（可多选）</span>
             <div class="control">
               <Icon name="book" />
               <SearchSelect
-                v-model="courseId"
+                v-model="courseIds"
+                multiple
                 :options="courseOptions"
-                placeholder="请选择课程"
-                search-placeholder="搜索课程名称、学校…"
-                allow-empty
-                empty-label="请选择课程"
+                placeholder="请选择课程（可多选）"
+                search-placeholder="搜索课程名称、学校、上课时间…"
                 @change="onCourse"
               />
             </div>
+            <ul v-if="selectedCourses.length" class="picked-courses">
+              <li v-for="item in selectedCourses" :key="item.id">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <div class="muted tiny">{{ courseMetaText(item) }}</div>
+                </div>
+                <button type="button" class="link danger" @click="removeCourse(item.id)">移除</button>
+              </li>
+            </ul>
           </label>
 
           <label class="field-block">
@@ -52,7 +60,7 @@
           </label>
         </div>
 
-          <div v-if="selectedTeacher && courseId" class="teacher-card">
+          <div v-if="selectedTeacher && selectedCourses.length" class="teacher-card">
           <span class="teacher-avatar">{{ (selectedTeacher.realName || selectedTeacher.nickname || '师').slice(0, 1) }}</span>
           <div class="teacher-info">
             <strong>{{ selectedTeacher.realName || selectedTeacher.nickname }}</strong>
@@ -64,7 +72,7 @@
           </div>
         </div>
 
-        <div v-if="selectedTeacher && courseId" class="contract-banner" :class="contractTone(selectedTeacher)">
+        <div v-if="selectedTeacher && selectedCourses.length" class="contract-banner" :class="contractTone(selectedTeacher)">
           <div class="banner-icon"><Icon :name="selectedTeacher.contractValid ? 'unlock' : 'lock'" /></div>
           <div>
             <strong>合同状态说明</strong>
@@ -82,7 +90,7 @@
           </div>
         </div>
 
-        <template v-if="teacherId && courseId">
+        <template v-if="teacherId && selectedCourses.length">
           <div class="sec">
             <i class="sec-dot orange"></i>
             <Icon name="receipt" />
@@ -90,17 +98,39 @@
           </div>
 
           <div class="fee-block">
+            <div v-if="courseOrgBound" class="org-note">
+              <Icon name="building" />
+              <span>
+                所选课程已承接机构：按「课时费 − 机构抽成 = 教师课时费」结算（校方价 − 课时费 为平台利润）；保存后教师会自动关联该机构，且只能看到最终课时费。
+              </span>
+            </div>
+
             <label class="field-block">
-              <span>教师课时费</span>
+              <span>教师课时费{{ selectedCourses.length > 1 ? '（统一应用到所选课程）' : '' }}</span>
               <div class="control money">
                 <em class="yen">¥</em>
-                <input v-model="baseFee" type="number" min="0" step="0.01" placeholder="请输入金额" @input="preview" />
+                <input
+                  v-model="baseFee"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :readonly="courseOrgBound"
+                  :placeholder="courseOrgBound ? '由课时费与机构抽成自动计算' : '请输入金额'"
+                  @input="preview"
+                />
                 <span class="unit">/ 节</span>
               </div>
-              <small class="help">默认取自课程设置的课时费，可按本次授权调整；留空则教师端不显示金额。</small>
+              <small class="help">
+                <template v-if="courseOrgBound">
+                  承接机构课程不在此改抽成；请到机构详情调整单课抽成。教师端只显示本课时费。
+                </template>
+                <template v-else>
+                  默认取自课程设置的课时费；多选时若各课费用不同可在此统一填写，留空则每门课沿用各自课时费。
+                </template>
+              </small>
             </label>
 
-            <template v-if="selectedTeacher?.organization">
+            <template v-if="selectedTeacher?.organization && !courseOrgBound">
               <div class="fields two">
                 <label class="field-block">
                   <span>分佣方式</span>
@@ -111,37 +141,50 @@
                     search-placeholder="搜索…"
                     @change="preview"
                   />
+                  <small class="help">{{ modeHelp }}</small>
                 </label>
                 <label class="field-block">
                   <span>分佣值</span>
                   <div class="control">
                     <input v-model="value" type="number" min="0" step="0.01" @input="preview" />
                   </div>
+                  <small class="help">{{ mode === 'fixed' ? '每节课机构固定分得的金额（元）' : '按教师课时费的百分比另计机构分佣，不从教师课时费里扣除' }}</small>
                 </label>
-                <label class="field-block">
-                  <span>教师可见</span>
+                <label class="field-block vis-field">
+                  <span>教师端金额可见</span>
                   <SearchSelect
                     v-model="visibility"
                     :options="visibilityOptions"
-                    placeholder="选择可见规则"
-                    search-placeholder="搜索…"
+                    placeholder="选择教师能看到哪些金额"
+                    search-placeholder="搜索可见规则…"
                     @change="preview"
                   />
+                  <small class="help">{{ visibilityHelp }}</small>
                 </label>
                 <div class="org-note">
                   <Icon name="building" />
-                  <span>{{ selectedTeacher.organization.name }} · 附件金额展示跟随「教师可见」</span>
+                  <span>{{ selectedTeacher.organization.name }} · 教师端课程/合同附件按上方规则展示金额</span>
                 </div>
               </div>
             </template>
-            <p v-else class="helper">未绑定机构，不设置机构分佣。</p>
+            <p v-else-if="!courseOrgBound" class="helper">未绑定机构，不设置机构分佣。</p>
 
             <div v-if="quote && quote.configured" class="fee-flow">
-              <div><small>教师课时费</small><b>¥{{ quote.teacherFee }}</b></div>
-              <span>+</span>
-              <div><small>机构分佣</small><b>¥{{ quote.commission || 0 }}</b></div>
-              <span>=</span>
-              <div><small>参考校方成本</small><b>¥{{ Number(quote.teacherFee || 0) + Number(quote.commission || 0) }}</b></div>
+              <template v-if="quote.splitMode === 'course_org' || courseOrgBound">
+                <div><small>课时费</small><b>¥{{ quote.baseFee ?? '—' }}</b></div>
+                <span>−</span>
+                <div><small>机构抽成</small><b>¥{{ quote.commission || 0 }}</b></div>
+                <span>=</span>
+                <div><small>教师课时费</small><b>¥{{ quote.teacherFee }}</b></div>
+                <div><small>平台利润</small><b>¥{{ quote.platformAmount ?? '—' }}</b></div>
+              </template>
+              <template v-else>
+                <div><small>教师课时费</small><b>¥{{ quote.teacherFee }}</b></div>
+                <span>+</span>
+                <div><small>机构分佣</small><b>¥{{ quote.commission || 0 }}</b></div>
+                <span>=</span>
+                <div><small>参考校方成本</small><b>¥{{ Number(quote.teacherFee || 0) + Number(quote.commission || 0) }}</b></div>
+              </template>
             </div>
             <p v-else class="helper">还没有课时费，教师端不会显示金额。</p>
           </div>
@@ -149,9 +192,9 @@
 
         <div class="card-foot">
           <button class="btn" type="button" :disabled="saving" @click="resetForm">取消</button>
-          <button class="btn primary" type="button" :disabled="saving || !courseId || !teacherId" @click="save">
+          <button class="btn primary" type="button" :disabled="saving || !selectedCourses.length || !teacherId" @click="save">
             <Icon name="check" />
-            {{ saving ? '保存中…' : '保存授权' }}
+            {{ saving ? '保存中…' : (selectedCourses.length > 1 ? `保存授权（${selectedCourses.length} 门）` : '保存授权') }}
           </button>
         </div>
       </article>
@@ -214,24 +257,35 @@
         <p v-else class="empty soft">暂无预分配记录，请在上方选择课程与教师后保存</p>
       </article>
     </PageLoad>
+    <TeacherChangeDialog
+      :open="!!teacherChange"
+      :items="teacherChange?.items || []"
+      :note="teacherChange?.note || ''"
+      :error="teacherChange?.error || ''"
+      :saving="saving || !!revoking"
+      @close="teacherChange = null"
+      @confirm="confirmTeacherChange"
+    />
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { api } from '../api';
 import { notify } from '../notify';
 import Icon from '../components/Icon.vue';
 import PageLoad from '../components/PageLoad.vue';
 import SearchSelect from '../components/SearchSelect.vue';
+import TeacherChangeDialog from '../components/TeacherChangeDialog.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 
 const courses = ref([]);
 const teachers = ref([]);
 const grants = ref([]);
 const semesterName = ref('');
-const courseId = ref('');
+const courseIds = ref([]);
 const teacherId = ref('');
+const teacherChange = ref(null);
 const baseFee = ref('');
 const mode = ref('percent');
 const value = ref(10);
@@ -239,33 +293,84 @@ const visibility = ref('final');
 const quote = ref(null);
 const saving = ref(false);
 const revoking = ref(0);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
+
+const WEEKDAY = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 const modeOptions = [
-  { value: 'percent', label: '按课时费比例 %' },
-  { value: 'fixed', label: '固定金额 / 节' },
+  {
+    value: 'percent',
+    title: '按课时费比例 %',
+    hint: '机构分佣 = 教师课时费 × 比例；分佣另计，不扣教师所得',
+  },
+  {
+    value: 'fixed',
+    title: '固定金额 / 节',
+    hint: '每节课机构固定分得一笔金额；同样不从教师课时费扣除',
+  },
 ];
 const visibilityOptions = [
-  { value: 'final', label: '只看最终课时费' },
-  { value: 'full', label: '看课时费和分佣' },
-  { value: 'hidden', label: '不看金额' },
+  {
+    value: 'final',
+    title: '只看自己的课时费',
+    hint: '教师端只显示「课时费 ¥xx」；看不到机构分佣明细',
+  },
+  {
+    value: 'hidden',
+    title: '完全不显示金额',
+    hint: '教师端不展示任何费用数字，仅显示「课时费未开放」',
+  },
 ];
 
+const modeHelp = computed(() => {
+  if (mode.value === 'fixed') return '固定金额：每上一节课，机构另得设定金额；教师课时费全额归教师。';
+  return '比例分佣：机构分佣按教师课时费百分比另算；教师课时费全额归教师，不会被扣减。';
+});
+
+const visibilityHelp = computed(() => {
+  if (visibility.value === 'hidden') {
+    return '示例：教师端不显示金额。适合费用另行线下沟通、不想在 App/小程序露出数字时。';
+  }
+  return '示例：教师只看到「课时费 ¥100」。机构分佣仅后台可见；机构设为「不看金额」时此处无法放开。';
+});
+
 const selectedTeacher = computed(() => teachers.value.find((item) => String(item.id) === String(teacherId.value)) || null);
-const selectedCourse = computed(() => courses.value.find((item) => String(item.id) === String(courseId.value)) || null);
+const selectedCourses = computed(() => {
+  const set = new Set((courseIds.value || []).map(String));
+  return courses.value.filter((item) => set.has(String(item.id)));
+});
+const courseOrgBound = computed(() => selectedCourses.value.some((item) => !!item.organizationId));
 
 /** 已有主预分配的课程不可再选，解除后才回到选项里 */
 const assignedCourseIds = computed(() => new Set(
   grants.value.filter((g) => g.primary).map((g) => String(g.courseId)),
 ));
 
+function courseTimeText(item) {
+  if (!item) return '时间未设';
+  if (item.scheduleText) return item.scheduleText;
+  const day = item.weekday ? WEEKDAY[item.weekday] || '' : '';
+  let time = '';
+  if (item.startTime) {
+    time = item.endTime ? `${item.startTime}-${item.endTime}` : item.startTime;
+  }
+  const text = [day, time].filter(Boolean).join(' ');
+  return text || '时间未设';
+}
+
+function courseMetaText(item) {
+  const school = item.school || '学校未填';
+  const fee = item.sessionFee != null ? `课时费 ¥${item.sessionFee}` : '课时费未设';
+  return `${school} · ${courseTimeText(item)} · ${fee}`;
+}
+
 const courseOptions = computed(() => courses.value
   .filter((item) => !assignedCourseIds.value.has(String(item.id)))
   .map((item) => ({
     value: String(item.id),
     title: item.title,
-    hint: item.sessionFee != null ? `课时费 ¥${item.sessionFee}` : (item.school || ''),
-    search: `${item.title} ${item.school || ''}`,
+    hint: courseMetaText(item),
+    search: `${item.title} ${item.school || ''} ${courseTimeText(item)} ${item.gradeLabel || ''}`,
   })));
 
 const teacherOptions = computed(() => teachers.value.map((item) => ({
@@ -330,33 +435,54 @@ function contractTone(item) {
 }
 
 function resetForm() {
-  courseId.value = '';
+  courseIds.value = [];
   teacherId.value = '';
   baseFee.value = '';
   quote.value = null;
 }
 
-/** 从课程设置带入课时费（创建课程时填的 sessionFee） */
-function applyFeeFromCourse() {
-  const course = selectedCourse.value;
-  if (!course) return;
-  if (course.sessionFee != null && course.sessionFee !== '') {
-    baseFee.value = String(course.sessionFee);
-  } else {
+function removeCourse(id) {
+  courseIds.value = courseIds.value.filter((item) => String(item) !== String(id));
+  onCourse();
+}
+
+/** 从所选课程带入课时费 */
+function applyFeeFromCourses() {
+  const list = selectedCourses.value;
+  if (!list.length) {
     baseFee.value = '';
+    return;
   }
+  // 承接机构课程：课时费 − 机构抽成（抽成按课时费计算）
+  if (list.every((item) => item.organizationId)) {
+    const fees = list.map((item) => {
+      const fee = Number(item.sessionFee || 0);
+      const mode = item.orgCommissionMode || 'fixed';
+      const raw = Number(item.orgCommissionValue || 0);
+      const commission = Math.min(fee, mode === 'percent' ? fee * raw / 100 : raw);
+      return Math.max(0, Math.round((fee - commission) * 100) / 100);
+    });
+    const same = fees.every((n) => n === fees[0]);
+    baseFee.value = same ? String(fees[0]) : '';
+    visibility.value = 'final';
+    return;
+  }
+  const fees = list
+    .map((item) => (item.sessionFee == null || item.sessionFee === '' ? null : Number(item.sessionFee)))
+    .filter((n) => n != null && !Number.isNaN(n));
+  if (!fees.length) {
+    baseFee.value = '';
+    return;
+  }
+  const same = fees.every((n) => n === fees[0]);
+  baseFee.value = same ? String(fees[0]) : '';
 }
 
 function onCourse() {
-  // 已预分配的课程不会出现在选项里；若仍残留已分配 id，清空
-  if (courseId.value && assignedCourseIds.value.has(String(courseId.value))) {
-    courseId.value = '';
-    baseFee.value = '';
-    quote.value = null;
-    return;
-  }
-  applyFeeFromCourse();
-  if (teacherId.value) preview();
+  // 过滤掉已预分配残留
+  courseIds.value = (courseIds.value || []).filter((id) => !assignedCourseIds.value.has(String(id)));
+  applyFeeFromCourses();
+  if (teacherId.value && selectedCourses.value.length) preview();
   else quote.value = null;
 }
 
@@ -367,8 +493,8 @@ function onTeacher() {
     mode.value = 'percent';
     value.value = 0;
   }
-  if (courseId.value && (baseFee.value === '' || baseFee.value == null)) {
-    applyFeeFromCourse();
+  if (selectedCourses.value.length && (baseFee.value === '' || baseFee.value == null)) {
+    applyFeeFromCourses();
   }
   preview();
 }
@@ -395,12 +521,25 @@ async function copyContractLink(group) {
 async function preview() {
   if (!teacherId.value) return;
   try {
+    const first = selectedCourses.value[0];
+    if (first?.organizationId) {
+      quote.value = await api.feePreview({
+        courseOrg: '1',
+        schoolPrice: first.price,
+        sessionFee: first.sessionFee ?? '',
+        mode: first.orgCommissionMode || 'fixed',
+        value: first.orgCommissionValue ?? 0,
+      });
+      if (quote.value?.teacherFee != null) baseFee.value = String(quote.value.teacherFee);
+      return;
+    }
     quote.value = await api.feePreview({
       baseFee: baseFee.value,
       hasOrg: selectedTeacher.value?.organization ? '1' : '0',
       mode: mode.value,
       value: value.value,
       visibility: visibility.value,
+      schoolPrice: first?.price,
     });
   } catch (err) {
     notify.error(err.message || '预览失败');
@@ -408,23 +547,8 @@ async function preview() {
 }
 
 async function save() {
-  if (!courseId.value || !teacherId.value) {
+  if (!selectedCourses.value.length || !teacherId.value) {
     notify.warn('请先选择课程和教师');
-    return;
-  }
-  const occupied = grants.value.find(
-    (item) => String(item.courseId) === String(courseId.value) && item.primary && String(item.userId) !== String(teacherId.value),
-  );
-  if (occupied) {
-    const ok = await notify.confirm({
-      title: '课程已有预分配',
-      message: `「${occupied.title}」已预分配给「${occupied.teacherName}」。\n请先解除分配，再指定其他教师。`,
-      okText: '去解除',
-      cancelText: '知道了',
-      danger: true,
-      icon: 'lock',
-    });
-    if (ok) await revoke(occupied);
     return;
   }
 
@@ -432,39 +556,91 @@ async function save() {
   const lockedHint = teacher?.contractValid
     ? '保存后课程将解锁。'
     : '本学期合同尚未生效，保存后为预分配（课程锁定），合同审核通过后自动解锁。';
+  const changing = selectedCourses.value.filter((item) => String(item.teacherId || '') !== String(teacherId.value));
+  if (changing.length) {
+    teacherChange.value = {
+      kind: 'assign',
+      error: '',
+      note: `${lockedHint}预分配可随时解除，并不代表合同已签订。`,
+      items: changing.map((item) => ({
+        courseId: Number(item.id),
+        title: item.title,
+        fromName: item.teacher ? (item.teacher.teacherCert?.realName || item.teacher.nickname || '') : '',
+        toName: teacher?.realName || teacher?.nickname || '新老师',
+      })),
+    };
+    return;
+  }
+  const names = selectedCourses.value.map((item) => item.title).join('、');
   const ok = await notify.confirm({
     title: '确认预分配',
-    message: `将课程预分配给「${teacher?.realName || teacher?.nickname}」。\n${lockedHint}\n预分配可随时解除，并不代表合同已签订。`,
+    message: `将 ${selectedCourses.value.length} 门课程（${names}）预分配给「${teacher?.realName || teacher?.nickname}」。\n${lockedHint}\n预分配可随时解除，并不代表合同已签订。`,
     okText: '确认保存',
     icon: 'users',
   });
   if (!ok) return;
+  await commitSave();
+}
 
+async function confirmTeacherChange(from) {
+  const state = teacherChange.value;
+  if (!state) return;
+  const ok = state.kind === 'revoke' ? await commitRevoke(state.item, from) : await commitSave(from);
+  if (ok) teacherChange.value = null;
+}
+
+async function commitSave(teacherFrom) {
   saving.value = true;
   try {
-    quote.value = await api.saveGrant(teacherId.value, {
-      courseId: Number(courseId.value),
-      baseFee: baseFee.value,
-      mode: selectedTeacher.value?.organization ? mode.value : null,
-      value: selectedTeacher.value?.organization ? value.value : null,
-      visibility: selectedTeacher.value?.organization ? visibility.value : 'final',
-      primary: true,
-    });
+    let locked = false;
+    for (const course of selectedCourses.value) {
+      const fee = baseFee.value !== '' && baseFee.value != null
+        ? baseFee.value
+        : (course.sessionFee == null ? '' : String(course.sessionFee));
+      const result = await api.saveGrant(teacherId.value, {
+        courseId: Number(course.id),
+        baseFee: fee,
+        mode: course.organizationId
+          ? (course.orgCommissionMode || 'fixed')
+          : (selectedTeacher.value?.organization ? mode.value : null),
+        value: course.organizationId
+          ? (course.orgCommissionValue ?? 0)
+          : (selectedTeacher.value?.organization ? value.value : null),
+        visibility: course.organizationId ? 'final' : (selectedTeacher.value?.organization ? visibility.value : 'final'),
+        primary: true,
+        teacherFrom,
+      });
+      quote.value = result;
+      if (result?.locked) locked = true;
+    }
     notify.success(
-      quote.value?.locked
-        ? '已预分配：课程待解锁，待本学期合同生效后自动解锁'
-        : '已保存授权，课程已解锁',
+      locked
+        ? `已预分配 ${selectedCourses.value.length} 门课：待本学期合同生效后自动解锁`
+        : `已保存 ${selectedCourses.value.length} 门课授权`,
     );
     resetForm();
-    await loadGrants();
+    await load();
+    return true;
   } catch (err) {
-    notify.error(err.message || '保存失败');
+    if (teacherChange.value) teacherChange.value.error = err.message || '保存失败';
+    else notify.error(err.message || '保存失败');
+    return false;
   } finally {
     saving.value = false;
   }
 }
 
 async function revoke(item) {
+  if (item.primary) {
+    teacherChange.value = {
+      kind: 'revoke',
+      item,
+      error: '',
+      note: '解除后课程变为未安排，可重新分配给其他教师。',
+      items: [{ courseId: item.courseId, title: item.title, fromName: item.teacherName, toName: '' }],
+    };
+    return;
+  }
   const ok = await notify.confirm({
     title: '解除预分配',
     message: `确定解除「${item.title}」与教师「${item.teacherName}」的预分配？\n解除后可重新分配给其他教师。`,
@@ -473,18 +649,25 @@ async function revoke(item) {
     icon: 'unlock',
   });
   if (!ok) return;
+  await commitRevoke(item);
+}
+
+async function commitRevoke(item, from) {
   revoking.value = item.id;
   try {
-    await api.revokeGrant(item.userId, item.courseId);
+    await api.revokeGrant(item.userId, item.courseId, from);
     notify.success(`已解除「${item.title}」的预分配`);
-    if (String(courseId.value) === String(item.courseId) && String(teacherId.value) === String(item.userId)) {
-      teacherId.value = '';
+    if (courseIds.value.some((id) => String(id) === String(item.courseId))
+      && String(teacherId.value) === String(item.userId)) {
+      courseIds.value = courseIds.value.filter((id) => String(id) !== String(item.courseId));
       quote.value = null;
     }
-    await loadGrants();
-    // 解除后该课程重新出现在选项中，可直接选中继续排
+    await load();
+    return true;
   } catch (err) {
-    notify.error(err.message || '解除失败');
+    if (teacherChange.value) teacherChange.value.error = err.message || '解除失败';
+    else notify.error(err.message || '解除失败');
+    return false;
   } finally {
     revoking.value = 0;
   }
@@ -514,7 +697,7 @@ async function load() {
   });
 }
 
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>
@@ -542,8 +725,30 @@ onMounted(load);
 
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; margin-bottom: 14px; }
 .fields.two { grid-template-columns: 1fr 1fr; margin: 0; }
+.vis-field { grid-column: 1 / -1; }
+.course-field { grid-column: 1 / -1; }
 .field-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .field-block > span { font-size: 13px; color: #344054; font-weight: 500; }
+.picked-courses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.picked-courses li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.picked-courses strong { font-size: 13px; }
+.picked-courses .link { flex-shrink: 0; border: 0; background: none; cursor: pointer; font-size: 12px; }
 .field-block em { color: #ef4444; font-style: normal; }
 .control {
   position: relative;

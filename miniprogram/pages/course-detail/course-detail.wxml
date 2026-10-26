@@ -13,6 +13,30 @@
     <view class="price" wx:if="{{course.showPrice}}">{{course.priceLabel}} ¥{{course.coursePrice}}</view>
   </view>
 
+  <view class="card block loc" wx:if="{{course.location}}">
+    <view class="h">上课地点</view>
+    <map
+      wx:if="{{hasPoint}}"
+      class="loc-map"
+      latitude="{{course.location.lat}}"
+      longitude="{{course.location.lng}}"
+      scale="16"
+      markers="{{markers}}"
+      enable-zoom="{{false}}"
+      enable-scroll="{{false}}"
+      bindtap="openLocation"
+      bindmarkertap="openLocation"
+    ></map>
+    <view class="loc-info">
+      <view class="loc-text">
+        <view class="loc-name">{{course.location.name}}<text wx:if="{{course.location.classroom}}" class="loc-room"> · {{course.location.classroom}}</text></view>
+        <view class="loc-addr" wx:if="{{course.location.address && course.location.address !== course.location.name}}">{{course.location.address}}</view>
+      </view>
+      <button class="loc-copy" bindtap="copyAddress">复制</button>
+    </view>
+    <button class="btn btn-primary btn-block loc-nav" bindtap="openLocation">导航到这里</button>
+  </view>
+
   <view class="card block">
     <view class="h">课程介绍</view>
     <view class="p">{{course.description || '暂无介绍'}}</view>

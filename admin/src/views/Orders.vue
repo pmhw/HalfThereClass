@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '../api';
 import { dateTime, money, orderStatusText } from '../format';
@@ -88,7 +88,7 @@ const keyword = ref('');
 const status = ref(route.query.status || '');
 const page = ref(1);
 const detail = ref(null);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const result = ref({ list: [], pagination: { page: 1, totalPages: 1, total: 0 } });
 const options = [
   { label: '全部', value: '' },
@@ -148,5 +148,5 @@ watch(() => route.query.status, (value) => {
   status.value = value || '';
   reload();
 });
-onMounted(load);
+bindLoad(load);
 </script>

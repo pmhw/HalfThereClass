@@ -9,10 +9,18 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import {
+  FINANCE_PIN_KEY,
+  type SharedFinancePin,
+  invalidateSharedFinancePin,
+  issueFinanceToken,
+  isWeakFinancePin,
+  loadSharedFinancePin,
+} from '@/common/finance-pin';
+import {
   buildPaginationResult,
   getPaginationParams,
 } from '@/common/utils/pagination.util';
-import { ADMIN_PERMISSIONS, parsePermissions } from '@/modules/admin/admin.permissions';
+import { ADMIN_PERMISSIONS, SCHOOL_PERMISSIONS, hasPermission, normalizePermissions, parsePermissions } from '@/modules/admin/admin.permissions';
 import {
   AGREEMENT_BODY_KEY,
   AGREEMENT_TITLE_KEY,
@@ -38,12 +46,14 @@ import {
   rateLimit,
 } from '@/common/security';
 import { SmsService } from '@/modules/sms/sms.service';
+import { syncTermTeacher } from '@/modules/staff/term-teacher';
 
 const FAIL_LIMIT = 5;
 const FREEZE_MS = 15 * 60 * 1000;
 const CAPTCHA_MS = 5 * 60 * 1000;
 const CAPTCHA_TOLERANCE = 12;
 const captchaFile = join(tmpdir(), 'halfthere-admin-captcha.json');
+const PROCESS_BOOT_AT = Date.now();
 
 type CaptchaTicket = { x: number; expires: number; passed?: boolean };
 
@@ -68,6 +78,18 @@ function saveCaptchaStore(map: Map<string, CaptchaTicket>) {
     if (item.expires > now) data[token] = item;
   }
   writeFileSync(captchaFile, JSON.stringify(data));
+}
+
+const SCHOOL_MAP_META_KEY = 'school_map_meta';
+const SCHOOL_TYPES = ['primary', 'middle', 'training'];
+const SCHOOL_MODES = ['partner', 'direct', 'franchise'];
+
+function guessSchoolType(name: string) {
+  if (/培训|机构/.test(name)) return 'training';
+  if (/小学/.test(name)) return 'primary';
+  if (/中学|初中|高中|学校|学院/.test(name)) return 'middle';
+  if (/教育|中心|学堂|工作室/.test(name)) return 'training';
+  return 'middle';
 }
 
 @Injectable()
@@ -202,6 +224,15 @@ export class AdminService implements OnModuleInit {
     return ADMIN_PERMISSIONS;
   }
 
+  /** 普通管理员只能管理权限不超过自己的账号（校企业账号视为拥有课程、排课、分类权限） */
+  private assertCanManage(actor: any, target: any) {
+    if (actor?.isSuper) return;
+    if (target.isSuper) throw new ForbiddenException('不能修改超级管理员');
+    const own = new Set<string>(parsePermissions(actor?.permissions));
+    const theirs = target.role === 'school' ? SCHOOL_PERMISSIONS : parsePermissions(target.permissions);
+    if (theirs.some((key) => !own.has(key))) throw new ForbiddenException('对方拥有你没有的权限，不能修改或删除');
+  }
+
   async saveAdmin(actor: any, data: any, id?: number) {
     if (!actor?.isSuper && id === actor?.id && data.isSuper === false) {
       throw new ForbiddenException('不能取消自己的超级管理员');
@@ -210,14 +241,26 @@ export class AdminService implements OnModuleInit {
     const current = id ? await this.prisma.adminAccount.findUnique({ where: { id } }) : null;
     if (id && !current) throw new NotFoundException('管理员不存在');
     if (current?.isSuper && !actor?.isSuper) throw new ForbiddenException('不能修改超级管理员');
+    const self = !!current && current.id === actor?.id;
+    if (current && !self) this.assertCanManage(actor, current);
     const username = String(data.username || current?.username || '').trim();
     if (!username) throw new BadRequestException('请填写账号');
     const password = String(data.password || '');
     if (!id && !password) throw new BadRequestException('请填写密码');
     if (password) assertStrongPassword(password);
     const role = data.role === 'school' || (data.role == null && current?.role === 'school') ? 'school' : 'admin';
+    if (self && !actor?.isSuper && role !== current.role) throw new ForbiddenException('不能修改自己的账号类型');
     const isSuper = role === 'school' ? false : (actor?.isSuper ? !!data.isSuper : !!current?.isSuper);
-    const permissions = isSuper ? [] : (role === 'school' ? ['course'] : parsePermissions(JSON.stringify(data.permissions || [])));
+    let permissions: string[] = isSuper ? [] : (role === 'school' ? [...SCHOOL_PERMISSIONS] : normalizePermissions(data.permissions));
+    if (!actor?.isSuper && !isSuper) {
+      if (self) permissions = parsePermissions(current.permissions);
+      const own = new Set<string>(parsePermissions(actor?.permissions));
+      const beyond = permissions.filter((key) => !own.has(key));
+      if (beyond.length) {
+        const labels = ADMIN_PERMISSIONS.filter((item) => beyond.includes(item.key)).map((item) => item.label);
+        throw new ForbiddenException(`不能分配自己没有的权限：${labels.join('、')}`);
+      }
+    }
     if (!isSuper && !permissions.length) throw new BadRequestException('请至少分配一项权限');
     const duplicated = await this.prisma.adminAccount.findFirst({
       where: id ? { username, NOT: { id } } : { username },
@@ -251,6 +294,7 @@ export class AdminService implements OnModuleInit {
       const supers = await this.prisma.adminAccount.count({ where: { isSuper: true } });
       if (!actor?.isSuper || supers <= 1) throw new BadRequestException('至少保留一个超级管理员');
     }
+    this.assertCanManage(actor, current);
     await this.prisma.course.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.category.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
     await this.prisma.semester.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
@@ -289,6 +333,99 @@ export class AdminService implements OnModuleInit {
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
+  profile(admin: any) {
+    return this.publicAdmin(admin);
+  }
+
+  async financePinStatus(admin: any) {
+    const shared = await loadSharedFinancePin(this.prisma);
+    const locked = admin.financePinLockedUntil && admin.financePinLockedUntil.getTime() > Date.now();
+    return {
+      set: !!shared,
+      updatedAt: shared ? new Date(shared.at) : null,
+      canManage: hasPermission(admin, 'admin.settings'),
+      canReset: !!admin.isSuper,
+      lockedUntil: locked ? admin.financePinLockedUntil : null,
+    };
+  }
+
+  /**
+   * 设置 / 修改全员共用的财务密码（仅系统设置权限），修改后所有人需重新输入：
+   * - 首次设置：验证本人登录密码
+   * - 修改：必须输入原财务密码
+   * - 忘记原密码：仅超级管理员可用本人登录密码重置
+   */
+  async setFinancePin(adminId: number, body: { oldPin?: string; password?: string; pin?: string; reset?: boolean }) {
+    rateLimit(`finance-pin:${adminId}`, 30, FREEZE_MS);
+    const admin = await this.loadPinOwner(adminId);
+    if (!hasPermission(admin, 'admin.settings')) throw new ForbiddenException('财务密码由系统管理员统一设置，如需修改请联系管理员');
+    const value = String(body.pin || '');
+    if (!/^\d{6}$/.test(value)) throw new BadRequestException('财务密码须为 6 位数字');
+    if (isWeakFinancePin(value)) throw new BadRequestException('财务密码过于简单，请不要使用相同或连续的数字');
+    const current = await loadSharedFinancePin(this.prisma);
+    if (current && !body.reset) {
+      if (!(await bcrypt.compare(String(body.oldPin || ''), current.hash))) {
+        await this.financePinFailed(admin, '原财务密码');
+      }
+      if (await bcrypt.compare(value, current.hash)) throw new BadRequestException('新财务密码不能与原密码相同');
+    } else {
+      if (current && !admin.isSuper) throw new ForbiddenException('忘记原财务密码时，只能由超级管理员用登录密码重置');
+      if (!(await bcrypt.compare(String(body.password || ''), admin.password))) {
+        await this.financePinFailed(admin, '登录密码');
+      }
+    }
+    const shared: SharedFinancePin = { hash: await bcrypt.hash(value, 10), at: Date.now() };
+    await this.prisma.appSetting.upsert({
+      where: { key: FINANCE_PIN_KEY },
+      create: { key: FINANCE_PIN_KEY, value: JSON.stringify(shared) },
+      update: { value: JSON.stringify(shared) },
+    });
+    invalidateSharedFinancePin();
+    if (admin.financePinFails) {
+      await this.prisma.adminAccount.update({ where: { id: admin.id }, data: { financePinFails: 0 } });
+    }
+    return issueFinanceToken(admin.id, shared.at);
+  }
+
+  async verifyFinancePin(adminId: number, pin: string) {
+    rateLimit(`finance-pin:${adminId}`, 30, FREEZE_MS);
+    const admin = await this.loadPinOwner(adminId);
+    const shared = await loadSharedFinancePin(this.prisma);
+    if (!shared) {
+      throw new BadRequestException({ message: '还没有设置财务密码，请在「系统设置 → 财务密码」中设置', reason: 'finance_pin_unset' });
+    }
+    if (!(await bcrypt.compare(String(pin || ''), shared.hash))) {
+      await this.financePinFailed(admin, '财务密码');
+    }
+    if (admin.financePinFails) {
+      await this.prisma.adminAccount.update({ where: { id: admin.id }, data: { financePinFails: 0 } });
+    }
+    return issueFinanceToken(admin.id, shared.at);
+  }
+
+  private async loadPinOwner(adminId: number) {
+    const admin = await this.prisma.adminAccount.findUnique({ where: { id: adminId } });
+    if (!admin || admin.status !== 1) throw new ForbiddenException('账号已停用');
+    if (admin.financePinLockedUntil && admin.financePinLockedUntil.getTime() > Date.now()) {
+      throw new ForbiddenException(`财务密码错误次数过多，请于 ${this.clock(admin.financePinLockedUntil)} 后再试`);
+    }
+    return admin;
+  }
+
+  private async financePinFailed(admin: { id: number; financePinFails: number }, label: string): Promise<never> {
+    const fails = admin.financePinFails + 1;
+    if (fails >= FAIL_LIMIT) {
+      const lockedUntil = new Date(Date.now() + FREEZE_MS);
+      await this.prisma.adminAccount.update({
+        where: { id: admin.id },
+        data: { financePinFails: 0, financePinLockedUntil: lockedUntil },
+      });
+      throw new ForbiddenException(`${label}错误次数过多，财务功能已锁定 15 分钟`);
+    }
+    await this.prisma.adminAccount.update({ where: { id: admin.id }, data: { financePinFails: fails } });
+    throw new BadRequestException(`${label}不正确，还可尝试 ${FAIL_LIMIT - fails} 次`);
+  }
+
   private publicAdmin(admin: any) {
     return {
       id: admin.id,
@@ -297,7 +434,9 @@ export class AdminService implements OnModuleInit {
       isSuper: admin.isSuper,
       role: admin.role === 'school' ? 'school' : 'admin',
       status: admin.status,
-      permissions: admin.isSuper ? ADMIN_PERMISSIONS.map((item) => item.key) : parsePermissions(admin.permissions),
+      permissions: admin.isSuper
+        ? ADMIN_PERMISSIONS.map((item) => item.key)
+        : admin.role === 'school' ? [...SCHOOL_PERMISSIONS] : parsePermissions(admin.permissions),
       failCount: admin.failCount,
       lockedUntil: admin.lockedUntil,
       createdAt: admin.createdAt,
@@ -488,30 +627,337 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  async search(keyword = '') {
+  /** 首页经营地图：学校与本学期课次、师生、收入和利润。收益随地图返回，不走财务密码。 */
+  async getSchoolMap(semesterId?: number) {
+    const [amap, schools, courses, meta, term] = await Promise.all([
+      this.getAmapRuntimeConfig(),
+      this.prisma.school.findMany({ where: { status: 1 }, orderBy: { id: 'asc' } }),
+      this.prisma.course.findMany({
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          school: true,
+          schoolId: true,
+          organizationId: true,
+          studentCount: true,
+          teacherId: true,
+          activeSemesterId: true,
+          category: { select: { name: true } },
+        },
+      }),
+      this.readSchoolMapMeta(),
+      this.resolveMapSemester(semesterId),
+    ]);
+    const semester = term.semester;
+
+    const byName = new Map(schools.map((s) => [s.name.trim(), s.id]));
+    const courseSchool = new Map<number, number>();
+    for (const course of courses) {
+      const sid = course.schoolId ?? byName.get(String(course.school || '').trim());
+      if (sid && schools.some((s) => s.id === sid)) courseSchool.set(course.id, sid);
+    }
+    const courseIds = [...courseSchool.keys()];
+    const blankValue = () => ({ income: 0, teacherCost: 0, orgCost: 0, otherCost: 0, profit: 0 });
+    const values = new Map(schools.map((s) => [s.id, blankValue()]));
+    let heldCourseIds = new Set<number>();
+    let completedByCourse = new Map<number, number>();
+    let termTeachers: { courseId: number; teacherId: number }[] = [];
+    let profitTeachers: { courseId: number; teacherId: number | null }[] = [];
+    let orders: { courseId: number; userId: number }[] = [];
+    let checkIns: { courseId: number; userId: number }[] = [];
+
+    if (semester && courseIds.length) {
+      const from = new Date(`${semester.startDate}T00:00:00`);
+      const to = new Date(`${semester.endDate}T23:59:59`);
+      const [held, completed, links, profits, paidOrders, signs] = await Promise.all([
+        this.prisma.courseSession.groupBy({
+          by: ['courseId'],
+          where: { courseId: { in: courseIds }, semesterId: semester.id, status: { not: 'cancelled' } },
+          _count: { _all: true },
+        }),
+        this.prisma.courseSession.groupBy({
+          by: ['courseId'],
+          where: { courseId: { in: courseIds }, semesterId: semester.id, status: 'completed' },
+          _count: { _all: true },
+        }),
+        this.prisma.courseTermTeacher.findMany({
+          where: { semesterId: semester.id, courseId: { in: courseIds } },
+          select: { courseId: true, teacherId: true },
+        }),
+        this.prisma.profitRecord.findMany({
+          where: { courseId: { in: courseIds }, sessionDate: { gte: semester.startDate, lte: semester.endDate } },
+          select: {
+            courseId: true,
+            teacherId: true,
+            totalAmount: true,
+            refundAmount: true,
+            teacherAmount: true,
+            institutionAmount: true,
+            settleTo: true,
+            orgSettleAmount: true,
+          },
+        }),
+        this.prisma.order.findMany({
+          where: {
+            courseId: { in: courseIds },
+            status: 'paid',
+            OR: [
+              { payTime: { gte: from, lte: to } },
+              { AND: [{ payTime: null }, { createdAt: { gte: from, lte: to } }] },
+            ],
+          },
+          select: { courseId: true, userId: true },
+        }),
+        this.prisma.checkIn.findMany({
+          where: { courseId: { in: courseIds }, date: { gte: semester.startDate, lte: semester.endDate } },
+          select: { courseId: true, userId: true },
+          distinct: ['courseId', 'userId'],
+        }),
+      ]);
+      heldCourseIds = new Set(held.map((item) => item.courseId));
+      completedByCourse = new Map(completed.map((item) => [item.courseId, item._count._all]));
+      termTeachers = links;
+      profitTeachers = profits;
+      orders = paidOrders;
+      checkIns = signs;
+      for (const record of profits) {
+        const schoolId = courseSchool.get(record.courseId);
+        const bucket = schoolId ? values.get(schoolId) : undefined;
+        if (!bucket) continue;
+        const income = (record.totalAmount || 0) - (record.refundAmount || 0);
+        const teacher = record.settleTo === 'org' ? 0 : Number(record.teacherAmount || 0);
+        const org = record.settleTo === 'org'
+          ? Number(record.orgSettleAmount || record.institutionAmount || 0)
+          : Number(record.institutionAmount || 0);
+        bucket.income += income;
+        bucket.teacherCost += teacher;
+        bucket.orgCost += org;
+        bucket.profit += income - teacher - org;
+      }
+    }
+
+    type Row = {
+      courseIds: number[];
+      openCourses: { id: number; title: string; category: string }[];
+      teacherIds: Set<number>;
+      students: Set<number>;
+      enrollCount: number;
+      courseStudents: number;
+      sessionCount: number;
+      hasOrg: boolean;
+    };
+    const rows = new Map<number, Row>();
+    for (const s of schools) {
+      rows.set(s.id, {
+        courseIds: [],
+        openCourses: [],
+        teacherIds: new Set(),
+        students: new Set(),
+        enrollCount: 0,
+        courseStudents: 0,
+        sessionCount: 0,
+        hasOrg: false,
+      });
+    }
+    const rowOf = (courseId: number) => rows.get(courseSchool.get(courseId) as number);
+
+    for (const course of courses) {
+      if (!heldCourseIds.has(course.id) && course.activeSemesterId !== semester?.id) continue;
+      const row = rowOf(course.id);
+      if (!row) continue;
+      row.courseIds.push(course.id);
+      if (course.activeSemesterId === semester?.id) row.courseStudents += course.studentCount || 0;
+      if (course.organizationId) row.hasOrg = true;
+      row.openCourses.push({ id: course.id, title: course.title, category: course.category?.name || '' });
+      if (course.teacherId && course.activeSemesterId === semester?.id) row.teacherIds.add(course.teacherId);
+      const done = completedByCourse.get(course.id) || 0;
+      row.sessionCount += done;
+    }
+    for (const link of termTeachers) rowOf(link.courseId)?.teacherIds.add(link.teacherId);
+    for (const record of profitTeachers) {
+      if (record.teacherId) rowOf(record.courseId)?.teacherIds.add(record.teacherId);
+    }
+    for (const order of orders) {
+      const row = rowOf(order.courseId);
+      if (!row) continue;
+      row.enrollCount += 1;
+      row.students.add(order.userId);
+    }
+    for (const sign of checkIns) rowOf(sign.courseId)?.students.add(sign.userId);
+
+    const teacherIds = [...new Set([...rows.values()].flatMap((r) => [...r.teacherIds]))];
+    const teachers = teacherIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: teacherIds } },
+          select: { id: true, nickname: true, avatar: true, phone: true, teacherCert: { select: { realName: true } } },
+        })
+      : [];
+    const teacherMap = new Map(
+      teachers.map((t) => [
+        t.id,
+        { id: t.id, name: t.teacherCert?.realName || t.nickname || t.phone || `教师#${t.id}`, avatar: t.avatar || '' },
+      ]),
+    );
+
+    const list = schools.map((s) => {
+      const row = rows.get(s.id) as Row;
+      const saved = meta[s.id] || {};
+      const studentCount = Math.max(row.students.size, row.courseStudents);
+      return {
+        id: s.id,
+        name: s.name,
+        address: s.address || '',
+        city: s.city || '',
+        lng: s.lng,
+        lat: s.lat,
+        type: SCHOOL_TYPES.includes(saved.type) ? saved.type : guessSchoolType(s.name),
+        mode: SCHOOL_MODES.includes(saved.mode) ? saved.mode : row.hasOrg ? 'partner' : 'direct',
+        typeSet: SCHOOL_TYPES.includes(saved.type),
+        modeSet: SCHOOL_MODES.includes(saved.mode),
+        teacherCount: row.teacherIds.size,
+        teachers: [...row.teacherIds].map((id) => teacherMap.get(id)).filter(Boolean),
+        openCourseCount: row.openCourses.length,
+        courseCount: row.courseIds.length,
+        courses: row.openCourses,
+        sessionCount: row.sessionCount,
+        studentCount,
+        enrollCount: Math.max(row.enrollCount, studentCount),
+        value: this.roundMapMoney(values.get(s.id) || blankValue()),
+      };
+    });
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const sumMoney = (key: 'income' | 'teacherCost' | 'orgCost' | 'otherCost' | 'profit') =>
+      round(list.reduce((total, item) => total + item.value[key], 0));
+
+    return {
+      amap: { key: amap.key, security: amap.security },
+      semester,
+      semesters: term.semesters,
+      schools: list,
+      totals: {
+        schoolCount: list.length,
+        placedCount: list.filter((s) => s.lng != null && s.lat != null).length,
+        teacherCount: teacherIds.length,
+        openCourseCount: list.reduce((sum, s) => sum + s.openCourseCount, 0),
+        sessionCount: list.reduce((sum, s) => sum + s.sessionCount, 0),
+        income: sumMoney('income'),
+        teacherCost: sumMoney('teacherCost'),
+        orgCost: sumMoney('orgCost'),
+        otherCost: sumMoney('otherCost'),
+        profit: sumMoney('profit'),
+      },
+    };
+  }
+
+  private roundMapMoney<T extends { income: number; teacherCost: number; orgCost: number; otherCost: number; profit: number }>(value: T) {
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      ...value,
+      income: round(value.income),
+      teacherCost: round(value.teacherCost),
+      orgCost: round(value.orgCost),
+      otherCost: round(Math.abs(value.otherCost) < 0.005 ? 0 : value.otherCost),
+      profit: round(value.profit),
+    };
+  }
+
+  private async resolveMapSemester(semesterId?: number) {
+    const today = new Date();
+    const pad = (n: number) => `${n}`.padStart(2, '0');
+    const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const rows = await this.prisma.semester.findMany({ where: { status: 1 } });
+    const semesters = rows
+      .map((item) => {
+        const phase = item.endDate < todayKey ? 'ended' : item.startDate > todayKey ? 'upcoming' : 'active';
+        return {
+          id: item.id,
+          name: item.name,
+          year: item.year,
+          season: item.season,
+          startDate: item.startDate,
+          endDate: item.endDate,
+          label: `${String(item.year).slice(-2)}${item.season === 'spring' ? '春' : '秋'}`,
+          phase,
+        };
+      })
+      .sort((a, b) => b.year - a.year || (a.season === b.season ? b.id - a.id : a.season === 'autumn' ? -1 : 1));
+    const semester = semesters.find((item) => item.id === semesterId)
+      || semesters.find((item) => item.phase === 'active')
+      || semesters[0]
+      || null;
+    return { semester, semesters };
+  }
+
+  /** 学校类型 / 合作方式只用于首页地图筛选，存放在 app_settings */
+  async saveSchoolMapMeta(schoolId: number, body: { type?: string; mode?: string }) {
+    const school = await this.prisma.school.findUnique({ where: { id: schoolId } });
+    if (!school) throw new NotFoundException('学校不存在');
+    const meta = await this.readSchoolMapMeta();
+    const next = { ...(meta[schoolId] || {}) };
+    if (body.type !== undefined) {
+      if (body.type && !SCHOOL_TYPES.includes(body.type)) throw new BadRequestException('学校类型不正确');
+      if (body.type) next.type = body.type;
+      else delete next.type;
+    }
+    if (body.mode !== undefined) {
+      if (body.mode && !SCHOOL_MODES.includes(body.mode)) throw new BadRequestException('合作方式不正确');
+      if (body.mode) next.mode = body.mode;
+      else delete next.mode;
+    }
+    if (Object.keys(next).length) meta[schoolId] = next;
+    else delete meta[schoolId];
+    const value = JSON.stringify(meta);
+    await this.prisma.appSetting.upsert({
+      where: { key: SCHOOL_MAP_META_KEY },
+      create: { key: SCHOOL_MAP_META_KEY, value },
+      update: { value },
+    });
+    return { id: schoolId, ...next };
+  }
+
+  private async readSchoolMapMeta(): Promise<Record<number, { type?: string; mode?: string }>> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: SCHOOL_MAP_META_KEY } });
+    try {
+      const value = JSON.parse(row?.value || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** 全局搜索：只返回当前账号有权限查看的类别 */
+  async search(keyword = '', actor?: any) {
     const text = keyword.trim();
     if (!text) {
       return { courses: [], users: [], orders: [] };
     }
 
+    const none = Promise.resolve([] as any[]);
     const [courses, users, orders] = await Promise.all([
-      this.prisma.course.findMany({
-        where: { title: { contains: text } },
-        take: 5,
-        select: { id: true, title: true, cover: true },
-      }),
-      this.prisma.user.findMany({
-        where: {
-          OR: [{ nickname: { contains: text } }, { phone: { contains: text } }],
-        },
-        take: 5,
-        select: { id: true, nickname: true, avatar: true },
-      }),
-      this.prisma.order.findMany({
-        where: { orderNo: { contains: text } },
-        take: 5,
-        select: { id: true, orderNo: true, status: true },
-      }),
+      hasPermission(actor, 'course.list')
+        ? this.prisma.course.findMany({
+            where: { title: { contains: text } },
+            take: 5,
+            select: { id: true, title: true, cover: true },
+          })
+        : none,
+      hasPermission(actor, 'people.user')
+        ? this.prisma.user.findMany({
+            where: {
+              OR: [{ nickname: { contains: text } }, { phone: { contains: text } }],
+            },
+            take: 5,
+            select: { id: true, nickname: true, avatar: true },
+          })
+        : none,
+      hasPermission(actor, 'trade.order')
+        ? this.prisma.order.findMany({
+            where: { orderNo: { contains: text } },
+            take: 5,
+            select: { id: true, orderNo: true, status: true },
+          })
+        : none,
     ]);
 
     return { courses, users, orders };
@@ -565,9 +1011,11 @@ export class AdminService implements OnModuleInit {
     });
   }
 
-  async assignCourses(id: number, courseIds: number[]) {
+  async assignCourses(id: number, courseIds: number[], actor?: any) {
+    if (!hasPermission(actor, 'course.list')) throw new ForbiddenException('需要「课程列表」权限才能分配课程');
     const admin = await this.prisma.adminAccount.findUnique({ where: { id } });
     if (!admin || admin.role !== 'school') throw new BadRequestException('只能给校企业账号分配课程');
+    this.assertCanManage(actor, admin);
     const ids = [...new Set((courseIds || []).map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))];
     await this.prisma.course.updateMany({
       where: { ownerId: id, ...(ids.length ? { id: { notIn: ids } } : {}) },
@@ -650,9 +1098,16 @@ export class AdminService implements OnModuleInit {
       this.prisma.course.count({ where: { ...scope, isFree: true } }),
     ]);
     const rows = this.isSchool(actor) ? list.map((item) => ({ ...item, sessionFee: null })) : list;
+    const scheduleMap = await this.courseScheduleMap(rows.map((item) => item.id));
+    const withSchedule = rows.map((item) => ({
+      ...item,
+      scheduleText: scheduleMap.get(item.id)
+        || this.courseFallbackTime(item)
+        || '',
+    }));
 
     return {
-      ...buildPaginationResult(rows, total, pagination.page, pagination.pageSize),
+      ...buildPaginationResult(withSchedule, total, pagination.page, pagination.pageSize),
       openSemesterId: open?.id || null,
       stats: {
         all,
@@ -781,6 +1236,10 @@ export class AdminService implements OnModuleInit {
 
   getSmsConfig() {
     return this.smsService.getAdminConfig();
+  }
+
+  getSmsBalance(force = false) {
+    return this.smsService.getBalance(force);
   }
 
   saveSmsConfig(data: any) {
@@ -1052,6 +1511,9 @@ export class AdminService implements OnModuleInit {
     return {
       name: 'HalfThereClass',
       current,
+      // 更新时 VERSION 文件先于重启被替换，前端靠 bootAt 变化判断服务确已重启
+      bootAt: PROCESS_BOOT_AT,
+      running: process.env.APP_VERSION || current,
       repo: `https://github.com/${repo}`,
       releasesUrl: `https://github.com/${repo}/releases`,
       cnMirror: this.cnMirrorEnabled(),
@@ -1278,6 +1740,15 @@ export class AdminService implements OnModuleInit {
     return env;
   }
 
+  /** 后台执行更新并立即返回，进度走 update-progress；避免长请求被浏览器 / 反向代理超时掐断 */
+  startUpdate(tag?: string) {
+    if (this.updating) throw new BadRequestException('正在更新，请稍候');
+    this.applyUpdate(tag).catch(() => {
+      // 失败信息已写入 updateJob，由前端轮询展示
+    });
+    return { started: true, bootAt: PROCESS_BOOT_AT };
+  }
+
   async applyUpdate(tag?: string) {
     if (this.updating) throw new BadRequestException('正在更新，请稍候');
     this.updating = true;
@@ -1375,11 +1846,14 @@ export class AdminService implements OnModuleInit {
 
       this.setUpdateProgress(64, 'replace', '正在替换程序文件…');
       const keepEnv = join(root, 'backend', '.env');
-      const keepDb = join(root, 'backend', 'prisma', 'dev.db');
       const envBackup = existsSync(keepEnv) ? readFileSync(keepEnv) : null;
-      const dbBackup = existsSync(keepDb) ? keepDb : null;
-      const dbTemp = dbBackup ? join(work, `dev-keep-${Date.now()}.db`) : null;
-      if (dbBackup && dbTemp) copyFileSync(dbBackup, dbTemp);
+      // 库处于 WAL 模式且服务在运行，只能用 VACUUM INTO 做一致性备份；不再拷回覆盖
+      try {
+        const dbSnapshot = join(work, `dev-before-${target.tag}-${Date.now()}.db`).replace(/'/g, "''");
+        await this.prisma.$executeRawUnsafe(`VACUUM INTO '${dbSnapshot}'`);
+      } catch {
+        // 备份失败不阻断更新：程序文件替换不会触碰数据库
+      }
 
       if (existsSync(join(packageDir, 'www'))) {
         rmSync(join(root, 'www'), { recursive: true, force: true });
@@ -1400,7 +1874,7 @@ export class AdminService implements OnModuleInit {
       if (existsSync(join(packageDir, 'backend', 'prisma'))) {
         mkdirSync(join(root, 'backend', 'prisma'), { recursive: true });
         for (const name of readdirSync(join(packageDir, 'backend', 'prisma'))) {
-          if (name === 'dev.db' || name.endsWith('.db-journal')) continue;
+          if (name !== 'init.db' && /\.db($|-journal$|-wal$|-shm$)/.test(name)) continue;
           const from = join(packageDir, 'backend', 'prisma', name);
           const to = join(root, 'backend', 'prisma', name);
           rmSync(to, { recursive: true, force: true });
@@ -1416,13 +1890,15 @@ export class AdminService implements OnModuleInit {
         cpSync(join(packageDir, 'systemd'), join(root, 'systemd'), { recursive: true });
       }
       if (envBackup) writeFileSync(keepEnv, envBackup);
-      if (dbTemp && existsSync(dbTemp)) copyFileSync(dbTemp, keepDb);
 
       this.setUpdateProgress(76, 'deps', '正在安装依赖…');
       await this.runCommand('npm ci --omit=dev', join(root, 'backend'));
       this.setUpdateProgress(86, 'db', '正在更新数据库…');
       await this.runCommand('npx prisma generate', join(root, 'backend'));
-      await this.runCommand('npx prisma migrate deploy', join(root, 'backend'));
+      const migrated = await this.runMigrations(root);
+      if (migrated === 'deferred') {
+        this.setUpdateProgress(92, 'db', '数据库正被当前服务占用，将在重启时自动完成迁移');
+      }
 
       const nextVersion = String(target.tag).replace(/^v/i, '');
       writeFileSync(join(root, 'VERSION'), `${nextVersion}\n`);
@@ -1446,6 +1922,38 @@ export class AdminService implements OnModuleInit {
     }
   }
 
+  /**
+   * 服务运行中执行迁移可能撞上 SQLite 写锁（database is locked）：短暂重试；
+   * 仍被占用且重启流程会自动迁移（systemd ExecStartPre / start.sh）时，交给重启完成。
+   */
+  private async runMigrations(root: string): Promise<'applied' | 'deferred'> {
+    const cwd = join(root, 'backend');
+    const deferrable = this.restartRunsMigrations(root);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= (deferrable ? 1 : 4); attempt += 1) {
+      try {
+        await this.runCommand('npx prisma migrate deploy', cwd);
+        return 'applied';
+      } catch (error) {
+        lastError = error;
+        const detail = String((error as any)?.detail || (error as Error)?.message || error);
+        if (!/database is locked|SQLITE_BUSY/i.test(detail)) throw error;
+        this.setUpdateProgress(88, 'db', `数据库正忙，${attempt * 2} 秒后重试迁移…`);
+        await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+      }
+    }
+    if (deferrable) return 'deferred';
+    throw lastError;
+  }
+
+  private restartRunsMigrations(root: string) {
+    if (process.platform === 'win32') return false;
+    const service = '/etc/systemd/system/halfthereclass.service';
+    if (existsSync(service)) return readFileSync(service, 'utf8').includes('migrate deploy');
+    const startSh = join(root, 'start.sh');
+    return existsSync(startSh) && readFileSync(startSh, 'utf8').includes('migrate deploy');
+  }
+
   private runCommand(command: string, cwd: string) {
     return new Promise<void>((resolve, reject) => {
       const child = spawn(command, {
@@ -1458,10 +1966,26 @@ export class AdminService implements OnModuleInit {
       child.stderr?.on('data', (chunk) => { err += String(chunk); });
       child.on('error', reject);
       child.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new BadRequestException(`命令失败: ${command}${err ? ` (${err.trim()})` : ''}`));
+        if (code === 0) return resolve();
+        const detail = err.trim();
+        if (detail) console.error(`[update] ${command} 失败:\n${detail}`);
+        const error = new BadRequestException(`命令失败: ${command}${detail ? `（${this.summarizeError(detail)}）` : ''}`);
+        (error as any).detail = detail;
+        reject(error);
       });
     });
+  }
+
+  /** 只保留错误要点，完整堆栈写入服务日志 */
+  private summarizeError(text: string) {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line
+        && !/^(at |\d+: |with namespaces|Environment variables loaded|Prisma schema loaded|Datasource |npm (warn|WARN|notice))/.test(line)
+        && !/schema-engine\/|\.rs:\d+/.test(line));
+    const summary = lines.slice(0, 2).join('；');
+    return summary.length > 200 ? `${summary.slice(0, 200)}…` : summary || '详见服务日志';
   }
 
   private scheduleRestart(root: string) {
@@ -1651,7 +2175,7 @@ export class AdminService implements OnModuleInit {
     if (!data.title?.trim()) throw new BadRequestException('请填写课程名称');
     if (!data.categoryId) throw new BadRequestException('请选择分类');
     if (this.isSchool(actor) && (data.price === '' || data.price == null)) throw new BadRequestException('请填写校方价格');
-    await this.ensureCategory(Number(data.categoryId));
+    await this.ensureCategory(Number(data.categoryId), actor);
     const teacherId = await this.normalizeTeacher(data.teacherId, null);
     const place = await this.schoolSnapshot(data);
     const ownerId = this.isSchool(actor) ? actor.id : await this.normalizeSchoolOwner(data.ownerId);
@@ -1666,7 +2190,7 @@ export class AdminService implements OnModuleInit {
     const course = await this.prisma.course.findUnique({ where: { id } });
     if (!course) throw new NotFoundException('课程不存在');
     this.assertOwnCourse(actor, course);
-    if (data.categoryId) await this.ensureCategory(Number(data.categoryId));
+    if (data.categoryId) await this.ensureCategory(Number(data.categoryId), actor);
     if (this.isSchool(actor) && (data.price === '' || data.price == null)) throw new BadRequestException('请填写校方价格');
     const teacherId = data.teacherId === undefined ? course.teacherId : await this.normalizeTeacher(data.teacherId, course.teacherId);
     const place = data.schoolId === undefined && data.school === undefined
@@ -1680,15 +2204,29 @@ export class AdminService implements OnModuleInit {
       data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
     }).then(async (saved) => {
       if (teacherId) await this.ensureTeacherGrantLock(teacherId, id);
-      if (teacherId && saved.activeSemesterId) {
-        await this.prisma.courseTermTeacher.upsert({
-          where: { courseId_semesterId: { courseId: id, semesterId: saved.activeSemesterId } },
-          update: { teacherId, endedAt: null, assignedAt: new Date() },
-          create: { courseId: id, semesterId: saved.activeSemesterId, teacherId },
-        });
-      }
+      if (data.teacherId !== undefined) await syncTermTeacher(this.prisma, id, saved.activeSemesterId, teacherId);
       return saved;
     });
+  }
+
+  /** 只换课程老师（课程列表行内下拉）；返回换之前的老师，供按生效日改算课时费 */
+  async setCourseTeacher(id: number, rawTeacherId: any, actor?: any) {
+    const course = await this.assertCourseAccess(id, actor);
+    const teacherId = await this.normalizeTeacher(rawTeacherId, course.teacherId);
+    const saved = await this.prisma.course.update({
+      where: { id },
+      data: { teacherId, seats: teacherId ? 0 : 1 },
+    });
+    if (teacherId) await this.ensureTeacherGrantLock(teacherId, id);
+    await syncTermTeacher(this.prisma, id, saved.activeSemesterId, teacherId);
+    return { before: course.teacherId, saved };
+  }
+
+  async assertCourseAccess(id: number, actor?: any) {
+    const course = await this.prisma.course.findUnique({ where: { id } });
+    if (!course) throw new NotFoundException('课程不存在');
+    this.assertOwnCourse(actor, course);
+    return course;
   }
 
   async deleteCourse(id: number, actor?: any) {
@@ -1737,22 +2275,23 @@ export class AdminService implements OnModuleInit {
     const list = await this.prisma.course.findMany({ where: { id: { in: this.normalizeIds(ids) } } });
     if (!list.length) throw new BadRequestException('请选择课程');
     for (const course of list) this.assertOwnCourse(actor, course);
+    const categoryOnly = actor?.role !== 'school' && !hasPermission(actor, 'course.list');
 
     const data: any = {};
-    if (patch.gradeLabel !== undefined) {
+    if (!categoryOnly && patch.gradeLabel !== undefined) {
       data.gradeLabel = patch.gradeLabel === '' || patch.gradeLabel == null
         ? null
         : String(patch.gradeLabel).trim() || null;
     }
     if (patch.categoryId !== undefined && patch.categoryId !== '' && patch.categoryId != null) {
       const categoryId = Number(patch.categoryId);
-      await this.ensureCategory(categoryId);
+      await this.ensureCategory(categoryId, actor);
       data.categoryId = categoryId;
     }
-    if (patch.status !== undefined && patch.status !== '' && patch.status != null) {
+    if (!categoryOnly && patch.status !== undefined && patch.status !== '' && patch.status != null) {
       data.status = Number(patch.status) === 1 ? 1 : 0;
     }
-    if (!Object.keys(data).length) throw new BadRequestException('没有可更新的字段');
+    if (!Object.keys(data).length) throw new BadRequestException(categoryOnly ? '只有分类管理权限时只能修改课程分类' : '没有可更新的字段');
 
     await this.prisma.course.updateMany({
       where: { id: { in: list.map((item) => item.id) } },
@@ -1937,6 +2476,45 @@ export class AdminService implements OnModuleInit {
     return row;
   }
 
+  private async courseScheduleMap(courseIds: number[]) {
+    const map = new Map<number, string>();
+    const ids = [...new Set(courseIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (!ids.length) return map;
+    const sessions = await this.prisma.courseSession.findMany({
+      where: {
+        courseId: { in: ids },
+        status: { in: ['scheduled', 'observe', 'rescheduled'] },
+      },
+      select: { courseId: true, weekday: true, startTime: true, endTime: true },
+      orderBy: [{ weekday: 'asc' }, { startTime: 'asc' }],
+      take: Math.min(ids.length * 24, 2000),
+    });
+    const WEEK = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const groups = new Map<number, string[]>();
+    for (const row of sessions) {
+      const day = WEEK[row.weekday] || '';
+      const time = row.endTime ? `${row.startTime}-${row.endTime}` : row.startTime;
+      const label = [day, time].filter(Boolean).join(' ');
+      if (!label) continue;
+      const list = groups.get(row.courseId) || [];
+      if (!list.includes(label)) list.push(label);
+      groups.set(row.courseId, list);
+    }
+    for (const [courseId, labels] of groups) {
+      map.set(courseId, labels.slice(0, 4).join('、') + (labels.length > 4 ? '…' : ''));
+    }
+    return map;
+  }
+
+  private courseFallbackTime(item: { weekday?: number | null; startTime?: string | null; endTime?: string | null }) {
+    const WEEK = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const day = item.weekday ? WEEK[item.weekday] || '' : '';
+    const time = item.startTime
+      ? (item.endTime ? `${item.startTime}-${item.endTime}` : item.startTime)
+      : '';
+    return [day, time].filter(Boolean).join(' ');
+  }
+
   private parseGrabAt(value: any) {
     if (value === '' || value == null) return null;
     const date = new Date(value);
@@ -1978,9 +2556,10 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  private async ensureCategory(id: number) {
+  private async ensureCategory(id: number, actor?: any) {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category) throw new BadRequestException('分类不存在');
+    this.assertOwnRecord(actor, category, '只能使用自己的分类');
   }
 
   private async normalizeTeacher(teacherId: any, previousId?: number | null) {

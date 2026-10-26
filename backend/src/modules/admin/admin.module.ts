@@ -4,9 +4,10 @@ import { AdminService } from './admin.service';
 import { ScheduleModule } from '../schedule/schedule.module';
 import { SmsModule } from '../sms/sms.module';
 import { UserModule } from '../user/user.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
-  imports: [ScheduleModule, SmsModule, UserModule],
+  imports: [ScheduleModule, SmsModule, UserModule, FinanceModule],
   controllers: [AdminAuthController, AdminController],
   providers: [AdminService],
 })

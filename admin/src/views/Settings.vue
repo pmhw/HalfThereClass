@@ -16,6 +16,15 @@
       @retry="load"
     >
     <div class="settings-grid">
+      <button v-if="hasFinance" type="button" class="settings-card" @click="openPin">
+        <span class="settings-icon pin"><Icon name="lock" /></span>
+        <span class="settings-copy">
+          <strong>财务密码</strong>
+          <small>{{ pinStatus.canManage ? '进入财务功能前输入的 6 位数字密码，所有管理员共用' : '所有管理员共用，由系统管理员统一设置' }}</small>
+        </span>
+        <em :class="pinStatus.set ? 'ok' : 'wait'">{{ pinStatus.set ? '已设置' : '未设置' }}</em>
+      </button>
+      <template v-if="canSystem">
       <article class="settings-card entry-card">
         <span class="settings-icon lock">锁</span>
         <span class="settings-copy">
@@ -39,7 +48,7 @@
           <strong>阿里云短信</strong>
           <small>手机网页端验证码注册 / 登录</small>
         </span>
-        <em :class="sms.ready ? 'ok' : 'wait'">{{ sms.ready ? '已启用' : (sms.enabled ? '未配齐' : '未开启') }}</em>
+        <em :class="smsBadge.tone">{{ smsBadge.text }}</em>
       </button>
       <button type="button" class="settings-card" @click="openAmap">
         <span class="settings-icon map"><Icon name="pin" /></span>
@@ -73,7 +82,7 @@
         </span>
         <em :class="partyA.name ? 'ok' : 'wait'">{{ partyA.name || '未配置' }}</em>
       </button>
-      <button type="button" class="settings-card" @click="openDatabase">
+      <button v-if="isSuper" type="button" class="settings-card" @click="openDatabase">
         <span class="settings-icon db"><Icon name="layers" /></span>
         <span class="settings-copy">
           <strong>数据同步</strong>
@@ -81,8 +90,51 @@
         </span>
         <em :class="database.exists ? 'ok' : 'wait'">{{ dbLabel }}</em>
       </button>
+      </template>
     </div>
     </PageLoad>
+
+    <PageModal
+      :open="dialog === 'pin'"
+      size="narrow"
+      icon="lock"
+      :title="pinMode === 'change' ? '修改财务密码' : pinMode === 'reset' ? '重置财务密码' : '设置财务密码'"
+      :desc="pinMode === 'set' ? '所有管理员共用一个，进入财务功能前输入，验证通过后在后台操作期间免输，2 小时无操作才需重输' : '所有管理员共用；修改后所有人需要用新密码重新验证'"
+      :close-on-backdrop="false"
+      @close="close"
+    >
+      <form class="form pin-form" @submit.prevent="savePin">
+        <div v-if="pinMode === 'change'" class="pin-field">
+          <span class="pin-label">原财务密码
+            <button type="button" class="link-btn" @click="forgotPin">忘记原密码？</button>
+          </span>
+          <PinInput ref="pinOld" v-model="pinDraft.oldPin" :error="pinOldErrorTick" @complete="pinFirst?.focus()" />
+        </div>
+        <template v-else>
+          <p v-if="pinMode === 'reset'" class="pin-reset-tip">
+            忘记原财务密码时，由超级管理员验证本人登录密码后直接重置。
+            <button type="button" class="link-btn" @click="pinResetting = false">用原密码修改</button>
+          </p>
+          <label>当前登录密码
+            <input v-model="pinDraft.password" type="password" required autocomplete="current-password" placeholder="验证你本人的身份" />
+          </label>
+        </template>
+        <div class="pin-field">
+          <span>{{ pinMode === 'set' ? '财务密码' : '新的财务密码' }}</span>
+          <PinInput ref="pinFirst" v-model="pinDraft.pin" :error="pinErrorTick" @complete="pinSecond?.focus()" />
+        </div>
+        <div class="pin-field">
+          <span>再输入一次</span>
+          <PinInput ref="pinSecond" v-model="pinDraft.confirm" :error="pinErrorTick" />
+        </div>
+        <p class="muted">6 位数字，不能是相同或连续的数字。连续输错 5 次，财务功能锁定 15 分钟。</p>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+        <div class="form-actions">
+          <button class="btn" type="button" @click="close">取消</button>
+          <button class="btn primary" type="submit" :disabled="saving || pinDraft.pin.length !== 6 || pinDraft.confirm.length !== 6 || (pinMode === 'change' && pinDraft.oldPin.length !== 6)">{{ saving ? '保存中' : '保存' }}</button>
+        </div>
+      </form>
+    </PageModal>
 
     <PageModal
       :open="dialog === 'wx'"
@@ -134,6 +186,66 @@
         <label>模板变量名
           <input v-model="draft.templateParam" placeholder="须与模板一致，默认 code" autocomplete="off" />
         </label>
+
+        <div class="sms-balance" :class="{ low: smsBalance.low }">
+          <div class="sms-balance-head">
+            <strong>剩余量</strong>
+            <button class="link" type="button" :disabled="balanceLoading || !sms.accessKeyId" @click="loadSmsBalance(true)">
+              {{ balanceLoading ? '查询中…' : '刷新' }}
+            </button>
+          </div>
+          <template v-if="!smsBalance.configured">
+            <p class="muted">保存 AccessKey 后可查询剩余量。</p>
+          </template>
+          <template v-else>
+            <div class="sms-balance-grid">
+              <div>
+                <small>资源包剩余</small>
+                <b v-if="smsBalance.remaining != null">{{ formatCount(smsBalance.remaining) }} 条</b>
+                <b v-else class="faint">{{ smsBalance.packagesQueried ? '未查到' : '—' }}</b>
+                <small v-if="smsBalance.total">共 {{ formatCount(smsBalance.total) }} 条</small>
+              </div>
+              <div>
+                <small>账户可用余额</small>
+                <b>{{ smsBalance.accountBalance == null ? '—' : `¥${Number(smsBalance.accountBalance).toFixed(2)}` }}</b>
+              </div>
+            </div>
+            <ul v-if="smsBalance.packages?.length" class="sms-packages">
+              <li v-for="pkg in smsBalance.packages" :key="pkg.instanceId">
+                <span>{{ pkg.name }}</span>
+                <span>{{ pkg.remaining == null ? '—' : formatCount(pkg.remaining) }} / {{ pkg.total == null ? '—' : formatCount(pkg.total) }} {{ pkg.unit }}</span>
+                <small>{{ pkg.expiryTime ? `到期 ${formatTime(pkg.expiryTime)}` : '' }}</small>
+              </li>
+            </ul>
+            <div v-if="smsBalance.packagesQueried && !smsBalance.packages?.length" class="sms-unmatched">
+              <p class="muted tiny">费用中心接口里没有识别到短信资源包。</p>
+              <template v-if="smsBalance.otherPackages?.length">
+                <p class="muted tiny">费用中心返回的其它资源包（请核对其中是否有短信套餐包）：</p>
+                <ul class="sms-packages">
+                  <li v-for="(pkg, idx) in smsBalance.otherPackages" :key="idx">
+                    <span>{{ pkg.name }}</span>
+                    <span>{{ pkg.remaining == null ? '—' : formatCount(pkg.remaining) }} {{ pkg.unit }}</span>
+                    <small>{{ [pkg.commodityCode, pkg.packageType].filter(Boolean).join(' · ') }}</small>
+                  </li>
+                </ul>
+              </template>
+              <p v-else class="muted tiny">费用中心没有返回任何有效资源包，套餐包余量请以短信控制台「业务统计 → 套餐包资费」为准。</p>
+            </div>
+            <p v-if="smsBalance.low" class="error">{{ smsBalance.lowMessage }}，请及时到阿里云充值或购买资源包。</p>
+            <p v-if="smsBalance.error" class="error">{{ smsBalance.error }}</p>
+            <p v-if="smsBalance.checkedAt" class="muted tiny">更新于 {{ formatTime(smsBalance.checkedAt) }}</p>
+          </template>
+        </div>
+
+        <div class="form-row">
+          <label>剩余条数提醒阈值
+            <input v-model.number="draft.lowThreshold" type="number" min="0" step="1" placeholder="默认 200" />
+          </label>
+          <label>余额提醒阈值（元）
+            <input v-model.number="draft.lowBalance" type="number" min="0" step="1" placeholder="默认 20" />
+          </label>
+        </div>
+        <p class="muted tiny">资源包剩余低于条数阈值，或没有资源包且账户余额低于金额阈值时，后台顶部会提醒。查询需给 AccessKey 额外授权 <code>AliyunBSSReadOnlyAccess</code>（费用中心只读）。</p>
         <p v-if="dialogError" class="error">{{ dialogError }}</p>
         <div class="form-actions">
           <button class="btn" type="button" @click="showSecret = !showSecret">{{ showSecret ? '隐藏密钥' : '显示密钥' }}</button>
@@ -227,12 +339,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { api } from '../api';
+import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { api, getProfile } from '../api';
 import { adminEntryUrl } from '../adminBase';
+import { FINANCE_PERMS, allow } from '../access';
+import { setFinanceToken } from '../financePin';
 import Icon from '../components/Icon.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
+import PinInput from '../components/PinInput.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 import { notify } from '../notify';
 
@@ -254,15 +370,61 @@ const agreement = ref({ title: '', content: '' });
 const contract = ref({ title: '', content: '' });
 const partyA = ref({ name: '', creditCode: '', address: '', legalRep: '', phone: '', email: '' });
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
+const isSuper = !!getProfile()?.isSuper;
+const canSystem = allow(getProfile(), 'admin.settings');
+const hasFinance = allow(getProfile(), FINANCE_PERMS);
+const pinStatus = ref({ set: false, canManage: canSystem, canReset: false, lockedUntil: null });
+const pinDraft = ref({ oldPin: '', password: '', pin: '', confirm: '' });
+const pinErrorTick = ref(0);
+const pinOldErrorTick = ref(0);
+const pinOld = ref(null);
+const pinFirst = ref(null);
+const pinSecond = ref(null);
+const pinResetting = ref(false);
+/** set：首次设置（登录密码）；change：修改（原财务密码）；reset：超管忘记原密码时用登录密码重置 */
+const pinMode = computed(() => (!pinStatus.value.set ? 'set' : pinResetting.value ? 'reset' : 'change'));
+
+function forgotPin() {
+  if (!pinStatus.value.canReset) {
+    notify.toast('忘记原财务密码请联系超级管理员重置');
+    return;
+  }
+  pinResetting.value = true;
+  dialogError.value = '';
+}
+const route = useRoute();
 const draft = ref({});
 const dialog = ref('');
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const dialogError = ref('');
 const dialogOk = ref('');
 const saving = ref(false);
 const busy = ref('');
 const showSecret = ref(false);
 const dbLabel = computed(() => (database.value.exists ? formatSize(database.value.size) : '未就绪'));
+const smsBalance = ref({ configured: false, packages: [], remaining: null, total: null, accountBalance: null, low: false, lowMessage: '', error: '' });
+const balanceLoading = ref(false);
+const smsBadge = computed(() => {
+  if (!sms.value.ready) return { tone: 'wait', text: sms.value.enabled ? '未配齐' : '未开启' };
+  if (smsBalance.value.low) return { tone: 'low', text: smsBalance.value.remaining != null && smsBalance.value.packages?.length ? `仅剩 ${formatCount(smsBalance.value.remaining)} 条` : '余额不足' };
+  if (smsBalance.value.remaining != null && smsBalance.value.packages?.length) return { tone: 'ok', text: `剩 ${formatCount(smsBalance.value.remaining)} 条` };
+  return { tone: 'ok', text: '已启用' };
+});
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString('zh-CN');
+}
+
+async function loadSmsBalance(force = false) {
+  balanceLoading.value = true;
+  try {
+    smsBalance.value = await api.smsBalance(force);
+  } catch (err) {
+    smsBalance.value = { ...smsBalance.value, error: err.message || '查询失败' };
+  } finally {
+    balanceLoading.value = false;
+  }
+}
 
 function formatSize(size) {
   const value = Number(size) || 0;
@@ -307,13 +469,15 @@ function formatTime(value) {
 
 async function load() {
   await run(async () => {
+    if (hasFinance) pinStatus.value = await api.financePinStatus();
+    if (!canSystem) return;
     const [mini, amap, text, paper, corp, db, smsCfg] = await Promise.all([
       api.settingsWx(),
       api.settingsAmap(),
       api.settingsAgreement(),
       api.settingsContract(),
       api.settingsPartyA().catch(() => ({ name: '', creditCode: '', address: '', legalRep: '', phone: '', email: '' })),
-      api.databaseInfo().catch(() => ({ exists: false, size: 0, updatedAt: null, hasInit: false })),
+      (isSuper ? api.databaseInfo() : Promise.reject()).catch(() => ({ exists: false, size: 0, updatedAt: null, hasInit: false })),
       api.settingsSms().catch(() => ({ enabled: false, ready: false })),
     ]);
     wx.value = mini;
@@ -324,7 +488,54 @@ async function load() {
     database.value = db;
     sms.value = smsCfg;
   });
+  if (sms.value.accessKeyId) loadSmsBalance(false);
 }
+
+function openPin() {
+  if (!pinStatus.value.canManage) {
+    notify.toast(pinStatus.value.set ? '财务密码由系统管理员统一设置，如需修改请联系管理员' : '还没有设置财务密码，请联系系统管理员设置');
+    return;
+  }
+  pinDraft.value = { oldPin: '', password: '', pin: '', confirm: '' };
+  pinResetting.value = false;
+  dialogError.value = '';
+  dialog.value = 'pin';
+}
+
+async function savePin() {
+  if (pinDraft.value.pin !== pinDraft.value.confirm) {
+    dialogError.value = '两次输入的财务密码不一致';
+    pinDraft.value = { ...pinDraft.value, pin: '', confirm: '' };
+    pinErrorTick.value += 1;
+    pinFirst.value?.focus();
+    return;
+  }
+  saving.value = true;
+  dialogError.value = '';
+  try {
+    const mode = pinMode.value;
+    const data = await api.setFinancePin(mode === 'change'
+      ? { oldPin: pinDraft.value.oldPin, pin: pinDraft.value.pin }
+      : { password: pinDraft.value.password, pin: pinDraft.value.pin, reset: mode === 'reset' });
+    setFinanceToken(data.token, data.expiresAt);
+    pinStatus.value = { ...pinStatus.value, set: true, lockedUntil: null };
+    close();
+    notify.success(mode === 'set' ? '财务密码已设置，所有管理员共用这个密码' : '财务密码已修改，其他管理员需要用新密码重新验证');
+  } catch (err) {
+    dialogError.value = err.message;
+    if (pinMode.value === 'change' && /原财务密码/.test(err.message || '')) {
+      pinDraft.value = { ...pinDraft.value, oldPin: '' };
+      pinOldErrorTick.value += 1;
+      pinOld.value?.focus();
+    }
+  } finally {
+    saving.value = false;
+  }
+}
+
+watch(() => [route.path, route.query.pin], ([path, pin]) => {
+  if (path === '/settings' && pin && canSystem) openPin();
+}, { immediate: true });
 
 function openWx() {
   draft.value = { appId: wx.value.appId, secret: wx.value.secret };
@@ -341,10 +552,13 @@ function openSms() {
     signName: sms.value.signName || '',
     templateCode: sms.value.templateCode || '',
     templateParam: sms.value.templateParam || 'code',
+    lowThreshold: sms.value.lowThreshold ?? 200,
+    lowBalance: sms.value.lowBalance ?? 20,
   };
   showSecret.value = false;
   dialogError.value = '';
   dialog.value = 'sms';
+  if (sms.value.accessKeyId) loadSmsBalance(false);
 }
 
 function openAmap() {
@@ -401,8 +615,12 @@ async function saveSms() {
       signName: String(draft.value.signName || '').trim(),
       templateCode: String(draft.value.templateCode || '').trim(),
       templateParam: String(draft.value.templateParam || 'code').trim() || 'code',
+      lowThreshold: draft.value.lowThreshold === '' ? 200 : Number(draft.value.lowThreshold ?? 200),
+      lowBalance: draft.value.lowBalance === '' ? 20 : Number(draft.value.lowBalance ?? 20),
     });
     close();
+    loadSmsBalance(true);
+    window.dispatchEvent(new CustomEvent('sms-balance-changed'));
   } catch (err) {
     dialogError.value = err.message;
   } finally {
@@ -505,7 +723,7 @@ async function saveInit() {
   }
 }
 
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>
@@ -552,6 +770,11 @@ onMounted(load);
 .settings-icon.corp { background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 16px; }
 .settings-icon.db { background: #f5f3ff; color: #7c3aed; }
 .settings-icon.lock { background: #fff7ed; color: #c2410c; font-weight: 700; font-size: 15px; }
+.settings-icon.pin { background: #fef2f2; color: #dc2626; }
+.pin-form .pin-field { display: grid; gap: 8px; color: var(--text); font-size: 13px; font-weight: 600; }
+.pin-form .pin-label { display: flex; justify-content: space-between; align-items: center; }
+.pin-form .link-btn { padding: 0; border: 0; background: none; color: var(--primary, #2563eb); font-size: 12px; font-weight: 500; cursor: pointer; }
+.pin-form .pin-reset-tip { margin: 0; padding: 8px 10px; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; line-height: 1.6; }
 .entry-card {
   grid-column: 1 / -1;
   cursor: default;
@@ -600,6 +823,35 @@ onMounted(load);
 }
 .settings-card em.ok { background: #ecfdf3; color: #047857; }
 .settings-card em.wait { background: #f2f4f7; color: #667085; }
+.settings-card em.low { background: #fef3f2; color: #b42318; }
+.sms-balance {
+  padding: 12px 14px;
+  border: 1px solid var(--line, #e4e7ec);
+  border-radius: 12px;
+  background: #f8fafc;
+  display: grid;
+  gap: 8px;
+}
+.sms-balance.low { border-color: #fecdca; background: #fffbfa; }
+.sms-balance-head { display: flex; align-items: center; justify-content: space-between; }
+.sms-balance-head strong { font-size: 14px; }
+.sms-balance-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sms-balance-grid > div { padding: 8px 10px; border-radius: 10px; background: #fff; }
+.sms-balance-grid small { display: block; color: #98a2b3; font-size: 12px; }
+.sms-balance-grid b { display: block; margin: 2px 0; font-size: 18px; color: #111827; font-variant-numeric: tabular-nums; }
+.sms-balance.low .sms-balance-grid b { color: #b42318; }
+.sms-balance-grid b.faint { color: #98a2b3; font-size: 15px; }
+.sms-unmatched { display: grid; gap: 6px; }
+.sms-packages { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.sms-packages li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 10px;
+  font-size: 12px;
+  color: #475467;
+}
+.sms-packages li small { grid-column: 1 / -1; color: #98a2b3; }
+.muted.tiny { font-size: 12px; margin: 0; }
 @media (max-width: 860px) {
   .settings-grid { grid-template-columns: 1fr; }
   .settings-card em { max-width: 96px; }

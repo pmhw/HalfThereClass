@@ -6,6 +6,7 @@ import {
 } from '@/common/utils/pagination.util';
 import { CourseListDto } from './dto/course-list.dto';
 import { StaffService } from '../staff/staff.service';
+import { teacherFeeView } from '../staff/fee';
 import { ScheduleService } from '../schedule/schedule.service';
 
 const courseCardSelect = {
@@ -108,6 +109,8 @@ export class CourseService {
       include: {
         category: { select: { id: true, name: true } },
         teacher: { select: { id: true, nickname: true } },
+        organization: { select: { status: true, commissionMode: true, commissionValue: true, feeVisibility: true } },
+        campus: { select: { name: true, address: true, province: true, city: true, lng: true, lat: true } },
         lessons: {
           where: { status: 1 },
           orderBy: { sort: 'asc' },
@@ -127,13 +130,48 @@ export class CourseService {
 
     const gate = await this.teacherGate(userId);
     const view = this.present(course, gate.certified, userId, gate.contracted);
-    if (gate.certified && !course.teacherId) {
-      const fee = course.sessionFee != null ? Number(course.sessionFee) : null;
-      view.showPrice = true;
-      view.coursePrice = fee != null ? fee : Number(course.price || 0);
-      view.priceLabel = fee != null ? '课时费' : '课程价格';
+    if (gate.certified && !course.teacherId && userId) {
+      // 与教师端其它页面同一口径：机构不允许查看则不展示；允许也只给最终课时费，不露校方价与机构抽成
+      const fee = teacherFeeView(await this.staffService.quote(userId, course.id));
+      if (fee.showFee && fee.teacherFee != null) {
+        view.showPrice = true;
+        view.coursePrice = fee.teacherFee;
+        view.priceLabel = '课时费';
+      }
     }
-    return { ...view, isBought, lessons: course.lessons };
+    return { ...view, isBought, lessons: course.lessons, location: this.locationOf(course) };
+  }
+
+  /** 上课地点：学校坐标为高德（GCJ-02），小程序 map / openLocation 与高德可直接使用 */
+  private locationOf(course: any) {
+    const campus = course.campus;
+    const name = String(campus?.name || course.school || '').trim();
+    const region = [campus?.province || course.province, campus?.city || course.city]
+      .filter((v, i, arr) => v && arr.indexOf(v) === i)
+      .join('');
+    const address = String(campus?.address || '').trim() || (name ? `${region}${name}` : '');
+    if (!name && !address) return null;
+    const lng = campus?.lng == null ? NaN : Number(campus.lng);
+    const lat = campus?.lat == null ? NaN : Number(campus.lat);
+    const hasPoint = Number.isFinite(lng) && Number.isFinite(lat) && !(lng === 0 && lat === 0);
+    return {
+      name: name || address,
+      address,
+      classroom: course.classroom || '',
+      lng: hasPoint ? lng : null,
+      lat: hasPoint ? lat : null,
+    };
+  }
+
+  /** 手机网页地图：只下发 JS Key，安全密钥由 /_AMapService 代理附加 */
+  async mapConfig() {
+    const rows = await this.prisma.appSetting.findMany({
+      where: { key: { in: ['amapKey', 'amapSecurity'] } },
+      select: { key: true, value: true },
+    });
+    const map = Object.fromEntries(rows.map((r) => [r.key, String(r.value || '').trim()]));
+    const enabled = !!(map.amapKey && map.amapSecurity);
+    return { enabled, key: enabled ? map.amapKey : '', serviceHost: '/_AMapService' };
   }
 
   async getRecommendCourses(limit = 6, userId?: number) {
@@ -168,13 +206,14 @@ export class CourseService {
       where: {
         date,
         ...(open ? { semesterId: open.id } : {}),
+        course: { status: 1 },
       },
       orderBy: { startTime: 'asc' },
       include: { course: { select: courseCardSelect } },
     });
-    const source = sessions.length
-      ? sessions
-          .filter((item) => ['scheduled', 'observe', 'completed'].includes(item.status))
+    const liveSessions = sessions.filter((item) => ['scheduled', 'observe', 'completed'].includes(item.status));
+    const source = liveSessions.length
+      ? liveSessions
           .map((item) => this.present({
             ...item.course,
             startTime: item.startTime,
@@ -275,7 +314,7 @@ export class CourseService {
       update: {},
       create: { userId, courseId, date, place: course.school },
     });
-    await this.staffService.settle(userId, courseId, date);
+    await this.staffService.settle(userId, courseId, date, { exclusive: true });
     return record;
   }
 
@@ -366,9 +405,24 @@ export class CourseService {
       isMine: !!userId && course.teacherId === userId,
       teacherName: course.teacher?.nickname || '',
     };
-    delete result.price;
-    delete result.originalPrice;
-    delete result.sessionFee;
+    // 前台 / 教师端不暴露机构归属与分成配置
+    for (const key of [
+      'price',
+      'originalPrice',
+      'sessionFee',
+      'organizationId',
+      'organization',
+      'orgCommissionMode',
+      'orgCommissionValue',
+      'teacherShareMode',
+      'teacherShareValue',
+      'institutionShareMode',
+      'institutionShareValue',
+      'ownerId',
+      'campus',
+    ]) {
+      delete result[key];
+    }
     return result;
   }
 

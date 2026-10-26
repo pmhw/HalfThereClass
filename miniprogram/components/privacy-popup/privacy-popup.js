@@ -38,12 +38,14 @@ Component({
       this._resolve = null;
       this.setData({ show: false });
       if (resolve) resolve({ buttonId: 'privacy-agree-btn', event: 'agree' });
+      this.triggerEvent('agree');
     },
     onRefuse() {
       const resolve = this._resolve;
       this._resolve = null;
       this.setData({ show: false });
       if (resolve) resolve({ event: 'disagree' });
+      this.triggerEvent('refuse');
     },
   },
 });

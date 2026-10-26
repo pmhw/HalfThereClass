@@ -5,11 +5,6 @@
         <h1>机构收益</h1>
         <p>按月统计合作机构课程收入与机构所得</p>
       </div>
-      <div class="actions">
-        <select v-model="month" @change="load">
-          <option v-for="item in monthOptions" :key="item" :value="item">{{ item }}</option>
-        </select>
-      </div>
     </div>
 
     <PageLoad :loading="loading" :ready="ready" :error="error" :columns="5" @retry="load">
@@ -20,7 +15,8 @@
               <th>机构</th>
               <th>合作课程</th>
               <th>总收入</th>
-              <th>机构所得</th>
+              <th>机构利润</th>
+              <th>结算给机构</th>
               <th>平台利润</th>
               <th class="col-actions">操作</th>
             </tr>
@@ -31,12 +27,14 @@
               <td>{{ item.courseCount }}</td>
               <td>{{ money(item.totalAmount) }}</td>
               <td>{{ money(item.institutionAmount) }}</td>
+              <td>{{ money(item.orgSettleAmount) }}</td>
               <td>{{ money(item.platformAmount) }}</td>
               <td class="col-actions">
                 <button class="link" type="button" @click="openDetail(item.organizationId)">课程明细</button>
+                <router-link class="link" :to="{ path: '/finance', query: { tab: 'org', organizationId: item.organizationId, month } }">利润明细</router-link>
               </td>
             </tr>
-            <tr v-if="!list.length"><td colspan="6" class="empty">本月暂无机构收益</td></tr>
+            <tr v-if="!list.length"><td colspan="7" class="empty">本月暂无机构收益（未固定的月份不统计）</td></tr>
           </tbody>
         </table>
       </article>
@@ -71,32 +69,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { api } from '../api';
 import { money } from '../format';
 import PageLoad from '../components/PageLoad.vue';
 import PageModal from '../components/PageModal.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { useFinanceMonth } from '../composables/useFinanceMonth';
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-const month = ref(currentMonth());
-const monthOptions = computed(() => {
-  const list = [];
-  const now = new Date();
-  for (let i = 0; i < 18; i += 1) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    list.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return list;
-});
+const month = useFinanceMonth(() => load());
 
 const list = ref([]);
 const detail = ref(null);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 
 async function load() {
   await run(async () => {
@@ -108,5 +93,5 @@ async function openDetail(id) {
   detail.value = await api.financeOrg(id, { month: month.value });
 }
 
-onMounted(load);
+bindLoad(load);
 </script>

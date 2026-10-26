@@ -11,6 +11,9 @@ import { clientIp, isMaskedSecret, maskSecret, rateLimit } from '@/common/securi
 const CODE_TTL_MS = 5 * 60 * 1000;
 const RESEND_MS = 60 * 1000;
 const CODE_FILE = join(tmpdir(), 'halfthere-sms-codes.json');
+const BALANCE_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_LOW_THRESHOLD = 200;
+const DEFAULT_LOW_BALANCE = 20;
 
 const SMS_KEYS = [
   'smsEnabled',
@@ -19,6 +22,8 @@ const SMS_KEYS = [
   'smsSignName',
   'smsTemplateCode',
   'smsTemplateParam',
+  'smsLowThreshold',
+  'smsLowBalance',
 ] as const;
 
 type SmsTicket = { codeHash: string; expires: number; sentAt: number; tries: number };
@@ -30,7 +35,52 @@ type SmsRuntimeConfig = {
   signName: string;
   templateCode: string;
   templateParam: string;
+  /** 资源包剩余条数低于此值时提醒 */
+  lowThreshold: number;
+  /** 无资源包（按量付费）时，账户可用余额低于此值（元）提醒 */
+  lowBalance: number;
 };
+
+export type SmsPackage = {
+  instanceId: string;
+  name: string;
+  status: string;
+  total: number | null;
+  remaining: number | null;
+  unit: string;
+  expiryTime: string | null;
+};
+
+export type SmsBalance = {
+  enabled: boolean;
+  configured: boolean;
+  /** 资源包接口至少成功调用过一次 */
+  packagesQueried: boolean;
+  packages: SmsPackage[];
+  /** 未识别为短信的其它资源包（用于核对阿里云的归类） */
+  otherPackages: { name: string; commodityCode: string; packageType: string; remaining: number | null; unit: string }[];
+  remaining: number | null;
+  total: number | null;
+  accountBalance: number | null;
+  currency: string;
+  threshold: number;
+  balanceThreshold: number;
+  low: boolean;
+  lowMessage: string;
+  error: string;
+  checkedAt: string;
+};
+
+function toAmount(value: unknown) {
+  if (value == null || value === '') return null;
+  const num = Number(String(value).replace(/[,\s]/g, ''));
+  return Number.isFinite(num) ? num : null;
+}
+
+function toNonNegative(value: unknown, fallback: number) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : fallback;
+}
 
 function loadStore() {
   const map = new Map<string, SmsTicket>();
@@ -69,6 +119,8 @@ export function normalizeCnPhone(input: string) {
 
 @Injectable()
 export class SmsService {
+  private balanceCache: { at: number; data: SmsBalance } | null = null;
+
   constructor(private prisma: PrismaService) {}
 
   async getAdminConfig() {
@@ -81,6 +133,8 @@ export class SmsService {
       signName: cfg.signName,
       templateCode: cfg.templateCode,
       templateParam: cfg.templateParam || 'code',
+      lowThreshold: cfg.lowThreshold,
+      lowBalance: cfg.lowBalance,
       ready: this.isReady(cfg),
     };
   }
@@ -92,6 +146,8 @@ export class SmsService {
     signName?: string;
     templateCode?: string;
     templateParam?: string;
+    lowThreshold?: number | string;
+    lowBalance?: number | string;
   }) {
     const current = await this.loadRuntimeConfig();
     const accessKeyId = String(data.accessKeyId ?? current.accessKeyId ?? '').trim();
@@ -114,6 +170,9 @@ export class SmsService {
       if (!templateCode) throw new BadRequestException('请填写模板 CODE');
     }
 
+    const lowThreshold = Math.floor(toNonNegative(data.lowThreshold ?? current.lowThreshold, DEFAULT_LOW_THRESHOLD));
+    const lowBalance = Math.round(toNonNegative(data.lowBalance ?? current.lowBalance, DEFAULT_LOW_BALANCE) * 100) / 100;
+
     const rows: { key: string; value: string }[] = [
       { key: 'smsEnabled', value: enabled ? '1' : '0' },
       { key: 'smsAccessKeyId', value: accessKeyId },
@@ -121,6 +180,8 @@ export class SmsService {
       { key: 'smsSignName', value: signName },
       { key: 'smsTemplateCode', value: templateCode },
       { key: 'smsTemplateParam', value: templateParam },
+      { key: 'smsLowThreshold', value: String(lowThreshold) },
+      { key: 'smsLowBalance', value: String(lowBalance) },
     ];
     await this.prisma.$transaction(
       rows.map((row) =>
@@ -131,7 +192,153 @@ export class SmsService {
         }),
       ),
     );
+    this.balanceCache = null;
     return this.getAdminConfig();
+  }
+
+  /**
+   * 短信剩余量：阿里云费用中心（BSS）资源包剩余条数 + 账户可用余额。
+   * AccessKey 需额外授权 AliyunBSSReadOnlyAccess。
+   */
+  async getBalance(force = false): Promise<SmsBalance> {
+    if (!force && this.balanceCache && Date.now() - this.balanceCache.at < BALANCE_TTL_MS) {
+      return this.balanceCache.data;
+    }
+    const cfg = await this.loadRuntimeConfig();
+    const base: SmsBalance = {
+      enabled: cfg.enabled,
+      configured: Boolean(cfg.accessKeyId && cfg.accessKeySecret),
+      packagesQueried: false,
+      packages: [],
+      otherPackages: [],
+      remaining: null,
+      total: null,
+      accountBalance: null,
+      currency: 'CNY',
+      threshold: cfg.lowThreshold,
+      balanceThreshold: cfg.lowBalance,
+      low: false,
+      lowMessage: '',
+      error: '',
+      checkedAt: new Date().toISOString(),
+    };
+    if (!base.configured) {
+      this.balanceCache = { at: Date.now(), data: base };
+      return base;
+    }
+
+    const Client = PopCore.RPCClient || PopCore;
+    const client = new Client({
+      accessKeyId: cfg.accessKeyId,
+      accessKeySecret: cfg.accessKeySecret,
+      endpoint: 'https://business.aliyuncs.com',
+      apiVersion: '2017-12-14',
+    });
+    const call = (action: string, params: Record<string, unknown> = {}) =>
+      client.request(action, params, { method: 'POST', timeout: 10000 }) as Promise<any>;
+
+    const errors: string[] = [];
+    // 官方文档未给出短信的 ProductCode，按候选代码 + 全量资源包关键字双路识别
+    const found = new Map<string, any>();
+    const keep = (rows: any[]) => rows.forEach((row) => found.set(String(row.InstanceId || JSON.stringify(row)), row));
+    let packagesQueried = false;
+    for (const productCode of ['dysms', 'sms']) {
+      try {
+        keep(await this.queryPackages(call, { ProductCode: productCode }));
+        packagesQueried = true;
+      } catch (err: any) {
+        if (!/InvalidParameter/i.test(String(err?.data?.Code || err?.code || ''))) errors.push(this.mapBssError(err));
+      }
+    }
+    let others: any[] = [];
+    try {
+      const all = await this.queryPackages(call, {});
+      packagesQueried = true;
+      const isSms = (item: any) =>
+        /短信|sms/i.test(
+          [item.Remark, item.PackageType, item.CommodityCode, JSON.stringify(item.ApplicableProducts || '')].join(' '),
+        );
+      keep(all.filter(isSms));
+      others = all.filter((item) => !found.has(String(item.InstanceId || JSON.stringify(item))));
+    } catch (err) {
+      errors.push(this.mapBssError(err));
+    }
+    const instances = [...found.values()];
+    base.packagesQueried = packagesQueried;
+    base.otherPackages = others.slice(0, 20).map((item) => ({
+      name: String(item.Remark || item.PackageType || item.InstanceId || ''),
+      commodityCode: String(item.CommodityCode || ''),
+      packageType: String(item.PackageType || ''),
+      remaining: toAmount(item.RemainingAmount),
+      unit: String(item.RemainingAmountUnit || ''),
+    }));
+
+    try {
+      const res = await call('QueryAccountBalance');
+      base.accountBalance = toAmount(res?.Data?.AvailableAmount ?? res?.Data?.AvailableCashAmount);
+      base.currency = String(res?.Data?.Currency || 'CNY');
+    } catch (err) {
+      errors.push(this.mapBssError(err));
+    }
+
+    const now = Date.now();
+    base.packages = instances.map((item) => ({
+      instanceId: String(item.InstanceId || ''),
+      name: String(item.Remark || item.PackageType || '短信资源包'),
+      status: String(item.Status || ''),
+      total: toAmount(item.TotalAmount),
+      remaining: toAmount(item.RemainingAmount),
+      unit: String(item.RemainingAmountUnit || item.TotalAmountUnit || '条'),
+      expiryTime: item.ExpiryTime ? String(item.ExpiryTime) : null,
+    }));
+    const active = base.packages.filter((pkg) => {
+      if (/expire|invalid|exhaust|release|失效|过期|用完/i.test(pkg.status)) return false;
+      const expiry = pkg.expiryTime ? new Date(pkg.expiryTime).getTime() : NaN;
+      return Number.isNaN(expiry) || expiry > now;
+    });
+    if (active.length) {
+      base.remaining = active.reduce((sum, pkg) => sum + (pkg.remaining || 0), 0);
+      base.total = active.reduce((sum, pkg) => sum + (pkg.total || 0), 0);
+    }
+
+    if (cfg.enabled) {
+      const balanceLow = base.accountBalance != null && base.accountBalance < cfg.lowBalance;
+      if (active.length && (base.remaining ?? 0) < cfg.lowThreshold) {
+        base.low = true;
+        base.lowMessage = `短信资源包仅剩 ${base.remaining} 条（提醒阈值 ${cfg.lowThreshold} 条）`;
+        if (balanceLow) base.lowMessage += `，账户余额 ¥${base.accountBalance!.toFixed(2)} 也不足`;
+      } else if (!active.length && balanceLow) {
+        base.low = true;
+        base.lowMessage = `没有可用的短信资源包，账户余额仅 ¥${base.accountBalance!.toFixed(2)}（提醒阈值 ¥${cfg.lowBalance}）`;
+      }
+    }
+    base.error = [...new Set(errors)].join('；');
+    this.balanceCache = { at: Date.now(), data: base };
+    return base;
+  }
+
+  private async queryPackages(call: (action: string, params?: Record<string, unknown>) => Promise<any>, extra: Record<string, unknown>) {
+    const list: any[] = [];
+    for (let page = 1; page <= 5; page += 1) {
+      const res = await call('QueryResourcePackageInstances', { ...extra, PageNum: page, PageSize: 100 });
+      if (res?.Success === false) throw Object.assign(new Error(res?.Message || '查询资源包失败'), { code: res?.Code });
+      const rows = res?.Data?.Instances?.Instance || [];
+      list.push(...rows);
+      const totalCount = Number(res?.Data?.TotalCount || 0);
+      if (!rows.length || list.length >= totalCount) break;
+    }
+    return list;
+  }
+
+  private mapBssError(err: any) {
+    const code = String(err?.data?.Code || err?.code || '');
+    const message = String(err?.data?.Message || err?.message || err || '');
+    if (/NotAuthorized|Forbidden|NoPermission|无权限|not authorized/i.test(code + message)) {
+      return 'AccessKey 没有费用中心查询权限，请在 RAM 授权 AliyunBSSReadOnlyAccess';
+    }
+    if (/InvalidAccessKey|SignatureDoesNotMatch/i.test(code + message)) return 'AccessKey ID 或 Secret 不正确';
+    if (/timeout|ETIMEDOUT|ECONN|ENOTFOUND/i.test(code + message)) return '连接阿里云费用中心超时，请稍后重试';
+    return message ? `查询失败：${message}` : '查询失败';
   }
 
   async getStatus() {
@@ -230,6 +437,8 @@ export class SmsService {
       signName: pick('smsSignName', 'SMS_SIGN_NAME'),
       templateCode: pick('smsTemplateCode', 'SMS_TEMPLATE_CODE'),
       templateParam: pick('smsTemplateParam', 'SMS_TEMPLATE_PARAM') || 'code',
+      lowThreshold: toNonNegative(pick('smsLowThreshold', 'SMS_LOW_THRESHOLD') || DEFAULT_LOW_THRESHOLD, DEFAULT_LOW_THRESHOLD),
+      lowBalance: toNonNegative(pick('smsLowBalance', 'SMS_LOW_BALANCE') || DEFAULT_LOW_BALANCE, DEFAULT_LOW_BALANCE),
     };
   }
 

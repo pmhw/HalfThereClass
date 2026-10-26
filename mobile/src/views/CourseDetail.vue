@@ -17,6 +17,8 @@
       <div v-if="course.showPrice" class="price">{{ course.priceLabel }} ¥{{ course.coursePrice }}</div>
     </div>
 
+    <CourseMap :location="course.location" />
+
     <div class="card block">
       <div class="h">课程介绍</div>
       <p class="p">{{ course.description || '暂无介绍' }}</p>
@@ -53,6 +55,7 @@ import { onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getCourseDetail, grabCourse } from '../api';
 import { showToast } from '../api/request';
+import CourseMap from '../components/CourseMap.vue';
 import { goBack, countdownText, requireLogin, weekdayText } from '../utils/helpers';
 
 const route = useRoute();

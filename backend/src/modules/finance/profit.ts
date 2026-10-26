@@ -1,14 +1,13 @@
 import { roundMoney } from '@/modules/staff/fee';
 
 /**
- * 单节课利润（与机构分佣 / 课时费一致）：
- *   教师所得 = 课时费
- *   机构所得 = 分佣（固定金额/节 或 按课时费比例；不从教师课时费里扣）
- *   平台利润 = 校方价格 − 课时费 − 分佣
+ * 单节课利润：
+ *   教师所得 = 教师实得课时费（承接机构课：课时费 − 机构利润）
+ *   机构利润 = 机构抽成（归属机构，不是平台）
+ *   平台利润 = 校方价格 − 教师所得 − 机构利润（承接机构课即 校方价格 − 课时费）
  *
- * 全职机构分佣多为 0：平台利润 = 校方价格 − 课时费
- * 兼职机构固定抽成：平台利润 = 校方价格 − 课时费 − 分佣值
- * 一般定价：校方价格 ≈ 课时费 + 分佣值
+ * 机构设为「不展示金额」时直接结算给机构：
+ *   教师所得记 0，机构结算额 = 教师部分 + 机构利润，由机构自行给老师发放
  */
 export type SessionProfit = {
   schoolPrice: number;
@@ -17,6 +16,8 @@ export type SessionProfit = {
   institutionAmount: number;
   platformAmount: number;
   costAmount: number;
+  orgSettleAmount: number;
+  settleTo: 'teacher' | 'org';
   teacherRate: number | null;
   institutionRate: number | null;
   platformRate: number | null;
@@ -31,17 +32,21 @@ export function calculateSessionProfit(input: {
   commissionMode?: string | null;
   commissionValue?: number | null;
   teacherFee?: number | null;
+  settleToOrg?: boolean;
 }): SessionProfit {
   const schoolPrice = roundMoney(Math.max(0, Number(input.schoolPrice) || 0));
-  const sessionFee = roundMoney(Math.max(0, Number(
-    input.sessionFee != null ? input.sessionFee : input.teacherFee,
-  ) || 0));
   const institutionAmount = roundMoney(Math.max(0, Number(input.commission) || 0));
-  const teacherAmount = roundMoney(
-    input.teacherFee != null ? Math.max(0, Number(input.teacherFee) || 0) : sessionFee,
-  );
-  const costAmount = roundMoney(teacherAmount + institutionAmount);
-  const platformAmount = roundMoney(schoolPrice - teacherAmount - institutionAmount);
+  const teacherShare = roundMoney(Math.max(0, Number(
+    input.teacherFee != null ? input.teacherFee : input.sessionFee,
+  ) || 0));
+  const sessionFee = input.sessionFee != null
+    ? roundMoney(Math.max(0, Number(input.sessionFee) || 0))
+    : teacherShare;
+  const costAmount = roundMoney(teacherShare + institutionAmount);
+  const platformAmount = roundMoney(schoolPrice - costAmount);
+  const settleTo = input.settleToOrg ? 'org' : 'teacher';
+  const teacherAmount = settleTo === 'org' ? 0 : teacherShare;
+  const orgSettleAmount = settleTo === 'org' ? costAmount : institutionAmount;
   const rate = (part: number) => (schoolPrice > 0 ? roundMoney(part / schoolPrice) : null);
 
   return {
@@ -51,6 +56,8 @@ export function calculateSessionProfit(input: {
     institutionAmount,
     platformAmount,
     costAmount,
+    orgSettleAmount,
+    settleTo,
     teacherRate: rate(teacherAmount),
     institutionRate: rate(institutionAmount),
     platformRate: rate(platformAmount),

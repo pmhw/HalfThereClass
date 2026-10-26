@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { randomUUID } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import {
   CONTRACT_BODY_KEY,
@@ -13,26 +12,13 @@ import {
   parsePartyA,
 } from '@/common/contract';
 import { renderMarkdown } from '@/common/markdown';
-import { calculateFee, teacherFeeView } from '@/modules/staff/fee';
+import { calculateCourseOrgFee, calculateFee, teacherFeeView } from '@/modules/staff/fee';
 import { normalizeRejectFields, rejectFieldLabels } from '@/common/cert-reject';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SubmitCertDto } from './dto/submit-cert.dto';
 import { ContractFlowService } from './contract-flow.service';
+import { isPhoneOpenid, mergeUserInto } from './account-merge';
 
-type Tx = Prisma.TransactionClient;
-
-const CERT_RANK: Record<string, number> = {
-  approved: 4,
-  pending: 3,
-  frozen: 2,
-  rejected: 1,
-};
-
-const ROLE_RANK: Record<string, number> = {
-  admin: 3,
-  teacher: 2,
-  user: 1,
-};
 
 @Injectable()
 export class UserService {
@@ -55,6 +41,12 @@ export class UserService {
       throw new NotFoundException('用户不存在');
     }
     return user;
+  }
+
+  /** 本人可见的用户信息：不暴露所属机构 */
+  selfView<T extends { organizationId?: number | null }>(user: T) {
+    const { organizationId, ...rest } = user;
+    return rest;
   }
 
   async create(openid: string, data?: { nickname?: string; avatar?: string; phone?: string }) {
@@ -423,6 +415,13 @@ export class UserService {
               startTime: true,
               endTime: true,
               sessionFee: true,
+              price: true,
+              organizationId: true,
+              orgCommissionMode: true,
+              orgCommissionValue: true,
+              organization: {
+                select: { status: true, commissionMode: true, commissionValue: true, feeVisibility: true },
+              },
             },
           },
         },
@@ -440,7 +439,18 @@ export class UserService {
       const mode = g.mode || (hasOrg ? org!.commissionMode : null);
       const value = g.value ?? (hasOrg ? org!.commissionValue : null);
       const visibility = g.visibility || org?.feeVisibility || 'final';
-      const quote = calculateFee({ base, hasOrg, mode, value, visibility });
+      const courseOrg = c.organizationId && c.organization?.status === 1 ? c.organization : null;
+      const quote = courseOrg
+        ? {
+          ...calculateCourseOrgFee({
+            schoolPrice: c.price,
+            sessionFee: c.sessionFee,
+            mode: c.orgCommissionMode || courseOrg.commissionMode,
+            value: c.orgCommissionValue != null ? c.orgCommissionValue : courseOrg.commissionValue,
+          }),
+          visibility: (courseOrg.feeVisibility === 'hidden' ? 'hidden' : 'final') as 'hidden' | 'final',
+        }
+        : calculateFee({ base, hasOrg, mode, value, visibility });
       const view = teacherFeeView(quote);
       const feePart = this.formatAnnexFee(view, quote.configured);
       return [
@@ -451,10 +461,20 @@ export class UserService {
         feePart ? ` · ${feePart}` : '',
       ].join('');
     });
+    // 返回给教师端：不带机构、抽成、校方价与课时费基数
+    const safeCourses = pendingGrants.map(({ course: c }) => ({
+      id: c.id,
+      title: c.title,
+      school: c.school,
+      gradeLabel: c.gradeLabel,
+      weekday: c.weekday,
+      startTime: c.startTime,
+      endTime: c.endTime,
+    }));
     return {
       annex: lines.join('\n'),
-      courses: pendingGrants.map((g) => g.course),
-      assignedCourses: pendingGrants.map((g) => g.course),
+      courses: safeCourses,
+      assignedCourses: safeCourses,
     };
   }
 
@@ -464,13 +484,7 @@ export class UserService {
   ) {
     if (!configured) return '课时费待定';
     if (!view.showFee) return '课时费未开放';
-    const money = (n: number | null | undefined) => `¥${Number(n || 0).toFixed(2)}`;
-    // full：课时费归教师，机构分佣另计
-    if ('baseFee' in view && view.baseFee != null && 'commission' in view) {
-      return `课时费 ${money(view.teacherFee ?? view.baseFee)} · 机构分佣 ${money(view.commission)} · 实得 ${money(view.teacherFee)}`;
-    }
-    // final：只看最终课时费
-    return `课时费 ${money(view.teacherFee)}`;
+    return `课时费 ¥${Number(view.teacherFee || 0).toFixed(2)}`;
   }
 
   private async buildContractHtml(title: string, body: string, signPath: string, semesterName: string) {
@@ -771,11 +785,11 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
 
   /**
    * 微信账号绑定手机号：若该手机号已有独立账号（H5 短信注册），合并到当前微信账号，
-   * 并保留更完整的认证/合同与授课数据。
+   * 认证、合同、授课、收入、报销、分成等数据全部并入。
    */
   async bindPhoneAndMerge(keeperId: number, phone: string) {
     const keeper = await this.findById(keeperId);
-    if (String(keeper.openid || '').startsWith('phone:')) {
+    if (isPhoneOpenid(keeper.openid)) {
       throw new BadRequestException('请在微信小程序内绑定手机号');
     }
     if (keeper.phone === phone) return keeper;
@@ -788,152 +802,10 @@ ${signSrc ? `<div class="sign"><div>乙方签名：</div><img src="${signSrc}" a
       return this.prisma.user.update({ where: { id: keeperId }, data: { phone } });
     }
     if (donor.id === keeperId) return donor;
-    if (!String(donor.openid || '').startsWith('phone:') && donor.openid !== keeper.openid) {
-      // 手机号已挂在另一个微信账号上
+    if (!isPhoneOpenid(donor.openid)) {
       throw new BadRequestException('该手机号已绑定其他微信账号');
     }
-
-    return this.prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: donor.id }, data: { phone: null } });
-      await this.mergeTeacherCert(tx, keeperId, donor.id);
-      await this.reassignUserRows(tx, keeperId, donor.id);
-
-      const role =
-        (ROLE_RANK[keeper.role] || 0) >= (ROLE_RANK[donor.role] || 0) ? keeper.role : donor.role;
-
-      await tx.user.update({
-        where: { id: keeperId },
-        data: {
-          phone,
-          role,
-          organizationId: keeper.organizationId ?? donor.organizationId,
-          parentId: keeper.parentId ?? donor.parentId,
-          nickname: keeper.nickname || donor.nickname,
-          avatar: keeper.avatar || donor.avatar,
-        },
-      });
-      await tx.user.updateMany({ where: { parentId: donor.id }, data: { parentId: keeperId } });
-      await tx.user.delete({ where: { id: donor.id } });
-      return tx.user.findUniqueOrThrow({ where: { id: keeperId } });
-    });
-  }
-
-  private async mergeTeacherCert(tx: Tx, keeperId: number, donorId: number) {
-    const [keeperCert, donorCert] = await Promise.all([
-      tx.teacherCert.findUnique({ where: { userId: keeperId } }),
-      tx.teacherCert.findUnique({ where: { userId: donorId } }),
-    ]);
-    if (!donorCert) return;
-    if (!keeperCert) {
-      await tx.teacherCert.update({ where: { userId: donorId }, data: { userId: keeperId } });
-      return;
-    }
-
-    const preferDonor =
-      (CERT_RANK[donorCert.status] || 0) > (CERT_RANK[keeperCert.status] || 0)
-      || (
-        (CERT_RANK[donorCert.status] || 0) === (CERT_RANK[keeperCert.status] || 0)
-        && donorCert.contractStatus === 'signed'
-        && keeperCert.contractStatus !== 'signed'
-      );
-
-    const preferred = preferDonor ? donorCert : keeperCert;
-    const other = preferDonor ? keeperCert : donorCert;
-    const data = {
-      realName: preferred.realName || other.realName,
-      gender: preferred.gender || other.gender,
-      teacherNo: preferred.teacherNo || other.teacherNo,
-      status: preferred.status,
-      idCard: preferred.idCard || other.idCard,
-      idCardBack: preferred.idCardBack || other.idCardBack,
-      idNumber: preferred.idNumber || other.idNumber,
-      address: preferred.address || other.address,
-      email: preferred.email || other.email,
-      bankName: preferred.bankName || other.bankName,
-      bankAccountName: preferred.bankAccountName || other.bankAccountName,
-      bankAccount: preferred.bankAccount || other.bankAccount,
-      diploma: preferred.diploma || other.diploma,
-      clearance: preferred.clearance || other.clearance,
-      clearanceStatus:
-        preferred.clearanceStatus !== 'none' ? preferred.clearanceStatus : other.clearanceStatus,
-      clearanceSemesterId: preferred.clearanceSemesterId ?? other.clearanceSemesterId,
-      certificate: preferred.certificate || other.certificate,
-      contractStatus:
-        preferred.contractStatus === 'signed' || other.contractStatus === 'signed'
-          ? 'signed'
-          : preferred.contractStatus || other.contractStatus,
-      contractSignedAt: preferred.contractSignedAt || other.contractSignedAt,
-      contractSign: preferred.contractSign || other.contractSign,
-      bio: preferred.bio || other.bio,
-      skills: preferred.skills || other.skills,
-      rejectReason: preferred.rejectReason || other.rejectReason,
-    };
-
-    // teacherNo 唯一：先删掉另一份，再写回保留份
-    if (other.teacherNo && preferred.teacherNo && other.teacherNo !== preferred.teacherNo) {
-      await tx.teacherCert.update({ where: { id: other.id }, data: { teacherNo: null } });
-    }
-    await tx.teacherCert.delete({ where: { id: other.id } });
-    await tx.teacherCert.update({
-      where: { id: preferred.id },
-      data: { ...data, userId: keeperId },
-    });
-  }
-
-  private async reassignUserRows(tx: Tx, keeperId: number, donorId: number) {
-    await tx.course.updateMany({ where: { teacherId: donorId }, data: { teacherId: keeperId } });
-
-    const grants = await tx.teacherCourseGrant.findMany({ where: { userId: donorId } });
-    for (const row of grants) {
-      const exists = await tx.teacherCourseGrant.findUnique({
-        where: { userId_courseId: { userId: keeperId, courseId: row.courseId } },
-      });
-      if (exists) await tx.teacherCourseGrant.delete({ where: { id: row.id } });
-      else await tx.teacherCourseGrant.update({ where: { id: row.id }, data: { userId: keeperId } });
-    }
-
-    const incomes = await tx.sessionIncome.findMany({ where: { userId: donorId } });
-    for (const row of incomes) {
-      const exists = await tx.sessionIncome.findUnique({
-        where: {
-          userId_courseId_date: { userId: keeperId, courseId: row.courseId, date: row.date },
-        },
-      });
-      if (exists) await tx.sessionIncome.delete({ where: { id: row.id } });
-      else await tx.sessionIncome.update({ where: { id: row.id }, data: { userId: keeperId } });
-    }
-
-    const checkIns = await tx.checkIn.findMany({ where: { userId: donorId } });
-    for (const row of checkIns) {
-      const exists = await tx.checkIn.findUnique({
-        where: {
-          userId_courseId_date: { userId: keeperId, courseId: row.courseId, date: row.date },
-        },
-      });
-      if (exists) await tx.checkIn.delete({ where: { id: row.id } });
-      else await tx.checkIn.update({ where: { id: row.id }, data: { userId: keeperId } });
-    }
-
-    const userCourses = await tx.userCourse.findMany({ where: { userId: donorId } });
-    for (const row of userCourses) {
-      const exists = await tx.userCourse.findUnique({
-        where: { userId_courseId: { userId: keeperId, courseId: row.courseId } },
-      });
-      if (exists) await tx.userCourse.delete({ where: { id: row.id } });
-      else await tx.userCourse.update({ where: { id: row.id }, data: { userId: keeperId } });
-    }
-
-    const progresses = await tx.lessonProgress.findMany({ where: { userId: donorId } });
-    for (const row of progresses) {
-      const exists = await tx.lessonProgress.findUnique({
-        where: { userId_lessonId: { userId: keeperId, lessonId: row.lessonId } },
-      });
-      if (exists) await tx.lessonProgress.delete({ where: { id: row.id } });
-      else await tx.lessonProgress.update({ where: { id: row.id }, data: { userId: keeperId } });
-    }
-
-    await tx.order.updateMany({ where: { userId: donorId }, data: { userId: keeperId } });
-    await tx.comment.updateMany({ where: { userId: donorId }, data: { userId: keeperId } });
+    return this.prisma.$transaction((tx) => mergeUserInto(tx, keeperId, donor.id), { timeout: 60000 });
   }
 }
 

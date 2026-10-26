@@ -5,10 +5,11 @@
         <p class="crumb">师资管理 / 教师资料</p>
         <h1 v-if="detail">
           {{ detail.realName || detail.nickname }}
-          <span v-if="detail.certStatus === 'approved'" class="tag green">认证教师</span>
+          <span :class="['tag', certTone(detail.certStatus)]">{{ certText(detail.certStatus) }}</span>
           <span v-if="detail.contractValid" class="tag green">合同有效</span>
           <span v-else-if="detail.contractPending" class="tag amber">合同待审</span>
-          <span v-else-if="detail.contractDue" class="tag amber">需重签合同</span>
+          <span v-else-if="detail.contractDue" class="tag violet">需重签合同</span>
+          <span v-else-if="detail.certStatus === 'approved'" class="tag blue">待签合同</span>
         </h1>
         <h1 v-else>教师资料</h1>
         <p v-if="detail">{{ detail.phone || '未留手机号' }} · {{ detail.organization?.name || '未绑定机构' }} · {{ detail.semesterName || '未设学期' }}</p>
@@ -50,14 +51,18 @@
     </article>
 
     <article v-if="tab === '认证资料'" class="card card-pad">
-      <p class="muted">点击缩略图可放大预览。教师资格证非必填。身份证号与住址会自动写入劳务合同。</p>
-      <div class="meta-grid" v-if="detail.idNumber || detail.address || detail.bankAccount">
+      <p class="muted">点击缩略图可放大预览。教师资格证非必填。身份证号与住址会自动写入劳务合同。收款银行卡在签订合同时填写。</p>
+      <div class="meta-grid" v-if="detail.idNumber || detail.address || detail.bankAccount || detail.bankName || detail.bankAccountName">
         <div><small>身份证号</small><strong>{{ detail.idNumber || '—' }}</strong></div>
         <div><small>住址</small><strong>{{ detail.address || '—' }}</strong></div>
         <div><small>邮箱</small><strong>{{ detail.email || '—' }}</strong></div>
         <div><small>开户行</small><strong>{{ detail.bankName || '—' }}</strong></div>
         <div><small>账户名</small><strong>{{ detail.bankAccountName || '—' }}</strong></div>
         <div><small>账号</small><strong>{{ detail.bankAccount || '—' }}</strong></div>
+      </div>
+      <div v-if="hasBank" class="bank-reset">
+        <p class="muted">银行卡填错或需更换时，可清空后要求教师重新填写；若合同仍有效或待审，会一并撤销并要求重签。</p>
+        <button class="btn" type="button" @click="resetBank">清空银行卡并要求重填</button>
       </div>
       <div class="file-grid">
         <button v-for="file in certFiles" :key="file.label" type="button" class="file-card" @click="preview = file">
@@ -190,7 +195,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
@@ -201,7 +206,7 @@ import { notify } from '../notify';
 
 const route = useRoute();
 const detail = ref(null);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const notice = ref('');
 const tab = ref('基本资料');
 const tabs = ['基本资料', '认证资料', '合同记录', '所属机构', '上级关系', '课程授权', '收入记录'];
@@ -221,9 +226,23 @@ const certFiles = computed(() => {
     { label: '最新签名', url: asset(d.contractSign), pdf: false },
   ];
 });
+const hasBank = computed(() => {
+  const d = detail.value || {};
+  return !!(d.bankName || d.bankAccountName || d.bankAccount);
+});
 
 function asset(path) {
   return path ? protectedAssetUrl(path) : '';
+}
+function certText(value) {
+  return ({ pending: '审核中', approved: '已认证', rejected: '已驳回', frozen: '冻结', none: '未申请' })[value] || '未申请';
+}
+function certTone(value) {
+  if (value === 'approved') return 'green';
+  if (value === 'pending') return 'amber';
+  if (value === 'rejected') return 'red';
+  if (value === 'frozen') return 'gray';
+  return 'blue';
 }
 function moneyOf(value) {
   return value == null ? '未配置' : `¥${Number(value).toFixed(2)}`;
@@ -253,6 +272,7 @@ async function load() {
 async function saveOrg() {
   try {
     detail.value = await api.setFacultyOrg(detail.value.id, orgId.value ? Number(orgId.value) : null);
+    await load();
     notice.value = '机构已保存';
   } catch (err) {
     error.value = err.message;
@@ -359,10 +379,37 @@ async function revokeCurrent() {
     notify.error(err.message || '撤销失败');
   }
 }
+async function resetBank() {
+  const reason = await notify.prompt({
+    title: '清空银行卡并要求重填',
+    message: '将清空开户行、账户名与账号。若合同仍有效或待审，会一并撤销，课程重新锁定，教师需重新填写收款信息并签订合同。',
+    value: '银行卡信息有误，请重新填写后签订合同',
+    placeholder: '原因（将提示给教师）',
+    okText: '下一步',
+    danger: true,
+    icon: 'refresh',
+  });
+  if (reason == null) return;
+  const ok = await notify.confirm({
+    title: '确认清空银行卡？',
+    message: `确定清空该教师的银行卡信息？\n原因：${reason.trim() || '（未填写）'}`,
+    okText: '确认清空',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const res = await api.resetFacultyBank(detail.value.id, { reason });
+    notify.success(res?.message || '已清空银行卡信息');
+    tab.value = '认证资料';
+    await load();
+  } catch (err) {
+    notify.error(err.message || '操作失败');
+  }
+}
 function openContract(item) {
   contractView.value = item;
 }
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>
@@ -394,6 +441,14 @@ onMounted(load);
 }
 .meta-grid small { display: block; color: #98a2b3; font-size: 12px; }
 .meta-grid strong { display: block; margin-top: 4px; font-size: 13px; word-break: break-all; }
+.bank-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.bank-reset .muted { flex: 1; min-width: 220px; margin: 0; }
 @media (max-width: 860px) {
   .meta-grid { grid-template-columns: 1fr; }
 }

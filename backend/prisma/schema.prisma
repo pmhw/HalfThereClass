@@ -101,6 +101,10 @@ model Course {
   teacherShareValue     Float   @default(50) @map("teacher_share_value")
   institutionShareMode  String  @default("percent") @map("institution_share_mode") // percent, fixed, per_student, per_lesson
   institutionShareValue Float   @default(20) @map("institution_share_value")
+  /// 承接机构：有值时单节按「校方价 − 课时费 = 平台利润；课时费 − 机构抽成 = 教师课时费」结算
+  organizationId        Int?    @map("organization_id")
+  orgCommissionMode     String? @map("org_commission_mode") // percent | fixed；空则用机构默认
+  orgCommissionValue    Float?  @map("org_commission_value")
   grabAt      DateTime? @map("grab_at")
   activeSemesterId Int? @map("active_semester_id") // 当前开放学期；列表只展示该学期课程
   ownerId     Int?      @map("owner_id")
@@ -113,6 +117,7 @@ model Course {
   teacher     User?     @relation("TeachingCourses", fields: [teacherId], references: [id])
   campus      School?   @relation(fields: [schoolId], references: [id], onDelete: SetNull)
   owner       AdminAccount? @relation("SchoolCourses", fields: [ownerId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   activeSemester Semester? @relation("CourseActiveSemester", fields: [activeSemesterId], references: [id], onDelete: SetNull)
   lessons     Lesson[]
   orders      Order[]
@@ -128,6 +133,7 @@ model Course {
   @@index([categoryId])
   @@index([teacherId])
   @@index([ownerId])
+  @@index([organizationId])
   @@index([activeSemesterId])
   @@map("courses")
 }
@@ -223,8 +229,11 @@ model ProfitRecord {
   totalAmount        Float     @map("total_amount") // 校方价格（单节）
   refundAmount       Float     @default(0) @map("refund_amount")
   teacherAmount      Float     @default(0) @map("teacher_amount") // 课时费 / 教师所得
-  institutionAmount  Float     @default(0) @map("institution_amount") // 机构分佣
+  institutionAmount  Float     @default(0) @map("institution_amount") // 机构利润（分佣）
   platformAmount     Float     @default(0) @map("platform_amount")
+  sessionFee         Float?    @map("session_fee") // 课时费快照（承接机构课：平台利润 = 校方价 − 课时费）
+  settleTo           String    @default("teacher") @map("settle_to") // teacher | org（机构不展示金额时直接结算给机构）
+  orgSettleAmount    Float     @default(0) @map("org_settle_amount") // 结算给机构的金额
   teacherRate        Float?    @map("teacher_rate")
   institutionRate    Float?    @map("institution_rate")
   platformRate       Float?    @map("platform_rate")
@@ -254,10 +263,15 @@ model MonthlySettlement {
   id                 Int       @id @default(autoincrement())
   month              String    @unique @map("month") // YYYY-MM
   status             String    @default("open") @map("status") // open, pending, settled
+  locked             Boolean   @default(false) @map("locked") // 确认后固定：固定后才计入各收益报表
+  lockedAt           DateTime? @map("locked_at")
+  lockedBy           Int?      @map("locked_by")
   totalAmount        Float     @default(0) @map("total_amount")
   teacherAmount      Float     @default(0) @map("teacher_amount")
   institutionAmount  Float     @default(0) @map("institution_amount")
   platformAmount     Float     @default(0) @map("platform_amount")
+  costAmount         Float     @default(0) @map("cost_amount") // 成本合计（教师费 + 机构费）
+  sessionCount       Int       @default(0) @map("session_count")
   orderCount         Int       @default(0) @map("order_count")
   settledAt          DateTime? @map("settled_at")
   settledBy          Int?      @map("settled_by")
@@ -483,6 +497,9 @@ model AdminAccount {
   status      Int       @default(1) @map("status")
   failCount   Int       @default(0) @map("fail_count")
   lockedUntil DateTime? @map("locked_until")
+  // 财务密码全员共用（存在 app_settings），这里只记个人输错次数和锁定
+  financePinFails       Int       @default(0) @map("finance_pin_fails")
+  financePinLockedUntil DateTime? @map("finance_pin_locked_until")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
@@ -516,6 +533,7 @@ model Organization {
   createdAt        DateTime @default(now()) @map("created_at")
 
   teachers         User[]
+  courses          Course[]
   profitRecords    ProfitRecord[]
 
   @@map("organizations")
@@ -619,6 +637,9 @@ model Reimbursement {
   reviewedAt   DateTime? @map("reviewed_at")
   reviewedBy   Int?      @map("reviewed_by")
   reimbursedAt DateTime? @map("reimbursed_at")
+  // 结算月份（YYYY-MM）与扣除合集：审核通过 / 已报销后从该合集当月可分配利润中扣除
+  month        String?   @map("month")
+  splitCollectionId Int? @map("split_collection_id")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -626,7 +647,94 @@ model Reimbursement {
 
   @@index([userId])
   @@index([status])
+  @@index([month])
   @@map("reimbursements")
+}
+
+// 分成合集：勾选若干课程为一组，按比例分给多位分成人员（税率 / 手续费见 app_settings.split_config）
+model SplitCollection {
+  id        Int      @id @default(autoincrement())
+  name      String   @map("name")
+  courseIds String   @default("[]") @map("course_ids") // JSON: number[]
+  members   String   @default("[]") @map("members") // JSON: [{ name, userId?, ratio }]
+  note      String?  @map("note")
+  sort      Int      @default(0) @map("sort")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("split_collections")
+}
+
+// 财务打款：分成收款人按月一笔，标记已打款时保存金额快照
+model SplitPayout {
+  id        Int       @id @default(autoincrement())
+  month     String    @map("month") // YYYY-MM
+  payeeKey  String    @map("payee_key") // u:用户ID | n:虚拟人员姓名
+  userId    Int?      @map("user_id")
+  name      String    @map("name")
+  gross     Float     @default(0) @map("gross")
+  tax       Float     @default(0) @map("tax")
+  fee       Float     @default(0) @map("fee")
+  net       Float     @default(0) @map("net")
+  detail    String    @default("[]") @map("detail") // JSON: 各合集明细
+  status    String    @default("unpaid") @map("status") // unpaid, paid
+  paidAt    DateTime? @map("paid_at")
+  paidBy    Int?      @map("paid_by")
+  note      String?   @map("note")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([month, payeeKey])
+  @@index([month])
+  @@map("split_payouts")
+}
+
+// 银行交易查询导入的流水。金额以分为准，归属后锁定，避免同一笔钱分给多个人。
+model BankTxn {
+  id             Int      @id @default(autoincrement())
+  accountNo      String   @map("account_no")
+  accountName    String   @default("") @map("account_name")
+  txnDate        String   @map("txn_date")
+  txnTime        String   @default("") @map("txn_time")
+  applyDate      String   @default("") @map("apply_date")
+  voucherNo      String   @default("") @map("voucher_no")
+  direction      String   @map("direction") // in 贷方收入, out 借方支出
+  amountCents    Int      @map("amount_cents")
+  balanceCents   Int?     @map("balance_cents")
+  counterAccount String   @default("") @map("counter_account")
+  counterName    String   @default("") @map("counter_name")
+  counterBank    String   @default("") @map("counter_bank")
+  serialNo       String   @default("") @map("serial_no")
+  slipNo         String   @default("") @map("slip_no")
+  recordStatus   String   @default("") @map("record_status")
+  summary        String   @default("") @map("summary")
+  remark         String   @default("") @map("remark")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  allocations BankTxnAlloc[]
+
+  @@unique([accountNo, serialNo, slipNo, txnDate, txnTime, direction, amountCents], map: "bank_txn_natural_key")
+  @@index([txnDate])
+  @@index([remark])
+  @@map("bank_txns")
+}
+
+// 流水金额归属。锁定后不能改、不能删，对应金额从可归属余额里扣掉。
+model BankTxnAlloc {
+  id          Int      @id @default(autoincrement())
+  txnId       Int      @map("txn_id")
+  userId      Int?     @map("user_id")
+  name        String   @map("name")
+  amountCents Int      @map("amount_cents")
+  note        String   @default("") @map("note")
+  locked      Boolean  @default(true) @map("locked")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  txn BankTxn @relation(fields: [txnId], references: [id], onDelete: Cascade)
+
+  @@index([txnId])
+  @@index([userId])
+  @@map("bank_txn_allocs")
 }
 
 // 后台可改的配置。高德 Key 存在这里，不写进代码

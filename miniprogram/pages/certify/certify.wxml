@@ -149,5 +149,5 @@
     <view class="foot">{{partialEdit ? '仅需修改标注项，提交后重新进入审核' : '提交后将进入审核流程，请耐心等待审核结果'}}</view>
   </block>
 
-  <privacy-popup />
+  <privacy-popup bind:agree="onPrivacyAgree" />
 </view>

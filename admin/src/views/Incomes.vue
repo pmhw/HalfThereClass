@@ -21,7 +21,7 @@
             <td>{{ item.teacherFee == null ? '—' : `¥${item.teacherFee}` }}</td>
             <td>{{ item.status }}</td>
           </tr>
-          <tr v-if="!list.length"><td colspan="7" class="empty">签到后才会生成收入记录</td></tr>
+          <tr v-if="!list.length"><td colspan="7" class="empty">签到并固定月份后才会生成收入记录</td></tr>
         </tbody>
       </table>
     </article>
@@ -30,18 +30,18 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { api } from '../api';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 
 const list = ref([]);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 
 async function load() {
   await run(async () => {
     list.value = await api.incomes();
   });
 }
-onMounted(load);
+bindLoad(load);
 </script>

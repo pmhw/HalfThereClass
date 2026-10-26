@@ -287,6 +287,9 @@ onMounted(async () => {
 });
 
 onActivated(async () => {
+  // keep-alive 复用实例：从其他入口再进时重新拉认证状态，避免仍显示旧的审核中/驳回界面
+  if (!requireLogin(router)) return;
+  await load();
   await consumeIdShot();
 });
 

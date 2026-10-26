@@ -1,5 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { canOpen } from '../access';
+import { getProfile } from '../api';
 
 const STORAGE_KEY = 'admin_workspace_tabs_v1';
 const MAX_TABS = 24;
@@ -88,12 +90,18 @@ export function useAdminTabs() {
     if (hydrated) return;
     hydrated = true;
     const saved = readStorage();
-    if (saved?.tabs?.length) {
-      tabs.value = saved.tabs;
+    const profile = getProfile();
+    const kept = (saved?.tabs || []).filter((tab) => {
+      const target = router.resolve(tab.path || '/');
+      return target.matched.length > 0 && canOpen(profile, target);
+    });
+    if (kept.length) {
+      tabs.value = kept;
       refreshMap.value = saved.refreshMap || {};
-      activeKey.value = saved.activeKey || saved.tabs[0]?.key || '';
+      activeKey.value = kept.some((item) => item.key === saved.activeKey) ? saved.activeKey : kept[0].key;
       const active = tabs.value.find((item) => item.key === activeKey.value) || tabs.value[0];
-      if (active && active.fullPath !== route.fullPath) {
+      // 只在打开后台首页时恢复上次的标签；直接打开的具体页面（链接 / 新窗口）以地址为准
+      if (route.path === '/' && active && active.fullPath !== route.fullPath) {
         router.replace(active.fullPath).catch(() => {});
       }
     }

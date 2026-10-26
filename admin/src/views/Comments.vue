@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { api } from '../api';
 import { dateTime } from '../format';
 import Pager from '../components/Pager.vue';
@@ -44,7 +44,7 @@ import { usePageLoad } from '../composables/usePageLoad';
 
 const keyword = ref('');
 const page = ref(1);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const result = ref({ list: [], pagination: { page: 1, totalPages: 1, total: 0 } });
 
 async function load() {
@@ -54,5 +54,5 @@ async function load() {
 }
 function reload() { page.value = 1; load(); }
 function changePage(next) { page.value = next; load(); }
-onMounted(load);
+bindLoad(load);
 </script>

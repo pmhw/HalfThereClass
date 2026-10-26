@@ -32,7 +32,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import MarkdownField from '../components/MarkdownField.vue';
@@ -44,7 +44,7 @@ const router = useRouter();
 const kind = computed(() => (route.meta.kind === 'contract' ? 'contract' : 'agreement'));
 const title = computed(() => (kind.value === 'contract' ? '教师服务合同' : '用户协议'));
 const draft = ref({ title: '', content: '' });
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const saving = ref(false);
 
 function back() {
@@ -75,7 +75,7 @@ async function save() {
   }
 }
 
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>

@@ -16,7 +16,7 @@
           <tr v-for="item in list" :key="item.id">
             <td>{{ item.realName || item.nickname }}</td>
             <td>{{ item.phone || '—' }}</td>
-            <td><span :class="['tag', item.certStatus === 'approved' ? 'green' : '']">{{ certText(item.certStatus) }}</span></td>
+            <td><span :class="['tag', certTone(item.certStatus)]">{{ certText(item.certStatus) }}</span></td>
             <td>{{ item.organization?.name || '未绑定机构' }}</td>
             <td>{{ item.parent?.name || '未设置' }}</td>
             <td>{{ item.grantCount }}</td>
@@ -36,17 +36,24 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { api } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
 import PageLoad from '../components/PageLoad.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const list = ref([]);
 const stats = ref({ certified: 0, pending: 0, monthNew: 0, org: 0, independent: 0 });
-const certMap = { pending: '审核中', approved: '已认证', rejected: '已驳回', frozen: '冻结' };
+const certMap = { pending: '审核中', approved: '已认证', rejected: '已驳回', frozen: '冻结', none: '未申请' };
 function certText(value) { return certMap[value] || '未申请'; }
+function certTone(value) {
+  if (value === 'approved') return 'green';
+  if (value === 'pending') return 'amber';
+  if (value === 'rejected') return 'red';
+  if (value === 'frozen') return 'gray';
+  return 'blue';
+}
 
 async function load() {
   await run(async () => {
@@ -56,5 +63,5 @@ async function load() {
   });
 }
 
-onMounted(load);
+bindLoad(load);
 </script>

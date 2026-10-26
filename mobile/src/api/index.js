@@ -30,6 +30,7 @@ export const listMyContracts = () => get('/user/contracts');
 
 export const getCourseList = (params) => get('/courses', params);
 export const getCourseDetail = (id) => get(`/courses/${id}`);
+export const getMapConfig = () => get('/courses/map-config');
 export const getRecommendCourses = (limit = 12) => get('/courses/recommend', { limit });
 export const grabCourse = (id) => post(`/courses/${id}/grab`);
 export const getToday = () => get('/courses/today');

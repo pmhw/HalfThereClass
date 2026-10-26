@@ -76,29 +76,39 @@
           <div class="perm-head">
             <div>
               <strong>权限设置</strong>
-              <p>按侧边栏菜单分配，勾选后才能进入对应页面</p>
+              <p>细分到每个子菜单，勾选后才能进入对应页面并调用对应接口</p>
             </div>
             <label class="check-line"><input v-model="form.isSuper" type="checkbox" :disabled="!me.isSuper" />超级管理员</label>
           </div>
+          <p v-if="lockedSelf" class="perm-note">不能修改自己的权限，请联系超级管理员。</p>
+          <p v-else-if="!me.isSuper" class="perm-note">只能分配你自己拥有的权限，灰色项不可勾选。</p>
           <section v-for="group in groups" :key="group.key" class="perm-group">
-            <h4>{{ group.label }}</h4>
-            <div class="perm-grid">
-              <button
+            <label class="perm-group-head">
+              <input
+                type="checkbox"
+                :checked="groupState(group) === 'all'"
+                :indeterminate.prop="groupState(group) === 'some'"
+                :disabled="form.isSuper || !groupEditable(group)"
+                @change="toggleGroup(group, $event.target.checked)"
+              />
+              <span class="perm-icon"><Icon :name="groupIcon[group.key] || 'list'" /></span>
+              <b>{{ group.label }}</b>
+              <small>{{ groupCount(group) }}</small>
+            </label>
+            <div class="perm-sub">
+              <label
                 v-for="item in group.items"
                 :key="item.key"
-                type="button"
-                class="perm-card"
-                :class="{ on: checked(item.key) }"
-                :disabled="form.isSuper"
-                @click="toggle(item.key)"
+                class="perm-item"
+                :class="{ on: checked(item.key), off: !editable(item.key) }"
+                :title="editable(item.key) ? item.desc : (lockedSelf ? '不能修改自己的权限' : '你没有这项权限，不能分配')"
               >
-                <span class="perm-icon"><Icon :name="item.icon" /></span>
-                <span class="perm-copy">
+                <input type="checkbox" :checked="checked(item.key)" :disabled="form.isSuper || !editable(item.key)" @change="toggle(item.key)" />
+                <span>
                   <b>{{ item.label }}</b>
                   <small>{{ item.desc }}</small>
                 </span>
-                <input type="checkbox" :checked="checked(item.key)" tabindex="-1" />
-              </button>
+              </label>
             </div>
           </section>
           </template>
@@ -126,12 +136,27 @@
 }
 .course-assign .check-line { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
 .course-assign small { color: #98a2b3; }
+.perm-note { margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: #fff7e6; color: #b45309; font-size: 13px; }
+.perm-group { margin-top: 12px; padding: 10px 12px; border: 1px solid #e7edf5; border-radius: 12px; }
+.perm-group-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.perm-group-head small { margin-left: auto; color: #98a2b3; font-size: 12px; }
+.perm-group-head .perm-icon { width: 26px; height: 26px; }
+.perm-sub { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
+.perm-item { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid #edf1f7; border-radius: 10px; cursor: pointer; }
+.perm-item.on { border-color: #93c5fd; background: #f0f7ff; }
+.perm-item.off { opacity: 0.5; cursor: not-allowed; }
+.perm-item input { margin-top: 3px; }
+.perm-item span { display: flex; flex-direction: column; gap: 2px; }
+.perm-item small { color: #98a2b3; font-size: 12px; line-height: 1.4; }
+.perm-group { background: #fff; }
+.form .perm-group-head, .form .perm-item { flex-direction: row; color: #344054; }
+.form .perm-group-head input, .form .perm-item input { width: 16px; height: 16px; padding: 0; flex: none; }
 </style>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { api, getProfile } from '../api';
-import { PERMISSIONS, PERMISSION_GROUPS } from '../access';
+import { PERMISSIONS, PERMISSION_GROUPS, allow, normalizePermissions } from '../access';
 import Pager from '../components/Pager.vue';
 import Confirm from '../components/Confirm.vue';
 import Icon from '../components/Icon.vue';
@@ -142,29 +167,62 @@ import { usePageLoad } from '../composables/usePageLoad';
 
 const keyword = ref('');
 const page = ref(1);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const form = ref(null);
 const formError = ref('');
 const pending = ref(null);
 const courseOptions = ref([]);
 const me = getProfile() || {};
 const groups = PERMISSION_GROUPS;
+const groupIcon = { home: 'overview', course: 'book', trade: 'receipt', people: 'users', org: 'folder', finance: 'chart', admin: 'gear' };
+const lockedSelf = computed(() => !me.isSuper && !!form.value?.id && form.value.id === me.id);
 
 function checked(key) {
   return !!(form.value?.isSuper || form.value?.permissions?.includes(key));
 }
+function editable(key) {
+  if (lockedSelf.value) return false;
+  return allow(me, key);
+}
 function toggle(key) {
-  if (!form.value || form.value.isSuper) return;
+  if (!form.value || form.value.isSuper || !editable(key)) return;
   const list = form.value.permissions;
   const index = list.indexOf(key);
   if (index >= 0) list.splice(index, 1);
   else list.push(key);
 }
+function groupState(group) {
+  const on = group.items.filter((item) => checked(item.key)).length;
+  return on === 0 ? 'none' : on === group.items.length ? 'all' : 'some';
+}
+function groupCount(group) {
+  return `${group.items.filter((item) => checked(item.key)).length}/${group.items.length}`;
+}
+function groupEditable(group) {
+  return group.items.some((item) => editable(item.key));
+}
+function toggleGroup(group, on) {
+  if (!form.value || form.value.isSuper) return;
+  const set = new Set(form.value.permissions);
+  for (const item of group.items) {
+    if (!editable(item.key)) continue;
+    if (on) set.add(item.key);
+    else set.delete(item.key);
+  }
+  form.value.permissions = PERMISSIONS.map((item) => item.key).filter((key) => set.has(key));
+}
 const result = ref({ list: [], pagination: { page: 1, totalPages: 1, total: 0 } });
 
 function permissionText(keys) {
-  const map = Object.fromEntries(PERMISSIONS.map((item) => [item.key, item.label]));
-  return (keys || []).map((key) => map[key] || key).join('、') || '未分配';
+  const own = new Set(normalizePermissions(keys));
+  const parts = [];
+  for (const group of groups) {
+    const on = group.items.filter((item) => own.has(item.key));
+    if (!on.length) continue;
+    if (on.length === group.items.length && group.items.length > 1) parts.push(`${group.label}（全部）`);
+    else parts.push(...on.map((item) => item.label));
+  }
+  return parts.join('、') || '未分配';
 }
 function frozen(item) {
   return item.lockedUntil && new Date(item.lockedUntil).getTime() > Date.now();
@@ -179,8 +237,8 @@ function changePage(next) { page.value = next; load(); }
 function openForm(item) {
   formError.value = '';
   form.value = item
-    ? { id: item.id, name: item.name, username: item.username, password: '', isSuper: item.isSuper, role: item.role === 'school' ? 'school' : 'admin', permissions: [...(item.permissions || [])], courseIds: [], enabled: item.status === 1 }
-    : { id: null, name: '', username: '', password: '', isSuper: false, role: 'admin', permissions: ['overview'], courseIds: [], enabled: true };
+    ? { id: item.id, name: item.name, username: item.username, password: '', isSuper: item.isSuper, role: item.role === 'school' ? 'school' : 'admin', permissions: normalizePermissions(item.permissions), courseIds: [], enabled: item.status === 1 }
+    : { id: null, name: '', username: '', password: '', isSuper: false, role: 'admin', permissions: allow(me, 'home.overview') ? ['home.overview'] : [], courseIds: [], enabled: true };
   if (form.value.role === 'school') onRole();
 }
 async function onRole() {
@@ -205,7 +263,7 @@ async function save() {
     password: form.value.password,
     isSuper: school ? false : form.value.isSuper,
     role: school ? 'school' : 'admin',
-    permissions: school ? ['course'] : form.value.permissions,
+    permissions: school ? [] : form.value.permissions,
     status: form.value.enabled ? 1 : 0,
   };
   try {
@@ -230,5 +288,5 @@ async function remove() {
     error.value = err.message;
   }
 }
-onMounted(load);
+bindLoad(load);
 </script>

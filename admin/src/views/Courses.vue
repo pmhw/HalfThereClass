@@ -6,6 +6,7 @@
         <p>用于管理课程、教师、价格和课程状态。已安排老师的课程不能删除。</p>
       </div>
       <div class="actions">
+        <button class="btn" type="button" @click="openTimetable"><Icon name="cal" />课表</button>
         <router-link v-if="!schoolAccount" class="btn" to="/categories"><Icon name="folder" />课程分类</router-link>
         <button class="btn primary" @click="openForm()">+ 新增课程</button>
       </div>
@@ -97,13 +98,19 @@
                 <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
               </select>
             </td>
-            <td>
-              <router-link
-                v-if="item.teacher?.id"
-                class="link"
-                :to="`/faculty/${item.teacher.id}`"
-              >{{ item.teacher?.teacherCert?.realName || item.teacher?.nickname || '老师' }}</router-link>
-              <span v-else>未安排</span>
+            <td v-if="schoolAccount">{{ rowTeacherName(item) || '未安排' }}</td>
+            <td v-else class="cell-edit teacher-cell">
+              <SearchSelect
+                :model-value="item.teacherId ? String(item.teacherId) : ''"
+                :options="teacherOptions"
+                :placeholder="rowTeacherName(item) || '未安排'"
+                search-placeholder="搜索姓名、工号或手机号"
+                empty-text="没有匹配的认证老师"
+                allow-empty
+                empty-label="未安排（可抢课）"
+                @change="(value) => askRowTeacher(item, value)"
+              />
+              <router-link v-if="item.teacher?.id" class="teacher-go" :to="`/faculty/${item.teacher.id}`" title="老师详情">›</router-link>
             </td>
             <td>{{ termLabel(item.activeSemester) }}</td>
             <td v-if="!schoolAccount">{{ item.owner?.name || '—' }}</td>
@@ -160,6 +167,58 @@
       <Pager :page="result.pagination.page" :total-pages="result.pagination.totalPages" :total="result.pagination.total" :page-size="pageSize" :sizes="[10, 20, 50]" @change="changePage" @size="changeSize" />
     </article>
     </PageLoad>
+
+    <PageModal
+      :open="timetableOpen"
+      title="月课表"
+      desc="按月份查看课程安排。勾选课程后，月历和导出都只包含这些课。"
+      icon="cal"
+      size="plan"
+      @close="timetableOpen = false"
+    >
+      <div class="tt-bar">
+        <button class="btn" type="button" @click="shiftTimetable(-1)">上月</button>
+        <input v-model="timetableMonth" type="month" @change="loadTimetable" />
+        <button class="btn" type="button" @click="shiftTimetable(1)">下月</button>
+        <span class="muted">{{ visibleTimetableSessions.length }} 节</span>
+        <button class="btn primary" type="button" :disabled="timetableExporting" @click="exportTimetable">
+          {{ timetableExporting ? '导出中…' : '导出 Excel' }}
+        </button>
+      </div>
+      <div v-if="timetableCourses.length" class="tt-courses">
+        <label class="tt-course all">
+          <input type="checkbox" :checked="allTimetableCourses" @change="toggleAllTimetableCourses" />
+          <span>全部课程</span>
+        </label>
+        <label v-for="course in timetableCourses" :key="course.id" class="tt-course" :class="{ on: coursePicked(course.id) }">
+          <input type="checkbox" :checked="coursePicked(course.id)" @change="toggleTimetableCourse(course.id)" />
+          <span>{{ course.title }}</span>
+          <small v-if="course.school">{{ course.school }}</small>
+        </label>
+      </div>
+      <p v-if="timetableError" class="error">{{ timetableError }}</p>
+      <div v-else-if="timetableLoading" class="muted">加载中…</div>
+      <div v-else class="tt-board">
+        <div class="tt-head">
+          <span v-for="name in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="name">{{ name }}</span>
+        </div>
+        <div class="tt-grid">
+          <div
+            v-for="day in timetableDays"
+            :key="day.date"
+            class="tt-day"
+            :class="{ out: !day.inMonth, weekend: day.weekend, empty: day.inMonth && !day.items.length }"
+          >
+            <strong>{{ day.day }}</strong>
+            <div v-for="item in day.items" :key="item.id" class="tt-item" :class="item.status">
+              <b>{{ item.startTime }}<template v-if="item.endTime">-{{ String(item.endTime).slice(0, 5) }}</template></b>
+              <span>{{ item.course?.title || '课程' }}</span>
+              <small>{{ [item.course?.school, item.teacherName].filter(Boolean).join(' · ') || item.label }}</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </PageModal>
 
     <PageModal
       :open="!!form"
@@ -442,20 +501,43 @@
     <PageModal
       :open="!!plan"
       size="plan"
-      @close="closePlan"
+      :close-on-backdrop="!planSyncBusy"
+      @close="requestClosePlan"
     >
       <template #title>
         <div class="row-between" style="width:100%;gap:12px;align-items:flex-start">
           <div>
             <h3>{{ plan.course.title }}</h3>
-            <p class="muted">点某一节可改日期和时间，也可以加一节或删掉。</p>
+            <p class="muted">点课次块选中，Ctrl/⌘+C 复制 · 点日期后 Ctrl/⌘+V 粘贴 · Delete 删除。同一天同一时间段只能有一节。本地先改，后台静默同步。</p>
           </div>
           <div class="plan-head-actions">
+            <span class="plan-sync-tag" :class="planSyncTone">{{ planSyncLabel }}</span>
+            <button
+              v-if="!planEnded"
+              class="btn"
+              type="button"
+              :disabled="!canCopyPlan"
+              @click="copyPlanSlots"
+            >复制{{ planClipboardCount ? `（${planClipboardCount}）` : '' }}</button>
+            <button
+              v-if="!planEnded"
+              class="btn"
+              type="button"
+              :disabled="!canPastePlan"
+              @click="pastePlanSlots"
+            >粘贴</button>
+            <button
+              v-if="!planEnded"
+              class="btn danger"
+              type="button"
+              :disabled="!selectedSessionIds.length"
+              @click="deleteSelectedSessions"
+            >删除</button>
             <button v-if="!planEnded" class="btn primary" type="button" @click="openQuick">快捷生成</button>
           </div>
         </div>
       </template>
-      <div class="form">
+      <div class="form" tabindex="0" @keydown="onPlanKeydown">
         <label v-if="plan.semesters.length > 1">学期
           <select v-model="planSemesterId" @change="focusPlanMonth">
             <option v-for="item in plan.semesters" :key="item.id" :value="item.id">{{ item.label }} {{ item.name }}</option>
@@ -467,13 +549,26 @@
           <button type="button" class="btn" @click="shiftPlanMonth(1)">下个月</button>
         </div>
         <p v-if="planEnded" class="muted">这个学期已结束，课表只读。</p>
+        <p v-else class="muted plan-clip-tip">
+          <template v-if="selectedSessionIds.length">已选 {{ selectedSessionIds.length }} 节 · </template>
+          <template v-if="pasteDate">目标日 {{ pasteDate }}</template>
+          <template v-else>点课次块选中，点日期设目标日</template>
+          <template v-if="planClipboard.length"> · 已复制 {{ planClipboard.length }} 个时间</template>
+        </p>
         <div class="cal-week"><span v-for="name in weekNames.slice(1)" :key="name">{{ name }}</span></div>
         <div class="cal-grid">
           <div
             v-for="cell in planCells"
             :key="cell.key"
             class="cal-cell plan-cell"
-            :class="{ empty: cell.empty, weekend: cell.weekend, holiday: cell.holiday, off: cell.inTerm === false }"
+            :class="{
+              empty: cell.empty,
+              weekend: cell.weekend,
+              holiday: cell.holiday,
+              off: cell.inTerm === false,
+              on: !cell.empty && cell.date === pasteDate,
+            }"
+            @click="selectPasteDay(cell)"
           >
             <b v-if="!cell.empty">{{ cell.day }}</b>
             <button
@@ -481,10 +576,21 @@
               :key="item.id"
               type="button"
               class="cal-chip"
+              :class="{
+                on: selectedSessionIds.includes(item.id),
+                pending: isLocalSession(item.id),
+                fail: sessionSyncFailed(item.id),
+              }"
               :disabled="planEnded"
-              @click="openSession(item)"
+              @click.stop="toggleSessionSelect(item, $event)"
+              @dblclick.stop="openSession(item)"
             >{{ item.startTime }}{{ item.endTime ? `-${item.endTime}` : '' }}</button>
-            <button v-if="!cell.empty && !planEnded && cell.inTerm !== false" type="button" class="cal-add" @click="openAdd(cell.date)">+</button>
+            <button
+              v-if="!cell.empty && !planEnded && cell.inTerm !== false"
+              type="button"
+              class="cal-add"
+              @click.stop="openAdd(cell.date)"
+            >+</button>
           </div>
         </div>
         <p v-if="planError" class="error">{{ planError }}</p>
@@ -570,11 +676,19 @@
         </div>
       </form>
     </PageModal>
+    <TeacherChangeDialog
+      :open="!!teacherChange"
+      :items="teacherChange?.items || []"
+      :saving="saving"
+      :error="teacherChange?.error || ''"
+      @close="teacherChange = null"
+      @confirm="confirmTeacherChange"
+    />
   </section>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, getProfile } from '../api';
 import { money } from '../format';
@@ -585,6 +699,8 @@ import ActionBtn from '../components/ActionBtn.vue';
 import PageModal from '../components/PageModal.vue';
 import PageLoad from '../components/PageLoad.vue';
 import GradePicker from '../components/GradePicker.vue';
+import SearchSelect from '../components/SearchSelect.vue';
+import TeacherChangeDialog from '../components/TeacherChangeDialog.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 import { parseGrades } from '../grades';
 import { notify } from '../notify';
@@ -602,7 +718,16 @@ const pageSize = ref(10);
 const categoryId = ref('');
 const semesterScope = ref('current');
 const { loading, ready, error, run } = usePageLoad();
+let planPageActivated = false;
 const notice = ref('');
+const timetableOpen = ref(false);
+const timetableMonth = ref('');
+const timetableSessions = ref([]);
+const timetableLoading = ref(false);
+const timetableExporting = ref(false);
+const timetableError = ref('');
+const timetablePickAll = ref(true);
+const timetablePicked = ref([]);
 const continueForm = ref(null);
 const continueError = ref('');
 const continueSaving = ref(false);
@@ -970,8 +1095,46 @@ async function saveContinue() {
 function changePage(next) { page.value = next; load(); }
 function changeSize(next) { pageSize.value = next; reload(); }
 
+const teacherOrigin = ref(null);
+const teacherChange = ref(null);
+
+const teacherOptions = computed(() => teachers.value.map((item) => ({
+  value: String(item.id),
+  title: item.realName || item.nickname || `教师${item.id}`,
+  hint: [item.teacherNo, item.phone, item.contractSigned ? '' : '未签合同(可预分配)'].filter(Boolean).join(' · '),
+  search: teacherLabel(item),
+})));
+function teacherName(id) {
+  if (!id) return '';
+  const item = teachers.value.find((row) => Number(row.id) === Number(id));
+  return item?.realName || item?.nickname || `老师 #${id}`;
+}
+function rowTeacherName(item) {
+  return item.teacher ? (item.teacher.teacherCert?.realName || item.teacher.nickname || `老师 #${item.teacher.id}`) : '';
+}
+function changeNotice(change) {
+  if (!change) return '已更换老师';
+  const parts = [];
+  if (change.moved) parts.push(`${change.moved} 节已上的课已按新安排改算`);
+  if (change.kept) parts.push(`${change.kept} 节补记给原老师`);
+  if (change.skippedLocked) parts.push(`${change.skippedLocked} 节已固定未改`);
+  return parts.length ? `已更换老师：${parts.join('，')}` : '已更换老师，之后的课按新安排结算';
+}
+function askRowTeacher(item, value) {
+  const next = value ? Number(value) : null;
+  if ((item.teacherId || null) === next) return;
+  teacherChange.value = {
+    kind: 'row',
+    courseId: item.id,
+    teacherId: next,
+    error: '',
+    items: [{ courseId: item.id, title: item.title, fromName: rowTeacherName(item), toName: teacherName(next) }],
+  };
+}
+
 function openForm(item) {
   formError.value = '';
+  teacherOrigin.value = item?.teacherId || null;
   form.value = item
     ? {
         id: item.id,
@@ -1003,6 +1166,42 @@ function openForm(item) {
 }
 
 async function save() {
+  const teacherId = form.value.teacherId ? Number(form.value.teacherId) : null;
+  const origin = teacherOrigin.value ? Number(teacherOrigin.value) : null;
+  if (form.value.id && teacherId !== origin) {
+    teacherChange.value = {
+      kind: 'form',
+      error: '',
+      items: [{ courseId: form.value.id, title: form.value.title, fromName: teacherName(origin), toName: teacherName(teacherId) }],
+    };
+    return;
+  }
+  await persist();
+}
+
+async function confirmTeacherChange(from) {
+  const state = teacherChange.value;
+  if (!state) return;
+  if (state.kind === 'form') {
+    if (await persist(from)) teacherChange.value = null;
+    else state.error = formError.value;
+    return;
+  }
+  saving.value = true;
+  state.error = '';
+  try {
+    const saved = await api.setCourseTeacher(state.courseId, { teacherId: state.teacherId, teacherFrom: from });
+    notice.value = changeNotice(saved?.teacherChange);
+    teacherChange.value = null;
+    await load();
+  } catch (err) {
+    state.error = err.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function persist(teacherFrom) {
   saving.value = true;
   formError.value = '';
   const body = {
@@ -1015,13 +1214,16 @@ async function save() {
   if (schoolAccount) {
     delete body.sessionFee;
   }
+  if (teacherFrom) body.teacherFrom = teacherFrom;
   try {
-    if (form.value.id) await api.updateCourse(form.value.id, body);
-    else await api.createCourse(body);
+    const saved = form.value.id ? await api.updateCourse(form.value.id, body) : await api.createCourse(body);
+    if (teacherFrom) notice.value = changeNotice(saved?.teacherChange);
     form.value = null;
     await load();
+    return true;
   } catch (err) {
     formError.value = err.message;
+    return false;
   } finally {
     saving.value = false;
   }
@@ -1058,8 +1260,49 @@ const planSaving = ref(false);
 const sessionForm = ref(null);
 const sessionError = ref('');
 const quickForm = ref(null);
+/** 排课日历：选中的课次 id，用于复制/删除 */
+const selectedSessionIds = ref([]);
+/** 粘贴目标日期 YYYY-MM-DD */
+const pasteDate = ref('');
+/** 剪贴板：{ startTime, endTime }[] */
+const planClipboard = ref([]);
+/** 本地编辑 → 云端静默同步队列 */
+const planSyncQueue = ref([]);
+const planSyncRunning = ref(false);
+/** 本地临时 id → 入库后的真实 id */
+const planIdMap = new Map();
+/** 每次本地改动 +1，用于丢弃过期的后台拉取结果 */
+let planEditSeq = 0;
+let planLocalSeq = 0;
+let planSyncTimer = 0;
+let planPullTimer = 0;
+
 const planSemester = computed(() => plan.value?.semesters?.find((item) => item.id === planSemesterId.value) || plan.value?.semesters?.[0] || null);
 const planEnded = computed(() => planSemester.value?.phase === 'ended');
+const planClipboardCount = computed(() => planClipboard.value.length);
+const planPendingCount = computed(() => planSyncQueue.value.filter((item) => item.status !== 'done').length);
+const planFailedCount = computed(() => planSyncQueue.value.filter((item) => item.status === 'failed').length);
+const planSyncBusy = computed(() => planSyncRunning.value || planPendingCount.value > 0);
+const planSyncLabel = computed(() => {
+  if (planFailedCount.value) return `同步失败 ${planFailedCount.value}`;
+  if (planSyncRunning.value) return '正在同步…';
+  if (planPendingCount.value) return `待同步 ${planPendingCount.value}`;
+  return '已同步';
+});
+const planSyncTone = computed(() => {
+  if (planFailedCount.value) return 'bad';
+  if (planPendingCount.value || planSyncRunning.value) return 'wait';
+  return 'ok';
+});
+const canCopyPlan = computed(() => {
+  if (planEnded.value) return false;
+  if (selectedSessionIds.value.length) return true;
+  if (!pasteDate.value) return false;
+  return (plan.value?.sessions || []).some(
+    (item) => item.semesterId === planSemesterId.value && item.date === pasteDate.value && item.status === 'scheduled',
+  );
+});
+const canPastePlan = computed(() => !planEnded.value && !!pasteDate.value && planClipboard.value.length > 0);
 const planCells = computed(() => {
   const semester = planSemester.value;
   const year = planYear.value;
@@ -1096,6 +1339,241 @@ const planCells = computed(() => {
   }
   return cells;
 });
+
+function isLocalSession(id) {
+  return String(id || '').startsWith('tmp_');
+}
+
+function sessionSyncFailed(id) {
+  return planSyncQueue.value.some((op) => op.status === 'failed' && (op.localId === id || op.serverId === id));
+}
+
+function weekdayOfDate(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  const js = d.getDay();
+  return js === 0 ? 7 : js;
+}
+
+function hasSlotOnDate(date, startTime) {
+  const start = String(startTime || '').slice(0, 5);
+  return (plan.value?.sessions || []).some(
+    (item) => item.semesterId === planSemesterId.value
+      && item.date === date
+      && String(item.startTime || '').slice(0, 5) === start
+      && item.status !== 'cancelled'
+      && item.status !== 'rescheduled',
+  );
+}
+
+function nextTempId() {
+  planLocalSeq += 1;
+  return `tmp_${Date.now()}_${planLocalSeq}`;
+}
+
+function resolveSessionId(id) {
+  return planIdMap.get(id) ?? id;
+}
+
+function isRunnableOp(op) {
+  return op.status === 'pending' || op.status === 'failed';
+}
+
+/** 入队并合并：同一课次只保留最后一次改动，删除会吞掉未发出的修改 */
+function enqueuePlanOp(op, flush = true) {
+  planEditSeq += 1;
+  let queue = planSyncQueue.value;
+  if (op.type === 'update') {
+    const prev = queue.find((item) => item.type === 'update' && item.serverId === op.serverId && item.status !== 'syncing');
+    if (prev) {
+      op = { ...op, payload: { ...prev.payload, ...op.payload } };
+      queue = queue.filter((item) => item !== prev);
+    }
+  } else if (op.type === 'delete') {
+    queue = queue.filter((item) => !(item.type === 'update' && item.serverId === op.serverId && item.status !== 'syncing'));
+    if (queue.some((item) => item.type === 'delete' && item.serverId === op.serverId)) {
+      planSyncQueue.value = queue;
+      return;
+    }
+  }
+  planSyncQueue.value = [...queue, {
+    qid: nextTempId(),
+    status: 'pending',
+    error: '',
+    attempts: 0,
+    ...op,
+  }];
+  if (flush) flushPlanSync();
+}
+
+function removeSessionRow(id) {
+  if (!plan.value) return;
+  plan.value = {
+    ...plan.value,
+    sessions: (plan.value.sessions || []).filter((item) => item.id !== id),
+  };
+  selectedSessionIds.value = selectedSessionIds.value.filter((item) => item !== id);
+}
+
+/** 云端已有同日同时段的课（例如上次请求其实已成功），直接认领它 */
+async function adoptExistingSession(courseId, payload) {
+  const data = await api.coursePlan(courseId);
+  const start = String(payload.startTime || '').slice(0, 5);
+  const visible = new Set((plan.value?.sessions || []).map((item) => item.id));
+  return (data.sessions || []).find((item) => item.date === payload.date
+    && String(item.startTime || '').slice(0, 5) === start
+    && (!payload.semesterId || item.semesterId === payload.semesterId)
+    && !visible.has(item.id)) || null;
+}
+
+async function runPlanOp(courseId, op) {
+  const sent = { ...(op.payload || {}) };
+  if (op.type === 'create') {
+    if (op.cancelled) return;
+    let created;
+    try {
+      created = await api.createCourseSession(courseId, sent);
+    } catch (err) {
+      if (!/已经有课/.test(err?.message || '')) throw err;
+      created = await adoptExistingSession(courseId, sent);
+      if (!created) throw err;
+      if ((created.endTime || null) !== (sent.endTime || null)) sent.endTime = created.endTime || null;
+    }
+    planIdMap.set(op.localId, created.id);
+    if (op.cancelled) {
+      // 请求途中界面已删掉这块：补一个删除
+      enqueuePlanOp({ type: 'delete', serverId: created.id }, false);
+      return;
+    }
+    replaceLocalSession(op.localId, created);
+    if (JSON.stringify(op.payload) !== JSON.stringify(sent)) {
+      // 请求途中界面又改过：以界面最新值再同步一次
+      enqueuePlanOp({ type: 'update', serverId: created.id, payload: { ...op.payload } }, false);
+    }
+    return;
+  }
+  if (op.type === 'update') {
+    try {
+      await api.updateCourseSession(courseId, op.serverId, sent);
+    } catch (err) {
+      if (!/不存在/.test(err?.message || '')) throw err;
+      removeSessionRow(op.serverId);
+      notify.warn('该课次已在云端删除，已从日历移除');
+    }
+    return;
+  }
+  if (op.type === 'delete') {
+    try {
+      await api.deleteCourseSession(courseId, op.serverId);
+    } catch (err) {
+      if (!/不存在/.test(err?.message || '')) throw err;
+    }
+  }
+}
+
+function startPlanTimers() {
+  stopPlanTimers();
+  planSyncTimer = window.setInterval(() => {
+    if (plan.value) flushPlanSync();
+  }, 4000);
+  planPullTimer = window.setInterval(() => {
+    if (plan.value) softPullPlan();
+  }, 20000);
+}
+
+function stopPlanTimers() {
+  if (planSyncTimer) {
+    clearInterval(planSyncTimer);
+    planSyncTimer = 0;
+  }
+  if (planPullTimer) {
+    clearInterval(planPullTimer);
+    planPullTimer = 0;
+  }
+}
+
+async function flushPlanSync() {
+  if (planSyncRunning.value || !plan.value) return;
+  if (!planSyncQueue.value.some(isRunnableOp)) return;
+  const courseId = plan.value.course.id;
+  planSyncRunning.value = true;
+  try {
+    while (plan.value?.course?.id === courseId) {
+      const op = planSyncQueue.value.find(isRunnableOp);
+      if (!op) break;
+      op.status = 'syncing';
+      op.attempts += 1;
+      try {
+        await runPlanOp(courseId, op);
+        planSyncQueue.value = planSyncQueue.value.filter((item) => item.qid !== op.qid);
+      } catch (err) {
+        if (op.cancelled) {
+          planSyncQueue.value = planSyncQueue.value.filter((item) => item.qid !== op.qid);
+          continue;
+        }
+        const message = err?.message || '同步失败';
+        const repeated = op.attempts > 1 && op.error === message;
+        op.status = 'failed';
+        op.error = message;
+        if (!repeated) notify.error(`云端同步失败：${message}`);
+        break;
+      }
+    }
+  } finally {
+    planSyncRunning.value = false;
+  }
+}
+
+/** 等当前请求结束后把队列冲完；返回是否全部成功 */
+async function drainPlanSync() {
+  while (planSyncRunning.value) {
+    await new Promise((resolve) => { setTimeout(resolve, 80); });
+  }
+  await flushPlanSync();
+  return !planSyncQueue.value.length;
+}
+
+function replaceLocalSession(localId, created) {
+  if (!plan.value) return;
+  const rows = plan.value.sessions || [];
+  plan.value = {
+    ...plan.value,
+    sessions: rows.map((item) => (item.id === localId
+      // 时间字段以界面为准，其余取云端
+      ? {
+        ...item,
+        ...created,
+        id: created.id,
+        date: item.date,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        weekday: item.weekday,
+        _local: false,
+      }
+      : item)),
+  };
+  selectedSessionIds.value = selectedSessionIds.value.map((id) => (id === localId ? created.id : id));
+  if (sessionForm.value?.id === localId) sessionForm.value = { ...sessionForm.value, id: created.id };
+}
+
+async function softPullPlan() {
+  if (!plan.value || planSyncQueue.value.length || planSyncRunning.value) return;
+  const seq = planEditSeq;
+  const courseId = plan.value.course.id;
+  try {
+    const kept = planSemester.value;
+    const data = await api.coursePlan(courseId);
+    // 拉取期间界面有新改动：丢弃这份旧数据
+    if (seq !== planEditSeq || planSyncQueue.value.length || planSyncRunning.value) return;
+    if (plan.value?.course?.id !== courseId) return;
+    if (kept && !data.semesters.some((item) => item.id === kept.id)) data.semesters.unshift(kept);
+    plan.value = data;
+    const alive = new Set((data.sessions || []).map((item) => item.id));
+    selectedSessionIds.value = selectedSessionIds.value.filter((id) => alive.has(id));
+    if (!planSemesterId.value) planSemesterId.value = data.semesters[0]?.id || kept?.id || null;
+  } catch {
+    // 静默拉取失败不打扰
+  }
+}
 
 function goSchedule(item) {
   router.push({ path: '/term', query: { courseId: String(item.id) } });
@@ -1160,6 +1638,10 @@ function shiftPlanMonth(delta) {
 async function openPlan(item) {
   planError.value = '';
   sessionForm.value = null;
+  selectedSessionIds.value = [];
+  pasteDate.value = '';
+  planSyncQueue.value = [];
+  planIdMap.clear();
   try {
     const data = await api.coursePlan(item.id);
     if (!data.scheduled) {
@@ -1170,15 +1652,215 @@ async function openPlan(item) {
     const active = data.semesters.find((row) => row.phase === 'active') || data.semesters[0];
     planSemesterId.value = active?.id || null;
     focusPlanMonth();
+    startPlanTimers();
   } catch (err) {
     error.value = err.message;
   }
 }
 
-function closePlan() {
+function forceClosePlan() {
+  stopPlanTimers();
   plan.value = null;
   sessionForm.value = null;
   quickForm.value = null;
+  selectedSessionIds.value = [];
+  pasteDate.value = '';
+  planSyncQueue.value = [];
+  planIdMap.clear();
+  planError.value = '';
+}
+
+async function requestClosePlan() {
+  if (!plan.value) return;
+  if (planPendingCount.value) {
+    const failed = planFailedCount.value;
+    const ok = await notify.confirm({
+      title: failed ? '云端同步未完成' : '本地修改尚未同步',
+      message: failed
+        ? `有 ${failed} 项同步失败。点「同步并关闭」会重试；取消则继续留在排课窗口。`
+        : `还有 ${planPendingCount.value} 项修改只在本地。关闭前先同步到云端？`,
+      okText: '同步并关闭',
+      cancelText: '继续编辑',
+      icon: failed ? 'x' : 'refresh',
+    });
+    if (!ok) return;
+    const done = await drainPlanSync();
+    if (!done) {
+      notify.error('仍有修改未同步成功，请处理后再关闭');
+      return;
+    }
+  }
+  forceClosePlan();
+  load();
+}
+
+function selectPasteDay(cell) {
+  if (planEnded.value || cell.empty || cell.inTerm === false) return;
+  pasteDate.value = cell.date;
+}
+
+function toggleSessionSelect(item, event) {
+  if (planEnded.value) return;
+  if (event?.detail === 2) return;
+  const id = item.id;
+  const set = new Set(selectedSessionIds.value);
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  selectedSessionIds.value = [...set];
+  pasteDate.value = item.date;
+}
+
+function slotsFromSessions(rows) {
+  const seen = new Set();
+  const slots = [];
+  for (const item of rows) {
+    if (!item?.startTime) continue;
+    const startTime = String(item.startTime).slice(0, 5);
+    const endTime = item.endTime ? String(item.endTime).slice(0, 5) : '';
+    const key = `${startTime}|${endTime}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    slots.push({ startTime, endTime });
+  }
+  return slots;
+}
+
+function copyPlanSlots() {
+  if (planEnded.value || !plan.value) return;
+  let rows = [];
+  if (selectedSessionIds.value.length) {
+    const idSet = new Set(selectedSessionIds.value);
+    rows = (plan.value.sessions || []).filter((item) => idSet.has(item.id));
+  } else if (pasteDate.value) {
+    rows = (plan.value.sessions || []).filter(
+      (item) => item.semesterId === planSemesterId.value && item.date === pasteDate.value && item.status === 'scheduled',
+    );
+  }
+  const slots = slotsFromSessions(rows);
+  if (!slots.length) {
+    planError.value = '请先选中要复制的课次块';
+    return;
+  }
+  planClipboard.value = slots;
+  planError.value = `已复制 ${slots.length} 个时间：${slots.map((s) => (s.endTime ? `${s.startTime}-${s.endTime}` : s.startTime)).join('、')}`;
+}
+
+function pastePlanSlots() {
+  if (!canPastePlan.value || !plan.value || !planSemesterId.value) return;
+  const date = pasteDate.value;
+  const semester = planSemester.value;
+  if (semester && (date < semester.startDate || date > semester.endDate)) {
+    planError.value = '目标日不在当前学期范围内';
+    return;
+  }
+  let created = 0;
+  let skipped = 0;
+  const added = [];
+  for (const slot of planClipboard.value) {
+    if (hasSlotOnDate(date, slot.startTime)) {
+      skipped += 1;
+      continue;
+    }
+    const localId = nextTempId();
+    const row = {
+      id: localId,
+      courseId: plan.value.course.id,
+      semesterId: planSemesterId.value,
+      date,
+      startTime: slot.startTime,
+      endTime: slot.endTime || null,
+      weekday: weekdayOfDate(date),
+      status: 'scheduled',
+      kind: 'extra',
+      _local: true,
+    };
+    added.push(row);
+    enqueuePlanOp({
+      type: 'create',
+      localId,
+      payload: {
+        semesterId: planSemesterId.value,
+        date,
+        startTime: slot.startTime,
+        endTime: slot.endTime || null,
+      },
+    });
+    created += 1;
+  }
+  if (added.length) {
+    plan.value = {
+      ...plan.value,
+      sessions: [...(plan.value.sessions || []), ...added],
+    };
+  }
+  if (!created && skipped) {
+    planError.value = `该日已有相同时间段（每个时间段一天只能一节），未粘贴`;
+    notify.warn(planError.value);
+    return;
+  }
+  const parts = [`已粘贴 ${created} 节到 ${date}`];
+  if (skipped) parts.push(`跳过重复 ${skipped} 节`);
+  planError.value = parts.join('，');
+}
+
+function deleteSelectedSessions() {
+  if (planEnded.value || !plan.value || !selectedSessionIds.value.length) return;
+  const ids = [...new Set(selectedSessionIds.value.map(resolveSessionId))];
+  const idSet = new Set(ids);
+  plan.value = {
+    ...plan.value,
+    sessions: (plan.value.sessions || []).filter((item) => !idSet.has(item.id)),
+  };
+  selectedSessionIds.value = [];
+  planEditSeq += 1;
+  for (const id of ids) {
+    if (isLocalSession(id)) {
+      const create = planSyncQueue.value.find((op) => op.type === 'create' && op.localId === id);
+      if (create?.status === 'syncing') {
+        // 创建请求已发出：等它回来后再删
+        create.cancelled = true;
+      } else {
+        planSyncQueue.value = planSyncQueue.value.filter((op) => op !== create);
+      }
+      continue;
+    }
+    enqueuePlanOp({ type: 'delete', serverId: id }, false);
+  }
+  flushPlanSync();
+  planError.value = `已删除 ${ids.length} 节（后台同步中）`;
+}
+
+function onPlanKeydown(event) {
+  if (!plan.value || planEnded.value) return;
+  const tag = String(event.target?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target?.isContentEditable) return;
+  const key = String(event.key || '').toLowerCase();
+  const mod = event.ctrlKey || event.metaKey;
+  if (mod && key === 'c') {
+    event.preventDefault();
+    copyPlanSlots();
+    return;
+  }
+  if (mod && key === 'v') {
+    event.preventDefault();
+    pastePlanSlots();
+    return;
+  }
+  if (key === 'delete' || key === 'backspace') {
+    if (!selectedSessionIds.value.length) return;
+    event.preventDefault();
+    deleteSelectedSessions();
+    return;
+  }
+  if (key === 'escape') {
+    selectedSessionIds.value = [];
+    pasteDate.value = '';
+  }
+}
+
+function onPlanWindowKey(event) {
+  if (!plan.value || sessionForm.value || quickForm.value) return;
+  onPlanKeydown(event);
 }
 
 function openQuick() {
@@ -1202,6 +1884,12 @@ function openQuick() {
 
 async function runQuick() {
   if (!quickForm.value || !plan.value || !planSemesterId.value) return;
+  if (planSyncQueue.value.length || planSyncRunning.value) {
+    if (!(await drainPlanSync())) {
+      planError.value = '请先等本地修改同步完成，再快捷生成';
+      return;
+    }
+  }
   const slots = quickForm.value.slots.map((slot) => ({
     weekday: Number(slot.weekday),
     startTime: slot.startTime,
@@ -1226,6 +1914,7 @@ async function runQuick() {
     await refreshPlan();
   } catch (err) {
     planError.value = err.message;
+    notify.error(err.message || '生成失败');
   } finally {
     planSaving.value = false;
   }
@@ -1257,47 +1946,101 @@ async function refreshPlan() {
   await load();
 }
 
-async function saveSession() {
+function saveSession() {
   if (!sessionForm.value || !plan.value) return;
-  planSaving.value = true;
   sessionError.value = '';
-  try {
-    const body = {
-      date: sessionForm.value.date,
-      startTime: sessionForm.value.startTime,
-      endTime: sessionForm.value.endTime || null,
-      semesterId: planSemesterId.value,
-    };
-    if (sessionForm.value.id) await api.updateCourseSession(plan.value.course.id, sessionForm.value.id, body);
-    else await api.createCourseSession(plan.value.course.id, body);
-    sessionForm.value = null;
-    await refreshPlan();
-  } catch (err) {
-    sessionError.value = err.message;
-  } finally {
-    planSaving.value = false;
+  const body = {
+    date: sessionForm.value.date,
+    startTime: sessionForm.value.startTime,
+    endTime: sessionForm.value.endTime || null,
+    semesterId: planSemesterId.value,
+  };
+  if (!body.startTime) {
+    sessionError.value = '请填写开始时间';
+    return;
   }
+  if (sessionForm.value.id) {
+    const id = resolveSessionId(sessionForm.value.id);
+    if (!(plan.value.sessions || []).some((item) => item.id === id)) {
+      sessionForm.value = null;
+      planError.value = '这节课已被删除';
+      return;
+    }
+    const conflict = (plan.value.sessions || []).some((item) => {
+      if (item.id === id) return false;
+      return item.semesterId === planSemesterId.value
+        && item.date === body.date
+        && String(item.startTime || '').slice(0, 5) === String(body.startTime).slice(0, 5)
+        && item.status !== 'cancelled'
+        && item.status !== 'rescheduled';
+    });
+    if (conflict) {
+      sessionError.value = '这一天这个时间已经有课（每个时间段一天只能一节）';
+      return;
+    }
+    plan.value = {
+      ...plan.value,
+      sessions: (plan.value.sessions || []).map((item) => (item.id === id
+        ? {
+          ...item,
+          date: body.date,
+          startTime: body.startTime,
+          endTime: body.endTime,
+          weekday: weekdayOfDate(body.date),
+        }
+        : item)),
+    };
+    if (isLocalSession(id)) {
+      planEditSeq += 1;
+      const create = planSyncQueue.value.find((op) => op.type === 'create' && op.localId === id);
+      if (create) {
+        // 发送中也直接改 payload，请求回来后会按最新值补一次更新
+        create.payload = { ...create.payload, ...body };
+        if (create.status === 'failed') create.status = 'pending';
+      }
+      flushPlanSync();
+    } else {
+      enqueuePlanOp({ type: 'update', serverId: id, payload: body });
+    }
+  } else {
+    if (hasSlotOnDate(body.date, body.startTime)) {
+      sessionError.value = '这一天这个时间已经有课（每个时间段一天只能一节）';
+      return;
+    }
+    const localId = nextTempId();
+    plan.value = {
+      ...plan.value,
+      sessions: [...(plan.value.sessions || []), {
+        id: localId,
+        courseId: plan.value.course.id,
+        semesterId: planSemesterId.value,
+        date: body.date,
+        startTime: body.startTime,
+        endTime: body.endTime,
+        weekday: weekdayOfDate(body.date),
+        status: 'scheduled',
+        kind: 'extra',
+        _local: true,
+      }],
+    };
+    enqueuePlanOp({ type: 'create', localId, payload: body });
+  }
+  sessionForm.value = null;
+  planError.value = '已保存到本地，正在同步云端';
 }
 
-async function removeSession() {
+function removeSession() {
   if (!sessionForm.value?.id || !plan.value) return;
-  planSaving.value = true;
-  sessionError.value = '';
-  try {
-    await api.deleteCourseSession(plan.value.course.id, sessionForm.value.id);
-    sessionForm.value = null;
-    await refreshPlan();
-  } catch (err) {
-    sessionError.value = err.message;
-  } finally {
-    planSaving.value = false;
-  }
+  selectedSessionIds.value = [sessionForm.value.id];
+  sessionForm.value = null;
+  deleteSelectedSessions();
 }
 
 onMounted(async () => {
   document.addEventListener('mousedown', onTeacherPointer);
   window.addEventListener('resize', placeTeacherMenu);
   window.addEventListener('scroll', placeTeacherMenu, true);
+  window.addEventListener('keydown', onPlanWindowKey);
   try {
     const jobs = [api.categories(), api.teachers(), api.schools(), api.semesters()];
     if (!schoolAccount) jobs.push(api.schoolAccounts());
@@ -1315,9 +2058,174 @@ onMounted(async () => {
   }
   await load();
 });
+onActivated(() => {
+  // keep-alive 切回：其它页弹窗改完课程/老师后，列表要跟上
+  if (!planPageActivated) {
+    planPageActivated = true;
+    return;
+  }
+  if (ready.value && !plan.value) load();
+});
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, '0')}`;
+}
+function openTimetable() {
+  timetableMonth.value = timetableMonth.value || currentMonthKey();
+  timetableOpen.value = true;
+  loadTimetable();
+}
+function shiftTimetable(delta) {
+  const [year, month] = String(timetableMonth.value || currentMonthKey()).split('-').map(Number);
+  const next = new Date(year, month - 1 + delta, 1);
+  timetableMonth.value = `${next.getFullYear()}-${`${next.getMonth() + 1}`.padStart(2, '0')}`;
+  loadTimetable();
+}
+const timetableDays = computed(() => {
+  const month = timetableMonth.value;
+  if (!/^\d{4}-\d{2}$/.test(month)) return [];
+  const [year, mon] = month.split('-').map(Number);
+  const last = new Date(year, mon, 0);
+  const cursor = new Date(year, mon - 1, 1);
+  const lead = (cursor.getDay() || 7) - 1;
+  cursor.setDate(cursor.getDate() - lead);
+  const byDate = new Map();
+  for (const item of visibleTimetableSessions.value) {
+    const list = byDate.get(item.date) || [];
+    list.push(item);
+    byDate.set(item.date, list);
+  }
+  const days = [];
+  while (cursor <= last || days.length % 7 !== 0) {
+    const date = `${cursor.getFullYear()}-${`${cursor.getMonth() + 1}`.padStart(2, '0')}-${`${cursor.getDate()}`.padStart(2, '0')}`;
+    const inMonth = date.startsWith(month);
+    days.push({
+      date,
+      day: cursor.getDate(),
+      inMonth,
+      weekend: cursor.getDay() === 0 || cursor.getDay() === 6,
+      items: inMonth ? (byDate.get(date) || []) : [],
+    });
+    cursor.setDate(cursor.getDate() + 1);
+    if (days.length > 42) break;
+  }
+  return days;
+});
+const timetableCourses = computed(() => {
+  const map = new Map();
+  for (const item of timetableSessions.value) {
+    const id = item.course?.id || item.courseId;
+    if (!id || map.has(id)) continue;
+    map.set(id, { id, title: item.course?.title || `课程#${id}`, school: item.course?.school || '' });
+  }
+  return [...map.values()].sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+});
+const visibleTimetableSessions = computed(() => {
+  if (timetablePickAll.value) return timetableSessions.value;
+  const picked = new Set(timetablePicked.value);
+  return timetableSessions.value.filter((item) => picked.has(item.course?.id || item.courseId));
+});
+const allTimetableCourses = computed(() => timetablePickAll.value || (
+  timetableCourses.value.length > 0 && timetableCourses.value.every((course) => timetablePicked.value.includes(course.id))
+));
+function coursePicked(id) {
+  return timetablePickAll.value || timetablePicked.value.includes(id);
+}
+function toggleAllTimetableCourses(event) {
+  if (event.target.checked) {
+    timetablePickAll.value = true;
+    timetablePicked.value = [];
+    return;
+  }
+  timetablePickAll.value = false;
+  timetablePicked.value = [];
+}
+function toggleTimetableCourse(id) {
+  const ids = timetableCourses.value.map((course) => course.id);
+  const current = timetablePickAll.value ? [...ids] : [...timetablePicked.value];
+  const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+  if (!next.length) {
+    timetablePickAll.value = false;
+    timetablePicked.value = [];
+    return;
+  }
+  if (next.length === ids.length) {
+    timetablePickAll.value = true;
+    timetablePicked.value = [];
+    return;
+  }
+  timetablePickAll.value = false;
+  timetablePicked.value = next;
+}
+function exportCourseIds() {
+  if (timetablePickAll.value) return '';
+  return timetablePicked.value.length ? timetablePicked.value.join(',') : '0';
+}
+
+async function loadTimetable() {
+  if (!timetableMonth.value) return;
+  timetableLoading.value = true;
+  timetableError.value = '';
+  try {
+    const data = await api.sessions({ month: timetableMonth.value });
+    timetableSessions.value = data?.list || [];
+  } catch (err) {
+    timetableSessions.value = [];
+    timetableError.value = err.message || '课表加载失败';
+  } finally {
+    timetableLoading.value = false;
+  }
+}
+async function exportTimetable() {
+  if (!timetableMonth.value) return;
+  timetableExporting.value = true;
+  try {
+    await api.exportTimetable(timetableMonth.value, exportCourseIds());
+    notify.success('课表已导出');
+  } catch (err) {
+    notify.error(err.message || '导出失败');
+  } finally {
+    timetableExporting.value = false;
+  }
+}
+
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onTeacherPointer);
   window.removeEventListener('resize', placeTeacherMenu);
   window.removeEventListener('scroll', placeTeacherMenu, true);
+  window.removeEventListener('keydown', onPlanWindowKey);
+  stopPlanTimers();
 });
 </script>
+
+<style scoped>
+.tt-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.tt-courses { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.tt-course {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 8px; border: 1px solid #e4e7ec; border-radius: 999px; background: #fff; font-size: 12px; color: #344054;
+}
+.tt-course.on, .tt-course.all { border-color: #b2ccff; background: #eff4ff; }
+.tt-course input { margin: 0; accent-color: var(--primary, #2563eb); }
+.tt-course small { color: #98a2b3; }
+.tt-bar input[type="month"] { height: 36px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 0 10px; }
+.tt-board { border: 1px solid #e4e7ec; border-radius: 12px; overflow: hidden; }
+.tt-head, .tt-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.tt-head span { background: #1d4ed8; color: #fff; text-align: center; font-size: 12px; font-weight: 700; padding: 8px 0; }
+.tt-head span:nth-child(6), .tt-head span:nth-child(7) { background: #334155; }
+.tt-day { min-height: 108px; border-top: 1px solid #eaecf0; border-left: 1px solid #f2f4f7; padding: 6px; background: #fff; }
+.tt-day:nth-child(7n + 1) { border-left: 0; }
+.tt-day.weekend { background: #f8fafc; }
+.tt-day.out { background: #f8fafc; color: #d0d5dd; }
+.tt-day strong { display: block; font-size: 12px; color: #667085; margin-bottom: 4px; }
+.tt-day.out strong { color: #d0d5dd; }
+.tt-item { border-radius: 8px; padding: 4px 6px; margin-bottom: 4px; background: #eff4ff; color: #1e3a8a; }
+.tt-item b, .tt-item span, .tt-item small { display: block; line-height: 1.35; }
+.tt-item b { font-size: 11px; }
+.tt-item span { font-size: 12px; font-weight: 700; }
+.tt-item small { font-size: 11px; opacity: .85; }
+.tt-item.completed { background: #ecfdf3; color: #067647; }
+.tt-item.holiday { background: #fffaeb; color: #b54708; }
+.tt-item.cancelled, .tt-item.rescheduled { background: #f2f4f7; color: #667085; }
+.tt-item.observe { background: #f4f3ff; color: #5925dc; }
+</style>

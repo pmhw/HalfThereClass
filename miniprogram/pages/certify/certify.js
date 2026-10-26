@@ -120,6 +120,16 @@ Page({
   },
 
   onLoad() {
+    this.layoutNav();
+  },
+
+  back() {
+    const pages = getCurrentPages();
+    if (pages.length > 1) wx.navigateBack();
+    else wx.switchTab({ url: '/pages/my/my' });
+  },
+
+  layoutNav() {
     const sys = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     const menu = wx.getMenuButtonBoundingClientRect();
     this.setData({
@@ -129,17 +139,18 @@ Page({
     });
   },
 
-  back() {
-    const pages = getCurrentPages();
-    if (pages.length > 1) wx.navigateBack();
-    else wx.switchTab({ url: '/pages/my/my' });
-  },
-
   onShow() {
+    // 从顶部浮窗 / 半屏 / 隐私弹层回来时窗口尺寸可能变，需重算自定义导航
+    this.layoutNav();
     if (!util.checkLogin()) {
       wx.navigateTo({ url: '/pages/login/login' });
       return;
     }
+    this.refresh();
+  },
+
+  onPrivacyAgree() {
+    this.layoutNav();
     this.refresh();
   },
 

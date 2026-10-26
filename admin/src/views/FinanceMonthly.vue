@@ -45,7 +45,7 @@
                 <button v-if="item.month" class="link" type="button" @click="openMonth(item.month)">课程明细</button>
               </td>
             </tr>
-            <tr v-if="!list.length"><td colspan="8" class="empty">暂无数据</td></tr>
+            <tr v-if="!list.length"><td colspan="8" class="empty">暂无数据（仅统计已固定的月份）</td></tr>
           </tbody>
         </table>
       </article>
@@ -84,7 +84,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { api } from '../api';
 import { money } from '../format';
 import PageLoad from '../components/PageLoad.vue';
@@ -97,7 +97,7 @@ const group = ref('month');
 const list = ref([]);
 const detailMonth = ref('');
 const courses = ref([]);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 
 function statusText(s) {
   return ({ open: '进行中', pending: '待结算', settled: '已结算' })[s] || '—';
@@ -114,5 +114,5 @@ async function openMonth(month) {
   courses.value = await api.financeMonthCourses(month);
 }
 
-onMounted(load);
+bindLoad(load);
 </script>

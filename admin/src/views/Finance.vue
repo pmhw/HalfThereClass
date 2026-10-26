@@ -2,14 +2,14 @@
   <section>
     <div class="page-head">
       <div>
-        <h1>收益概览</h1>
-        <p>平台利润 = 校方价格 − 课时费 − 机构分佣。可勾选课程同步，无需先安排教师。</p>
+        <p>承接机构课：平台利润 = 校方价格 − 课时费；机构利润按课时费抽成，剩余为教师所得。机构抽成不算平台。</p>
+        <p class="auto-sync">
+          <i></i>课次收益按日期自动同步：上课日期（结束时间）一过自动记为已上课并写入收益，每 30 分钟及打开财务页面时检查一次；已固定的月份不会改动。
+          <template v-if="autoSyncText"> {{ autoSyncText }}</template>
+        </p>
       </div>
       <div class="actions">
-        <select v-model="month" @change="load">
-          <option v-for="item in monthOptions" :key="item" :value="item">{{ item }}</option>
-        </select>
-        <button class="btn" type="button" :disabled="syncing" @click="openSync">{{ syncing ? '同步中…' : '同步课次收益' }}</button>
+        <button class="btn" type="button" :disabled="syncing" title="调价、换老师后想立即重算某些课程时使用" @click="openSync">{{ syncing ? '同步中…' : '手动重新同步' }}</button>
         <button
           v-if="data.settlementStatus !== 'settled'"
           class="btn primary"
@@ -22,9 +22,16 @@
     </div>
 
     <PageLoad :loading="loading" :ready="ready" :error="error" :columns="4" kpis :kpi-count="4" @retry="load">
+      <div v-if="data.unlocked" class="unlocked-tip">
+        <span>
+          {{ month }} 尚未固定：已按日期自动同步 <b>{{ data.unlocked.sessionCount }}</b> 节课次收益（校方合计 {{ money(data.unlocked.totalAmount) }}），
+          到「月度结算单」核对并固定后，才计入本页和教师 / 机构报表。
+        </span>
+        <router-link class="btn tiny primary" :to="{ path: '/finance/statement', query: { month } }">去月度结算单</router-link>
+      </div>
       <div class="kpi-grid">
         <article class="card kpi">
-          <div class="label">本月总收入</div>
+          <div class="label">本月总收入<CalcTip name="overview.total" /></div>
           <div class="value">{{ money(cur.totalAmount) }}</div>
           <div class="meta">
             <span :class="cur.revenueChange > 0 ? 'up' : cur.revenueChange < 0 ? 'down' : 'flat'">
@@ -34,26 +41,26 @@
           </div>
         </article>
         <article class="card kpi">
-          <div class="label">教师所得</div>
+          <div class="label">教师所得<CalcTip name="overview.teacher" /></div>
           <div class="value">{{ money(cur.teacherAmount) }}</div>
           <div class="meta"><span class="flat">占比 {{ cur.teacherSharePct || 0 }}%</span></div>
         </article>
         <article class="card kpi">
-          <div class="label">机构所得</div>
+          <div class="label">机构所得<CalcTip name="overview.org" /></div>
           <div class="value">{{ money(cur.institutionAmount) }}</div>
           <div class="meta"><span class="flat">占比 {{ cur.institutionSharePct || 0 }}%</span></div>
         </article>
         <article class="card kpi">
-          <div class="label">本月平台利润</div>
+          <div class="label">本月平台利润<CalcTip name="overview.platform" /></div>
           <div class="value">{{ money(cur.platformAmount) }}</div>
           <div class="meta"><span class="up">利润率 {{ cur.profitRate || 0 }}%</span></div>
         </article>
       </div>
 
       <article class="card card-pad" style="margin-top: 16px">
-        <div class="card-title">
+          <div class="card-title">
           <h2>月度收入 / 利润趋势</h2>
-          <router-link class="link" to="/finance/monthly">月度报表</router-link>
+          <router-link class="link" to="/finance/statement">月度结算单</router-link>
         </div>
         <svg class="chart" viewBox="0 0 640 220">
           <polyline :points="line(data.trend, 'totalAmount')" fill="none" stroke="#2563eb" stroke-width="2" />
@@ -74,33 +81,34 @@
         <article class="card card-pad">
           <div class="card-title"><h2>课程利润排行</h2></div>
           <table>
-            <thead><tr><th>课程</th><th>总收入</th><th>平台利润</th></tr></thead>
+            <thead><tr><th>课程</th><th>总收入<CalcTip name="overview.total" /></th><th>平台利润<CalcTip name="overview.platform" /></th></tr></thead>
             <tbody>
               <tr v-for="item in data.courseRank" :key="item.courseId">
                 <td>{{ item.title }}</td>
                 <td>{{ money(item.totalAmount) }}</td>
                 <td>{{ money(item.platformAmount) }}</td>
               </tr>
-              <tr v-if="!data.courseRank?.length"><td colspan="3" class="empty">本月暂无收益，请点「同步课次收益」并勾选课程</td></tr>
+              <tr v-if="!data.courseRank?.length"><td colspan="3" class="empty">本月暂无收益，请先在「月度结算单」固定该月</td></tr>
             </tbody>
           </table>
         </article>
         <article class="card card-pad">
           <div class="card-title"><h2>快捷入口</h2></div>
           <div class="actions" style="flex-direction: column; align-items: stretch">
-            <router-link class="btn" to="/finance/monthly">月度收益</router-link>
-            <router-link class="btn" to="/finance/teachers">教师收益</router-link>
-            <router-link class="btn" to="/finance/orgs">机构收益</router-link>
-            <router-link class="btn" to="/finance/rules">收益规则</router-link>
+            <router-link class="btn primary" to="/finance/statement">月度结算单（确认 / 固定）</router-link>
+            <router-link class="btn" :to="{ path: '/finance', query: { tab: 'teachers' } }">教师收益</router-link>
+            <router-link class="btn" :to="{ path: '/finance', query: { tab: 'org' } }">机构利润</router-link>
+            <router-link class="btn" to="/finance/rules">课程分成规则</router-link>
+            <router-link class="btn" to="/reimbursements">报销单</router-link>
           </div>
-          <p class="muted" style="margin-top: 12px">结算状态：{{ statusText(data.settlementStatus) }} · 课次 {{ cur.orderCount || 0 }} 节</p>
+          <p class="muted" style="margin-top: 12px">结算状态：{{ statusText(data.settlementStatus) }} · 课次 {{ cur.orderCount || 0 }} 节 · 未固定的月份不计入各报表</p>
         </article>
       </div>
     </PageLoad>
 
     <PageModal :open="syncOpen" size="wide" title="选择要同步的课程" icon="chart" @close="syncOpen = false">
       <p class="muted sync-tip">
-        按已上 / 已到期课次计算：平台利润 = 校方价格 − 课时费 − 分佣。未安排教师时分佣按 0，仍可同步。
+        单节：承接机构课 平台 = 校方价格 − 课时费，机构按课时费抽成，教师 = 课时费 − 机构；机构「不看金额」时课时费直接结算给机构。无教师时仍按课程机构规则记账。
       </p>
       <div class="sync-toolbar">
         <label class="check">
@@ -117,9 +125,10 @@
             <th>课程</th>
             <th>校方价格</th>
             <th>课时费</th>
+            <th>机构抽成</th>
+            <th>预估平台<CalcTip name="overview.sync" /></th>
             <th>教师</th>
-            <th>可同步课次</th>
-            <th>预估单节利润</th>
+            <th>可同步</th>
           </tr>
         </thead>
         <tbody>
@@ -129,15 +138,16 @@
             </td>
             <td>
               <strong>{{ item.title }}</strong>
-              <div class="muted">{{ item.school }}</div>
+              <div class="muted">{{ item.school }}{{ item.organizationName && item.organizationName !== '—' ? ` · ${item.organizationName}` : '' }}</div>
             </td>
             <td>{{ money(item.price) }}</td>
             <td>{{ item.sessionFee == null ? '未配置' : money(item.sessionFee) }}</td>
+            <td>{{ money(item.preview?.institutionAmount) }}</td>
+            <td>{{ money(item.preview?.platformAmount) }}</td>
             <td>{{ item.teacherName }}</td>
             <td>{{ item.syncableCount }} / {{ item.sessionTotal }}</td>
-            <td>{{ money(item.preview?.platformAmount) }}</td>
           </tr>
-          <tr v-if="!syncCourses.length"><td colspan="7" class="empty">暂无上架课程</td></tr>
+          <tr v-if="!syncCourses.length"><td colspan="8" class="empty">暂无上架课程</td></tr>
         </tbody>
       </table>
       <div class="actions" style="margin-top: 16px; justify-content: flex-end">
@@ -151,33 +161,32 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { api } from '../api';
 import { money } from '../format';
 import PageLoad from '../components/PageLoad.vue';
+import CalcTip from '../components/CalcTip.vue';
 import PageModal from '../components/PageModal.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notifyFinanceChanged } from '../composables/useFinanceLive';
 import { notify } from '../notify';
+import { useFinanceMonth } from '../composables/useFinanceMonth';
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-const month = ref(currentMonth());
-const monthOptions = computed(() => {
-  const list = [];
-  const now = new Date();
-  for (let i = 0; i < 18; i += 1) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    list.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return list;
-});
+const month = useFinanceMonth(() => load());
 
 const data = ref({ current: {}, previous: {}, trend: [], courseRank: [], settlementStatus: 'open' });
 const cur = computed(() => data.value.current || {});
-const { loading, ready, error, run } = usePageLoad();
+const autoSyncText = computed(() => {
+  const s = data.value.autoSync;
+  if (!s?.at) return '';
+  const d = new Date(s.at);
+  const time = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const parts = [`上次同步 ${time}`];
+  if (s.synced) parts.push(`新记收益 ${s.synced} 节`);
+  if (s.skippedNoFee) parts.push(`${s.skippedNoFee} 节未配课时费未计入`);
+  return `（${parts.join('，')}）`;
+});
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const syncing = ref(false);
 const settling = ref(false);
 const syncOpen = ref(false);
@@ -255,6 +264,7 @@ async function doSync() {
     }
     notify.success(lines.join('；'), { duration: 5200 });
     syncOpen.value = false;
+    notifyFinanceChanged('sync');
     await load();
   } catch (e) {
     notify.error(e.message || '同步失败');
@@ -275,6 +285,7 @@ async function settle() {
   try {
     await api.financeSettle(month.value);
     notify.success('月度已结算');
+    notifyFinanceChanged('settle');
     await load();
   } catch (e) {
     notify.error(e.message || '结算失败');
@@ -283,7 +294,7 @@ async function settle() {
   }
 }
 
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>
@@ -296,4 +307,8 @@ onMounted(load);
 .sync-toolbar .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .sync-table { width: 100%; }
 .sync-table th, .sync-table td { font-size: 13px; }
+.auto-sync { margin-top: 4px; color: #667085; font-size: 12px; }
+.auto-sync i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #16a34a; vertical-align: middle; }
+.unlocked-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid #fde7b0; border-radius: 10px; background: #fffbeb; color: #92400e; font-size: 13px; }
+.unlocked-tip b { color: #b45309; }
 </style>

@@ -14,7 +14,7 @@ function countdownText(ms) {
 }
 
 Page({
-  data: { course: null, week: '', waiting: false, countdown: '' },
+  data: { course: null, week: '', waiting: false, countdown: '', hasPoint: false, markers: [] },
 
   onLoad(options) {
     this.courseId = Number(options.id);
@@ -51,10 +51,25 @@ Page({
   async load() {
     try {
       const course = await courseService.getCourseDetail(this.courseId);
+      const loc = course.location;
+      const hasPoint = !!(loc && loc.lng != null && loc.lat != null);
       this.setData({
         course,
         week: util.weekdayText(course.weekday),
         initial: (course.title || '课').slice(0, 1),
+        hasPoint,
+        markers: hasPoint
+          ? [{
+            id: 1,
+            latitude: loc.lat,
+            longitude: loc.lng,
+            iconPath: '/images/map-pin.png',
+            width: 32,
+            height: 40,
+            anchor: { x: 0.5, y: 1 },
+            callout: { content: loc.name, display: 'ALWAYS', padding: 6, borderRadius: 6, fontSize: 12, bgColor: '#ffffff', color: '#101828' },
+          }]
+          : [],
       });
       this.startClock(course);
     } catch (err) {
@@ -130,6 +145,32 @@ Page({
   goContract() {
     if (!util.requireLogin()) return;
     wx.navigateTo({ url: '/pages/contract/contract' });
+  },
+
+  /** 微信内置位置页，右下角可选腾讯 / 高德 / 百度等地图导航 */
+  openLocation() {
+    const loc = this.data.course && this.data.course.location;
+    if (!loc) return;
+    if (!this.data.hasPoint) {
+      this.copyAddress('该学校暂未标注位置，地址已复制');
+      return;
+    }
+    wx.openLocation({
+      latitude: Number(loc.lat),
+      longitude: Number(loc.lng),
+      name: loc.name,
+      address: [loc.address, loc.classroom].filter(Boolean).join(' '),
+      scale: 17,
+    });
+  },
+
+  copyAddress(tip) {
+    const loc = this.data.course && this.data.course.location;
+    if (!loc) return;
+    wx.setClipboardData({
+      data: [loc.address || loc.name, loc.classroom].filter(Boolean).join(' '),
+      success: () => wx.showToast({ title: typeof tip === 'string' ? tip : '地址已复制', icon: 'none' }),
+    });
   },
 
   goAdjust() {

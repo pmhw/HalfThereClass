@@ -6,7 +6,7 @@ function plugins(AMap) {
       reject(new Error('高德地图没有加载成功'));
       return;
     }
-    AMap.plugin(['AMap.AutoComplete', 'AMap.PlaceSearch', 'AMap.Geocoder'], () => resolve(AMap));
+    AMap.plugin(['AMap.AutoComplete', 'AMap.PlaceSearch', 'AMap.Geocoder', 'AMap.DistrictSearch'], () => resolve(AMap));
   });
 }
 

@@ -41,20 +41,21 @@
         <thead><tr><th>姓名</th><th>微信</th><th>手机号</th><th>状态</th><th>材料</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in list" :key="item.id">
-            <td>{{ item.realName }}</td>
+            <td><router-link class="name-link" :to="`/faculty/${item.userId}`">{{ item.realName }}</router-link></td>
             <td>{{ item.user?.nickname || '—' }}</td>
             <td>{{ item.user?.phone || '—' }}</td>
             <td>
-              <span :class="['tag', item.status === 'approved' ? 'green' : item.status === 'pending' ? 'amber' : item.status === 'rejected' ? 'red' : '']">{{ certText(item) }}</span>
-              <div class="muted">{{ clearanceText(item) }}</div>
-              <div class="muted">{{ contractText(item) }}</div>
+              <div class="status-stack">
+                <span :class="['tag', certTone(item)]">{{ certText(item) }}</span>
+                <span v-if="clearanceLabel(item)" :class="['tag', clearanceTone(item)]">{{ clearanceLabel(item) }}</span>
+                <span v-if="contractLabel(item)" :class="['tag', contractTone(item)]">{{ contractLabel(item) }}</span>
+              </div>
             </td>
             <td>
               <ActionBtn icon="image" tip="查看材料" @click="viewing = item" />
             </td>
             <td class="col-actions">
               <div class="row-actions">
-                <ActionBtn icon="user" tip="资料" :to="`/faculty/${item.userId}`" />
                 <ActionBtn
                   icon="link"
                   :tip="rowLinkTip(item)"
@@ -80,13 +81,19 @@
     <article v-else-if="tab === 'contracts'" class="card">
       <p class="card-pad muted">每学期需重新签订；通过后预分配课程自动解锁。驳回后教师可重签，历史记录不删除。</p>
       <table>
-        <thead><tr><th>教师</th><th>学期</th><th>当前步骤</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
+        <thead><tr><th>教师</th><th>学期</th><th>状态</th><th>签署时间</th><th>课程附件</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in contracts" :key="item.id">
-            <td>{{ item.user?.teacherCert?.realName || item.user?.nickname || '—' }}</td>
+            <td>
+              <router-link v-if="item.user?.id" class="name-link" :to="`/faculty/${item.user.id}`">
+                {{ item.user?.teacherCert?.realName || item.user?.nickname || '—' }}
+              </router-link>
+              <span v-else>{{ item.user?.teacherCert?.realName || item.user?.nickname || '—' }}</span>
+            </td>
             <td>{{ item.semester?.name || '—' }}</td>
-            <td>{{ item.currentStep || '—' }}</td>
-            <td>{{ item.flowLabel || contractStatusText(item.status) }}</td>
+            <td>
+              <span :class="['tag', contractRowTone(item)]">{{ item.flowLabel || contractStatusText(item.status) }}</span>
+            </td>
             <td>{{ formatTime(item.signedAt) }}</td>
             <td class="muted">{{ item.courseAnnex || '无' }}</td>
             <td class="col-actions">
@@ -107,7 +114,7 @@
               </div>
             </td>
           </tr>
-          <tr v-if="!contracts.length"><td colspan="7" class="empty">还没有合同记录</td></tr>
+          <tr v-if="!contracts.length"><td colspan="6" class="empty">还没有合同记录</td></tr>
         </tbody>
       </table>
     </article>
@@ -118,8 +125,10 @@
         <thead><tr><th>教师</th><th>状态</th><th>异常原因</th><th>更新时间</th><th class="col-actions">操作</th></tr></thead>
         <tbody>
           <tr v-for="item in ocrList" :key="item.userId">
-            <td>{{ item.realName || item.nickname || '—' }}</td>
-            <td>{{ ocrStatusText(item.ocrStatus) }}</td>
+            <td><router-link class="name-link" :to="`/faculty/${item.userId}`">{{ item.realName || item.nickname || '—' }}</router-link></td>
+            <td>
+              <span :class="['tag', ocrTone(item.ocrStatus)]">{{ ocrStatusText(item.ocrStatus) }}</span>
+            </td>
             <td class="muted">{{ item.reason || '—' }}</td>
             <td>{{ formatTime(item.updatedAt) }}</td>
             <td class="col-actions">
@@ -234,7 +243,7 @@
   </section>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { api, protectedAssetUrl } from '../api';
 import ActionBtn from '../components/ActionBtn.vue';
 import Icon from '../components/Icon.vue';
@@ -248,7 +257,7 @@ const contracts = ref([]);
 const ocrList = ref([]);
 const ocrEdit = ref(null);
 const ocrError = ref('');
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const notice = ref('');
 const rejecting = ref(null);
 const reason = ref('资料不完整');
@@ -314,26 +323,66 @@ function ocrStatusText(status) {
     manual_confirmed: '人工已确认',
   })[status] || status;
 }
+function ocrTone(status) {
+  if (status === 'manual_confirmed' || status === 'success') return 'green';
+  if (status === 'manual_review' || status === 'partial') return 'amber';
+  if (status === 'failed') return 'red';
+  return 'gray';
+}
 
 function certText(item) {
   if (item.status === 'approved' && item.clearanceStatus === 'pending') return '证明待审';
-  return certMap[item.status] || item.status;
+  if (item.status === 'approved' && item.clearanceStatus === 'rejected') return '证明已驳回';
+  return certMap[item.status] || item.status || '未知';
 }
-function clearanceText(item) {
+function certTone(item) {
+  if (item.status === 'approved' && item.clearanceStatus === 'pending') return 'amber';
+  if (item.status === 'approved' && item.clearanceStatus === 'rejected') return 'red';
+  if (item.status === 'approved') return 'green';
+  if (item.status === 'pending') return 'amber';
+  if (item.status === 'rejected') return 'red';
+  if (item.status === 'frozen') return 'gray';
+  return 'gray';
+}
+function clearanceLabel(item) {
   if (item.clearanceStatus === 'pending') return '无犯罪证明审核中';
-  if (item.clearanceDue) return '本学期待更新';
-  if (item.status === 'approved') return '本学期已更新';
-  return '随认证一起审';
+  if (item.clearanceStatus === 'rejected') return '无犯罪证明已驳回';
+  if (item.clearanceDue) return '本学期待更新无犯罪证明';
+  if (item.status === 'approved' && item.clearanceStatus === 'approved') return '无犯罪证明已通过';
+  if (item.status === 'pending') return '无犯罪证明随认证审核';
+  return '';
 }
-function contractText(item) {
-  if (item.status !== 'approved') return '认证通过后签订合同';
+function clearanceTone(item) {
+  if (item.clearanceStatus === 'pending') return 'amber';
+  if (item.clearanceStatus === 'rejected') return 'red';
+  if (item.clearanceDue) return 'violet';
+  if (item.clearanceStatus === 'approved') return 'green';
+  return 'blue';
+}
+function contractLabel(item) {
+  if (item.status !== 'approved') return '认证通过后签合同';
   if (item.contractPending) return '合同待审核';
-  if (item.contractValid) return `合同有效（${item.semesterName || '本学期'}），学期结束需重签`;
-  if (item.contractDue) return '需重签本学期合同（可后台撤销强制重签）';
+  if (item.contractValid) return `合同有效·${item.semesterName || '本学期'}`;
+  if (item.contractDue) return '需重签本学期合同';
   return '待签合同';
+}
+function contractTone(item) {
+  if (item.status !== 'approved') return 'gray';
+  if (item.contractPending) return 'amber';
+  if (item.contractValid) return 'green';
+  if (item.contractDue) return 'violet';
+  return 'blue';
 }
 function contractStatusText(status) {
   return ({ pending: '待审核', approved: '已生效', rejected: '已驳回', superseded: '已归档', revoked: '已撤销' })[status] || status;
+}
+function contractRowTone(item) {
+  const status = item.status;
+  if (status === 'approved') return 'green';
+  if (status === 'pending') return 'amber';
+  if (status === 'rejected' || status === 'revoked') return 'red';
+  if (status === 'superseded') return 'gray';
+  return 'blue';
 }
 function formatTime(value) {
   if (!value) return '—';
@@ -487,7 +536,7 @@ async function revokeContract(item) {
     notify.error(err.message || '撤销失败');
   }
 }
-onMounted(load);
+bindLoad(load);
 </script>
 
 <style scoped>
@@ -567,4 +616,13 @@ onMounted(load);
 .reject-field input {
   margin: 0;
 }
+.status-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.status-stack .tag { margin: 0; }
+.name-link { color: var(--primary, #2563eb); text-decoration: none; }
+.name-link:hover { text-decoration: underline; }
 </style>

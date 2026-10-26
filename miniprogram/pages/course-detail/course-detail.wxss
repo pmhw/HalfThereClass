@@ -42,3 +42,15 @@
 .bar-row { display: flex; gap: 16rpx; }
 .bar-row .btn { flex: 1; }
 .remind { margin-top: 16rpx; }
+.loc-map { width: 100%; height: 320rpx; margin-top: 20rpx; border-radius: 20rpx; overflow: hidden; }
+.loc-info { display: flex; align-items: flex-start; gap: 16rpx; margin-top: 20rpx; }
+.loc-text { flex: 1; min-width: 0; }
+.loc-name { font-size: 28rpx; font-weight: 600; color: #101828; }
+.loc-room { color: #667085; font-weight: 400; }
+.loc-addr { margin-top: 6rpx; color: #667085; font-size: 24rpx; line-height: 1.5; }
+.loc-copy {
+  flex: none; margin: 0; padding: 0 22rpx; height: 52rpx; line-height: 52rpx;
+  border-radius: 26rpx; background: #f2f4f7; color: #475467; font-size: 24rpx;
+}
+.loc-copy::after { border: 0; }
+.loc-nav { margin-top: 20rpx; }

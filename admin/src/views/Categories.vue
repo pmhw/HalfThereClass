@@ -161,7 +161,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
 import Confirm from '../components/Confirm.vue';
 import ActionBtn from '../components/ActionBtn.vue';
@@ -385,7 +385,15 @@ async function applyBatch() {
   }
 }
 
+let categoriesActivated = false;
 onMounted(boot);
+onActivated(() => {
+  if (!categoriesActivated) {
+    categoriesActivated = true;
+    return;
+  }
+  if (ready.value) boot();
+});
 </script>
 
 <style scoped>

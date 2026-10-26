@@ -16,6 +16,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { ScheduleModule } from './modules/schedule/schedule.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { FinanceModule } from './modules/finance/finance.module';
+import { SetupModule } from './modules/setup/setup.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { FinanceModule } from './modules/finance/finance.module';
     ScheduleModule,
     StaffModule,
     FinanceModule,
+    SetupModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -276,7 +276,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '../api';
 import Icon from '../components/Icon.vue';
@@ -293,7 +293,7 @@ const categories = ref([]);
 const pickCategory = ref('');
 const pickSchool = ref('');
 const currentId = ref(null);
-const { loading, ready, error, run } = usePageLoad();
+const { loading, ready, error, run, bindLoad } = usePageLoad();
 const notice = ref('');
 const form = ref(null);
 const formError = ref('');
@@ -641,5 +641,5 @@ async function load() {
   });
 }
 
-onMounted(load);
+bindLoad(load);
 </script>

@@ -375,8 +375,10 @@ async function main() {
   cpSync(join(root, 'backend/prisma'), join(outDir, 'backend/prisma'), {
     recursive: true,
     filter: (src) => {
-      const name = src.replace(/\\/g, '/').split('/').pop();
-      return name !== 'dev.db' && name !== 'dev.db-journal' && !String(name).endsWith('.db-journal');
+      // 本地运行时的库及 WAL/SHM 绝不能进包：覆盖到服务器会把本地页叠进线上库导致损坏
+      const name = String(src.replace(/\\/g, '/').split('/').pop());
+      if (name === 'init.db') return true;
+      return !/\.db($|-journal$|-wal$|-shm$)/.test(name);
     },
   });
   const initDb = join(root, 'backend/prisma/init.db');

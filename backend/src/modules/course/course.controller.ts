@@ -58,6 +58,12 @@ export class CourseController {
     return this.courseService.getMyCourses(userId, Number(page), Number(pageSize));
   }
 
+  @Get('map-config')
+  @ApiOperation({ summary: '手机网页地图配置（仅 JS Key）' })
+  getMapConfig() {
+    return this.courseService.mapConfig();
+  }
+
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: '课程详情' })

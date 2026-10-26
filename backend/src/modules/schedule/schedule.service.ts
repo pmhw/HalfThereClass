@@ -1,9 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { buildPaginationResult, getPaginationParams } from '@/common/utils/pagination.util';
 import { getDayDetail } from 'chinese-days';
 import { chinaHolidays } from './china-holidays';
 import { StaffService } from '../staff/staff.service';
+import { TimetableRow, buildTimetableWorkbook } from './schedule-export';
 
 const STATUS_TEXT: Record<string, string> = {
   scheduled: '待上',
@@ -412,10 +413,14 @@ export class ScheduleService {
         where: { id: session.id },
         data: { status: 'completed', completedAt: new Date() },
       });
-      const teacherId = await this.resolveSessionTeacher(session);
+      const teacherId = await this.staffService.sessionTeacher(
+        session.courseId,
+        session.date,
+        await this.resolveSessionTeacher(session),
+      );
       if (teacherId) {
         try {
-          await this.staffService.settle(teacherId, session.courseId, session.date);
+          await this.staffService.settle(teacherId, session.courseId, session.date, { exclusive: true });
         } catch {
           /* 费用未配置时忽略，课次仍记已上 */
         }
@@ -456,20 +461,8 @@ export class ScheduleService {
     if (courseId) where.courseId = courseId;
     if (this.isSchool(actor)) where.course = { ownerId: actor.id };
     if (month) {
-      if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
-      const [year, mon] = month.split('-').map(Number);
-      where.date = { gte: `${month}-01`, lte: this.formatDate(new Date(year, mon, 0)) };
-      const list = await this.prisma.courseSession.findMany({
-        where,
-        orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-        include: { course: { select: { id: true, title: true, school: true } } },
-      });
-      return buildPaginationResult(
-        list.map((item) => ({ ...item, label: this.sessionLabel(item) })),
-        list.length,
-        1,
-        Math.max(list.length, 1),
-      );
+      const list = await this.monthSessions(month, actor, { semesterId, courseId });
+      return buildPaginationResult(list, list.length, 1, Math.max(list.length, 1));
     }
     const pagination = getPaginationParams({ page, pageSize: pageSize || 12 });
     const [list, total] = await Promise.all([
@@ -488,6 +481,82 @@ export class ScheduleService {
       pagination.page,
       pagination.pageSize,
     );
+  }
+
+  /** 按月导出课表 Excel：月历 + 明细两个工作表。courseIds 为逗号分隔的课程，空则导出全部 */
+  async exportMonth(month: string, actor?: any, courseIds?: string) {
+    const picked = this.parseCourseIds(courseIds);
+    const list = await this.monthSessions(month, actor, picked ? { courseIds: picked } : undefined);
+    const rows: TimetableRow[] = list.map((item) => ({
+      date: item.date,
+      weekday: item.weekday,
+      startTime: String(item.startTime || '').slice(0, 5),
+      endTime: item.endTime ? String(item.endTime).slice(0, 5) : '',
+      title: item.course?.title || '',
+      school: item.course?.school || '',
+      classroom: item.course?.classroom || '',
+      teacher: item.teacherName || '',
+      status: item.status,
+      statusText: item.label,
+      kindText: ({ extra: '加课', makeup: '调课', normal: '正课' } as Record<string, string>)[item.kind] || item.kind || '正课',
+      note: item.note || '',
+    }));
+    const buffer = await buildTimetableWorkbook(month, rows);
+    const filename = `课表-${month}.xlsx`;
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="timetable-${month}.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      length: buffer.length,
+    });
+  }
+
+  private async monthSessions(
+    month: string,
+    actor?: any,
+    extra?: { semesterId?: number; courseId?: number; courseIds?: number[] },
+  ) {
+    if (!/^\d{4}-\d{2}$/.test(month || '')) throw new BadRequestException('月份格式应为 YYYY-MM');
+    await this.completeDueSessions();
+    const [year, mon] = month.split('-').map(Number);
+    const where: any = {
+      date: { gte: `${month}-01`, lte: this.formatDate(new Date(year, mon, 0)) },
+    };
+    if (extra?.semesterId) where.semesterId = extra.semesterId;
+    if (extra?.courseIds) where.courseId = { in: extra.courseIds.length ? extra.courseIds : [-1] };
+    else if (extra?.courseId) where.courseId = extra.courseId;
+    if (this.isSchool(actor)) where.course = { ownerId: actor.id };
+    const list = await this.prisma.courseSession.findMany({
+      where,
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
+      include: {
+        course: {
+          select: {
+            id: true,
+            title: true,
+            school: true,
+            classroom: true,
+            teacher: { select: { nickname: true, teacherCert: { select: { realName: true } } } },
+          },
+        },
+      },
+    });
+    const keys = [...new Map(list.map((item) => [`${item.courseId}:${item.semesterId}`, { courseId: item.courseId, semesterId: item.semesterId }])).values()];
+    const terms = keys.length
+      ? await this.prisma.courseTermTeacher.findMany({
+        where: { OR: keys },
+        include: { teacher: { select: { nickname: true, teacherCert: { select: { realName: true } } } } },
+      })
+      : [];
+    const termMap = new Map(terms.map((item) => [`${item.courseId}:${item.semesterId}`, item]));
+    return list.map((item) => {
+      const term = termMap.get(`${item.courseId}:${item.semesterId}`);
+      const teacherName = term?.teacher?.teacherCert?.realName
+        || term?.teacher?.nickname
+        || item.course?.teacher?.teacherCert?.realName
+        || item.course?.teacher?.nickname
+        || '';
+      return { ...item, teacherName, label: this.sessionLabel(item) };
+    });
   }
 
   async updateSession(id: number, data: {
@@ -621,8 +690,17 @@ export class ScheduleService {
 
   async deleteCourseSession(courseId: number, sessionId: number, actor?: any) {
     const current = await this.prisma.courseSession.findUnique({ where: { id: sessionId } });
-    if (!current || current.courseId !== courseId) throw new NotFoundException('课次不存在');
-    return this.deleteSession(sessionId, actor);
+    if (!current) {
+      // 幂等：前端连续删除 / 重试时课次可能已不在
+      await this.assertOwnCourse(actor, courseId);
+      return { ok: true, missing: true };
+    }
+    if (current.courseId !== courseId) throw new NotFoundException('课次不存在');
+    await this.assertOwnCourse(actor, current.courseId);
+    const semester = await this.prisma.semester.findUnique({ where: { id: current.semesterId } });
+    if (semester) this.assertOpen(semester);
+    await this.prisma.courseSession.deleteMany({ where: { id: sessionId } });
+    return { ok: true };
   }
 
   async calendar(month: string, userId?: number) {
@@ -636,7 +714,10 @@ export class ScheduleService {
       where: {
         date: { gte: start, lte: end },
         ...(open ? { semesterId: open.id } : {}),
-        ...(userId ? { course: { teacherId: userId } } : {}),
+        course: {
+          status: 1,
+          ...(userId ? { teacherId: userId } : {}),
+        },
       },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
       include: {
@@ -948,6 +1029,12 @@ export class ScheduleService {
       if (dates.length > 400) throw new BadRequestException('学期跨度不能超过 400 天');
     }
     return dates;
+  }
+
+  /** 未传表示全部；传了但没有有效 id（如 0）表示一门课都不导出 */
+  private parseCourseIds(raw?: string) {
+    if (raw == null || String(raw).trim() === '') return undefined;
+    return [...new Set(String(raw).split(',').map((item) => Number(item.trim())).filter((id) => Number.isInteger(id) && id > 0))];
   }
 
   private formatDate(date: Date) {

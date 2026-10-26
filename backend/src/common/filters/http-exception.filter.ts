@@ -25,9 +25,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : HttpStatus.INTERNAL_SERVER_ERROR;
 
     let errorMessage: string | string[];
+    let reason: string | undefined;
     if (exception instanceof HttpException) {
       const message = exception.getResponse();
       errorMessage = typeof message === 'string' ? message : (message as any).message;
+      if (typeof message === 'object' && typeof (message as any).reason === 'string') reason = (message as any).reason;
     } else if ((exception as any)?.name === 'MulterError' && (exception as any)?.code === 'LIMIT_FILE_SIZE') {
       errorMessage = '图片过大，请选择较小的图片（建议 8MB 以内）';
     } else if ((exception as any)?.message === 'File too large') {
@@ -50,6 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(finalStatus).json({
       code: finalStatus,
       message: errorMessage,
+      ...(reason ? { reason } : {}),
       data: null,
       timestamp: new Date().toISOString(),
       path: request.url,

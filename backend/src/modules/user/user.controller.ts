@@ -20,8 +20,8 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取用户信息' })
-  getProfile(@CurrentUser('userId') userId: number) {
-    return this.userService.findById(userId);
+  async getProfile(@CurrentUser('userId') userId: number) {
+    return this.userService.selfView(await this.userService.findById(userId));
   }
 
   @Post('avatar')
@@ -40,11 +40,11 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '更新用户信息' })
-  updateProfile(
+  async updateProfile(
     @CurrentUser('userId') userId: number,
     @Body() updateUserDto: UpdateUserDto,
   ) {
-    return this.userService.update(userId, updateUserDto);
+    return this.userService.selfView(await this.userService.update(userId, updateUserDto));
   }
 
   @Get('stats')

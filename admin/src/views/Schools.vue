@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api, getProfile } from '../api';
 import { allow } from '../access';
 import { loadAmap, pointOf, regionOf } from '../amap';
@@ -118,7 +118,7 @@ const mapBox = ref(null);
 const searchBox = ref(null);
 const tips = ref([]);
 const mapError = ref('');
-const canSettings = allow(getProfile(), 'admin');
+const canSettings = allow(getProfile(), 'admin.settings');
 let map;
 let marker;
 let geocoder;
@@ -346,9 +346,17 @@ async function remove(item) {
   }
 }
 
+let schoolsActivated = false;
 onMounted(() => {
   load();
   document.addEventListener('mousedown', onDocDown);
+});
+onActivated(() => {
+  if (!schoolsActivated) {
+    schoolsActivated = true;
+    return;
+  }
+  if (ready.value) load();
 });
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocDown);

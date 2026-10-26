@@ -18,15 +18,21 @@ import Certs from './views/Certs.vue';
 import Orgs from './views/Orgs.vue';
 import Assign from './views/Assign.vue';
 import Incomes from './views/Incomes.vue';
-import Finance from './views/Finance.vue';
+import FinanceHub from './views/FinanceHub.vue';
 import FinanceMonthly from './views/FinanceMonthly.vue';
-import FinanceTeachers from './views/FinanceTeachers.vue';
 import FinanceOrgs from './views/FinanceOrgs.vue';
+import FinanceStatement from './views/FinanceStatement.vue';
 import FinanceRules from './views/FinanceRules.vue';
+import FinanceSplit from './views/FinanceSplit.vue';
+import FinancePayouts from './views/FinancePayouts.vue';
+import FinanceBank from './views/FinanceBank.vue';
+import FinanceSheet from './views/FinanceSheet.vue';
 import Reimbursements from './views/Reimbursements.vue';
 import Settings from './views/Settings.vue';
+import Setup from './views/Setup.vue';
 import DocEdit from './views/DocEdit.vue';
-import { allow, landingPath } from './access';
+import { SETTINGS_PERMS, SETUP_PERMS, allow, canOpen, landingPath } from './access';
+import { financeUnlocked, isFinancePath, requireFinancePin } from './financePin';
 
 const router = createRouter({
   history: createWebHistory(adminBase()),
@@ -36,36 +42,52 @@ const router = createRouter({
       path: '/',
       component: AdminLayout,
       children: [
-        { path: '', component: Dashboard, meta: { title: '数据概览', crumb: '工作台 / 数据概览', perm: 'overview' } },
-        { path: 'courses', component: Courses, meta: { title: '课程管理', crumb: '课程 / 课程管理', perm: 'course' } },
-        { path: 'categories', component: Categories, meta: { title: '分类管理', crumb: '课程 / 分类管理', perm: 'course' } },
-        { path: 'schools', component: Schools, meta: { title: '学校管理', crumb: '课程 / 学校管理', perm: 'course' } },
-        { path: 'term', component: Term, meta: { title: '学期排课', crumb: '课程 / 学期排课', perm: 'schedule' } },
-        { path: 'orders', component: Orders, meta: { title: '订单管理', crumb: '交易 / 订单管理', perm: 'order' } },
-        { path: 'comments', component: Comments, meta: { title: '评价管理', crumb: '交易 / 评价管理', perm: 'comment' } },
-        { path: 'people', component: People, meta: { title: '用户管理', crumb: '用户 / 用户列表', perm: 'people' } },
-        { path: 'faculty', component: Faculty, meta: { title: '教师管理', crumb: '用户 / 教师管理', perm: 'people' } },
-        { path: 'faculty/:id', component: TeacherDetail, meta: { title: '教师详情', crumb: '用户 / 教师详情', perm: 'people' } },
-        { path: 'certs', component: Certs, meta: { title: '教师认证', crumb: '用户 / 教师认证', perm: 'people' } },
-        { path: 'orgs', component: Orgs, meta: { title: '机构管理', crumb: '机构 / 机构列表', perm: 'org' } },
-        { path: 'assign', component: Assign, meta: { title: '预先排课', crumb: '课程 / 预先排课', perm: 'fee' } },
-        { path: 'incomes', component: Incomes, meta: { title: '收入记录', crumb: '数据 / 教师收入', perm: 'fee' } },
-        { path: 'finance', component: Finance, meta: { title: '收益概览', crumb: '财务 / 收益概览', perm: 'finance' } },
-        { path: 'finance/monthly', component: FinanceMonthly, meta: { title: '月度收益', crumb: '财务 / 月度收益', perm: 'finance' } },
-        { path: 'finance/teachers', component: FinanceTeachers, meta: { title: '教师收益', crumb: '财务 / 教师收益', perm: 'finance' } },
-        { path: 'finance/orgs', component: FinanceOrgs, meta: { title: '机构收益', crumb: '财务 / 机构收益', perm: 'finance' } },
-        { path: 'finance/rules', component: FinanceRules, meta: { title: '收益规则', crumb: '财务 / 收益规则', perm: 'finance' } },
-        { path: 'reimbursements', component: Reimbursements, meta: { title: '报销单', crumb: '财务 / 报销单', perm: 'finance' } },
-        { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin' } },
-        { path: 'settings', component: Settings, meta: { title: '系统设置', crumb: '系统 / 设置', perm: 'admin' } },
-        { path: 'settings/agreement', component: DocEdit, meta: { title: '用户协议', crumb: '系统 / 设置 / 用户协议', perm: 'admin', kind: 'agreement' } },
-        { path: 'settings/contract', component: DocEdit, meta: { title: '教师服务合同', crumb: '系统 / 设置 / 教师服务合同', perm: 'admin', kind: 'contract' } },
+        { path: '', component: Dashboard, meta: { title: '数据概览', crumb: '工作台 / 数据概览', perm: 'home.overview' } },
+        { path: 'courses', component: Courses, meta: { title: '课程管理', crumb: '课程 / 课程管理', perm: 'course.list' } },
+        { path: 'categories', component: Categories, meta: { title: '分类管理', crumb: '课程 / 分类管理', perm: 'course.category' } },
+        { path: 'schools', component: Schools, meta: { title: '学校管理', crumb: '课程 / 学校管理', perm: 'course.school' } },
+        { path: 'term', component: Term, meta: { title: '学期排课', crumb: '课程 / 学期排课', perm: 'course.term' } },
+        { path: 'orders', component: Orders, meta: { title: '订单管理', crumb: '交易 / 订单管理', perm: 'trade.order' } },
+        { path: 'comments', component: Comments, meta: { title: '评价管理', crumb: '交易 / 评价管理', perm: 'trade.comment' } },
+        { path: 'people', component: People, meta: { title: '用户管理', crumb: '用户 / 用户列表', perm: 'people.user' } },
+        { path: 'faculty', component: Faculty, meta: { title: '教师管理', crumb: '用户 / 教师管理', perm: 'people.teacher' } },
+        { path: 'faculty/:id', component: TeacherDetail, meta: { title: '教师详情', crumb: '用户 / 教师详情', perm: 'people.teacher' } },
+        { path: 'certs', component: Certs, meta: { title: '教师认证', crumb: '用户 / 教师认证', perm: 'people.cert' } },
+        { path: 'orgs', component: Orgs, meta: { title: '机构管理', crumb: '机构 / 机构列表', perm: 'org.list' } },
+        { path: 'assign', component: Assign, meta: { title: '预先排课', crumb: '课程 / 预先排课', perm: 'course.assign' } },
+        { path: 'incomes', component: Incomes, meta: { title: '收入记录', crumb: '数据 / 教师收入', perm: ['course.assign', 'finance.teacher'] } },
+        { path: 'finance', component: FinanceHub, meta: { title: '收益概览', crumb: '财务 / 收益概览', perm: ['finance.overview', 'finance.teacher', 'finance.org'], month: true, monthTabs: { org: 'all' } } },
+        { path: 'finance/monthly', component: FinanceMonthly, meta: { title: '月度收益', crumb: '财务 / 月度收益', perm: 'finance.overview' } },
+        { path: 'finance/teachers', redirect: (to) => ({ path: '/finance', query: { ...to.query, tab: 'teachers' } }) },
+        { path: 'finance/orgs', component: FinanceOrgs, meta: { title: '机构收益', crumb: '财务 / 机构收益', perm: 'finance.org', month: true } },
+        { path: 'finance/statement', component: FinanceStatement, meta: { title: '月度结算单', crumb: '财务 / 月度结算单', perm: 'finance.statement', month: true } },
+        { path: 'finance/org-profit', redirect: (to) => ({ path: '/finance', query: { ...to.query, tab: 'org' } }) },
+        { path: 'finance/split', component: FinanceSplit, meta: { title: '分成比例', crumb: '财务 / 分成比例', perm: 'finance.split', month: true } },
+        { path: 'finance/sheet', component: FinanceSheet, beforeEnter: (to) => (allow(getProfile(), 'finance.split') ? { path: '/finance/split', query: { ...to.query, tab: 'sheet' } } : true), meta: { title: '分成打款单', crumb: '财务 / 分成打款单', perm: ['finance.sheet', 'finance.split', 'finance.payout'], month: true } },
+        { path: 'finance/payouts', component: FinancePayouts, meta: { title: '财务打款', crumb: '财务 / 财务打款', perm: 'finance.payout', month: true } },
+        { path: 'finance/bank', component: FinanceBank, meta: { title: '交易流水', crumb: '财务 / 交易流水', perm: 'finance.bank' } },
+        { path: 'finance/rules', component: FinanceRules, beforeEnter: (to) => (allow(getProfile(), 'finance.split') ? { path: '/finance/split', query: { ...to.query, dialog: 'course-rules' } } : true), meta: { title: '课程分成规则', crumb: '财务 / 课程分成规则', perm: 'finance.rule' } },
+        { path: 'reimbursements', component: Reimbursements, meta: { title: '报销单', crumb: '财务 / 报销单', perm: 'finance.reimburse', month: 'all', monthDefault: 'all' } },
+        { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin.account' } },
+        { path: 'setup', component: Setup, meta: { title: '配置检查', crumb: '系统 / 配置检查', perm: SETUP_PERMS } },
+        { path: 'settings', component: Settings, meta: { title: '系统设置', crumb: '系统 / 设置', perm: SETTINGS_PERMS } },
+        { path: 'settings/agreement', component: DocEdit, meta: { title: '用户协议', crumb: '系统 / 设置 / 用户协议', perm: 'admin.settings', kind: 'agreement' } },
+        { path: 'settings/contract', component: DocEdit, meta: { title: '教师服务合同', crumb: '系统 / 设置 / 教师服务合同', perm: 'admin.settings', kind: 'contract' } },
       ],
     },
   ],
 });
 
-router.beforeEach((to) => {
+/** 进入财务页面前先输入财务密码；取消时留在原页，首次打开则退到非财务页 */
+async function financeGuard(to, from, profile) {
+  if (!isFinancePath(to.path) || financeUnlocked()) return true;
+  if (await requireFinancePin()) return true;
+  if (from.matched.length) return false;
+  const next = landingPath(profile);
+  return next && !isFinancePath(next) ? next : '/settings';
+}
+
+router.beforeEach((to, from) => {
   const token = getToken();
   const profile = getProfile();
   if (token && !profile) {
@@ -78,17 +100,14 @@ router.beforeEach((to) => {
     const next = landingPath(profile);
     return !next || next === to.path ? true : next;
   }
-  const perm = to.meta.perm;
-  if (profile?.role === 'school') {
-    const allowed = ['/courses', '/categories', '/term'];
-    const ok = allowed.some((path) => to.path === path || to.path.startsWith(`${path}/`));
-    return ok ? true : '/courses';
-  }
-  if (perm && !allow(profile, perm)) {
+  if (profile?.role === 'school') return canOpen(profile, to) ? true : '/courses';
+  if (!canOpen(profile, to)) {
     const next = landingPath(profile);
-    return !next || next === to.path ? true : next;
+    if (next && next !== to.path) return next;
+    if (next) return financeGuard(to, from, profile);
+    return true;
   }
-  return true;
+  return financeGuard(to, from, profile);
 });
 
 export default router;
