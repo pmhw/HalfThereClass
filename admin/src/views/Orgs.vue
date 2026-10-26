@@ -218,8 +218,8 @@
     >
       <form class="form" @submit.prevent="saveAssign">
         <p class="muted">
-          分配后：教师排到该课会自动关联本机构，且只能看到最终课时费。
-          <template v-if="detail?.settleToOrg">本机构为「不看金额」，课时费直接结算给机构。</template>
+          未安排老师的课也可以分配。分配后关闭抢课，只能由后台安排老师；教师排到该课会自动关联本机构，且只能看到最终课时费。
+          <template v-if="detail?.settleToOrg">本机构为「不看金额」，课时费直接结算给机构，结算单教师列会显示「机构结算 · {{ detail.name }}」。</template>
         </p>
         <label>课程
           <select v-model="assignForm.courseId" required :disabled="!!assignForm.editing">

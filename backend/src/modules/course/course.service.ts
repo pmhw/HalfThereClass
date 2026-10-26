@@ -34,6 +34,7 @@ const courseCardSelect = {
   sessionFee: true,
   grabAt: true,
   teacherId: true,
+  organizationId: true,
   activeSemesterId: true,
   category: { select: { id: true, name: true } },
   teacher: { select: { id: true, nickname: true } },
@@ -263,6 +264,7 @@ export class CourseService {
     const course = await this.prisma.course.findUnique({ where: { id: courseId } });
     if (!course || course.status !== 1) throw new NotFoundException('课程不存在或已下架');
     if (course.teacherId) throw new BadRequestException('该课程已安排老师');
+    if (course.organizationId) throw new BadRequestException('该课程已分配给机构，不可抢课');
     if (course.grabAt && course.grabAt.getTime() > Date.now()) throw new BadRequestException('还没到开抢时间');
     const open = await this.scheduleService.currentOpenSemester();
     if (open && course.activeSemesterId && course.activeSemesterId !== open.id) {
@@ -391,6 +393,8 @@ export class CourseService {
   private present(course: any, certified: boolean, userId?: number, contracted = false) {
     const grabAt = course.grabAt ? new Date(course.grabAt).getTime() : 0;
     const opened = !grabAt || grabAt <= Date.now();
+    // 已分配机构的课由机构承接，开放抢课入口关掉
+    const openGrab = !course.teacherId && !course.organizationId;
     const result = {
       ...course,
       grabAt,
@@ -400,8 +404,8 @@ export class CourseService {
       priceLabel: '',
       certified,
       contractSigned: contracted,
-      canGrab: contracted && !course.teacherId && opened,
-      openGrab: !course.teacherId,
+      canGrab: contracted && openGrab && opened,
+      openGrab,
       isMine: !!userId && course.teacherId === userId,
       teacherName: course.teacher?.nickname || '',
     };

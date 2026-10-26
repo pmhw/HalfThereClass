@@ -103,11 +103,11 @@
               <SearchSelect
                 :model-value="item.teacherId ? String(item.teacherId) : ''"
                 :options="teacherOptions"
-                :placeholder="rowTeacherName(item) || '未安排'"
+                :placeholder="rowTeacherName(item) || (item.organizationId ? '机构承接' : '未安排')"
                 search-placeholder="搜索姓名、工号或手机号"
                 empty-text="没有匹配的认证老师"
                 allow-empty
-                empty-label="未安排（可抢课）"
+                :empty-label="item.organizationId ? '机构承接（不可抢课）' : '未安排（可抢课）'"
                 @change="(value) => askRowTeacher(item, value)"
               />
               <router-link v-if="item.teacher?.id" class="teacher-go" :to="`/faculty/${item.teacher.id}`" title="老师详情">›</router-link>
@@ -138,7 +138,12 @@
                   tone="wait"
                   @click="goSchedule(item)"
                 />
-                <ActionBtn icon="link" tip="复制抢课链接" @click="copyGrabLink(item)" />
+                <ActionBtn
+                  v-if="!item.organizationId"
+                  icon="link"
+                  tip="复制抢课链接"
+                  @click="copyGrabLink(item)"
+                />
                 <ActionBtn icon="refresh" tip="延续学期" @click="openContinue(item)" />
                 <ActionBtn icon="pencil" tip="编辑" @click="openForm(item)" />
                 <ActionBtn
@@ -484,7 +489,7 @@
       <div v-if="form && teacherOpen" ref="teacherMenu" class="select-search-menu" :style="menuStyle">
         <input v-model="teacherQuery" placeholder="搜索姓名、工号或手机号" autocomplete="off" />
         <div class="select-search-list">
-          <button type="button" :class="{ on: !form.teacherId }" @mousedown.prevent="pickTeacher(null)">未安排（可抢课）</button>
+          <button type="button" :class="{ on: !form.teacherId }" @mousedown.prevent="pickTeacher(null)">{{ form.organizationId ? '机构承接（不可抢课）' : '未安排（可抢课）' }}</button>
           <button
             v-for="item in filteredTeachers"
             :key="item.id"
@@ -649,7 +654,11 @@
       @close="continueForm = null"
     >
       <form class="form" @submit.prevent="saveContinue">
-        <p class="muted">「{{ continueForm.title }}」会切到新学期展示；上学期课次保留可在历史里查看。可清空老师重新抢课，或直接指定新老师。</p>
+        <p class="muted">
+          「{{ continueForm.title }}」会切到新学期展示；上学期课次保留可在历史里查看。
+          <template v-if="continueForm.organizationId">本课已分配机构，清空老师后仍不可抢课，需后台安排。</template>
+          <template v-else>可清空老师重新抢课，或直接指定新老师。</template>
+        </p>
         <label>目标学期
           <select v-model="continueForm.semesterId" required>
             <option value="">请选择</option>
@@ -660,7 +669,7 @@
         </label>
         <label class="check-line">
           <input v-model="continueForm.clearTeacher" type="checkbox" />
-          <span>清空老师，重新开放抢课</span>
+          <span>{{ continueForm.organizationId ? '清空老师（机构承接，不可抢课）' : '清空老师，重新开放抢课' }}</span>
         </label>
         <label v-if="!continueForm.clearTeacher">指定老师
           <select v-model="continueForm.teacherId">
@@ -760,7 +769,8 @@ const filteredTeachers = computed(() => {
 });
 const pickedLabel = computed(() => {
   const selected = teachers.value.find((item) => String(item.id) === form.value?.teacherId);
-  return selected ? teacherLabel(selected) : '未安排（可抢课）';
+  if (selected) return teacherLabel(selected);
+  return form.value?.organizationId ? '机构承接（不可抢课）' : '未安排（可抢课）';
 });
 const missingTeacher = computed(() => {
   if (!form.value?.teacherId) return false;
@@ -870,6 +880,7 @@ function blank() {
     classroom: '',
     gradeLabel: '',
     teacherId: '',
+    organizationId: null,
     ownerId: '',
     description: '',
     isFree: false,
@@ -1061,6 +1072,7 @@ function openContinue(item) {
   continueForm.value = {
     id: item.id,
     title: item.title,
+    organizationId: item.organizationId || null,
     semesterId: openId ? String(openId) : '',
     clearTeacher: true,
     teacherId: '',
@@ -1153,6 +1165,7 @@ function openForm(item) {
         classroom: item.classroom || '',
         gradeLabel: item.gradeLabel || '',
         teacherId: item.teacherId ? String(item.teacherId) : '',
+        organizationId: item.organizationId || null,
         ownerId: item.ownerId ? String(item.ownerId) : '',
         description: item.description || '',
         isFree: item.isFree,

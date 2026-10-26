@@ -10,8 +10,9 @@
       <div v-if="course.school" class="meta">{{ course.school }}</div>
       <div class="tags">
         <span v-if="course.category?.name" class="tag">{{ course.category.name }}</span>
-        <span v-if="!course.teacherId" class="tag blue">可抢课</span>
-        <span v-else class="tag">已排课</span>
+        <span v-if="course.openGrab" class="tag blue">可抢课</span>
+        <span v-else-if="course.teacherId" class="tag">已排课</span>
+        <span v-else class="tag">机构承接</span>
       </div>
       <div class="bottom">
         <span v-if="course.startTime" class="time">{{ week }} {{ course.startTime }}</span>

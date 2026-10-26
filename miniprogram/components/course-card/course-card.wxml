@@ -9,8 +9,9 @@
     <view class="meta" wx:if="{{course.school}}">{{course.school}}<text wx:if="{{course.classroom}}"> · {{course.classroom}}</text></view>
     <view class="tags">
       <text class="tag" wx:if="{{course.category.name}}">{{course.category.name}}</text>
-      <text class="tag blue" wx:if="{{!course.teacherId}}">可抢课</text>
-      <text class="tag" wx:else>已排课</text>
+      <text class="tag blue" wx:if="{{course.openGrab}}">可抢课</text>
+      <text class="tag" wx:elif="{{course.teacherId}}">已排课</text>
+      <text class="tag" wx:else>机构承接</text>
     </view>
     <view class="bottom">
       <text class="time" wx:if="{{course.startTime}}">{{week}} {{course.startTime}}</text>

@@ -25,7 +25,7 @@ function remainText(startTime) {
 function decorate(list) {
   const weeks = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const tones = ['blue', 'purple', 'cyan'];
-  return (list || []).filter((item) => item.openGrab || !item.teacherId).map((item, index) => {
+  return (list || []).filter((item) => item.openGrab).map((item, index) => {
     const span = [item.startTime, item.endTime].filter(Boolean).join(' - ');
     const when = [weeks[item.weekday] || '', span].filter(Boolean).join(' ');
     return {

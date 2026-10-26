@@ -80,7 +80,8 @@
           </div>
           <span v-if="item.isMine" class="tag mine">我的课</span>
           <span v-else-if="item.teacherId" class="tag wait">已排课</span>
-          <span v-else class="tag open">可抢课</span>
+          <span v-else-if="item.openGrab" class="tag open">可抢课</span>
+          <span v-else class="tag wait">机构承接</span>
         </div>
       </div>
     </section>
@@ -161,7 +162,7 @@ onMounted(() => {
 function decorate(list) {
   const tones = ['blue', 'purple', 'cyan'];
   return (list || [])
-    .filter((item) => item.openGrab || !item.teacherId)
+    .filter((item) => item.openGrab)
     .map((item, index) => {
       const span = [item.startTime, item.endTime].filter(Boolean).join(' - ');
       const when = [weekdayText(item.weekday), span].filter(Boolean).join(' ');

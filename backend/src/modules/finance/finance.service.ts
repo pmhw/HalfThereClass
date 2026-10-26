@@ -1603,12 +1603,24 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         const c = row.course;
         const t = row.teacher;
         const org = resolveOrg(row);
+        const teacherLabel = t?.teacherCert?.realName || t?.nickname || '';
+        let teacherName = teacherLabel || '—';
+        if (row.settleTo === 'org') {
+          // 课时费整笔结算给机构：教师列标明机构，避免误看成个人课时费
+          teacherName = org.organizationName
+            ? `机构结算 · ${org.organizationName}`
+            : '机构结算';
+        } else if (!teacherLabel && org.organizationName) {
+          // 未排老师但有承接机构：标明归属机构（机构费仍按抽成记）
+          teacherName = `机构承接 · ${org.organizationName}`;
+        }
         cur = {
           courseId: row.courseId,
           teacherId: row.teacherId ?? null,
           courseTitle: c?.title || `课程#${row.courseId}`,
           school: c?.school || '—',
-          teacherName: t?.teacherCert?.realName || t?.nickname || (row.settleTo === 'org' ? '机构结算' : '—'),
+          teacherName,
+          settleTo: row.settleTo || 'teacher',
           organizationId: org.organizationId,
           organizationName: org.organizationName,
           hasOrg: org.hasOrg,

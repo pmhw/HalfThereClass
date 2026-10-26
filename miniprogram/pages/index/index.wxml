@@ -122,7 +122,8 @@
         </view>
         <view class="tag mine" wx:if="{{item.isMine}}">我的课</view>
         <view class="tag wait" wx:elif="{{item.teacherId}}">已排课</view>
-        <view class="tag open" wx:else>可抢课</view>
+        <view class="tag open" wx:elif="{{item.openGrab}}">可抢课</view>
+        <view class="tag wait" wx:else>机构承接</view>
       </view>
     </view>
   </view>

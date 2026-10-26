@@ -98,7 +98,7 @@
                     <div v-if="item.sessionDates?.length" class="session-dates">{{ item.sessionDates.map((d) => String(d).slice(5)).join('、') }}</div>
                   </td>
                   <td class="num">{{ item.sessionCount }}</td>
-                  <td>{{ item.teacherName }}</td>
+                  <td :class="{ 'org-settle': item.settleTo === 'org' || String(item.teacherName || '').startsWith('机构') }">{{ item.teacherName }}</td>
                   <td class="num">{{ money(item.schoolPrice) }}</td>
                   <td class="num">{{ money(item.sessionFee) }}</td>
                   <td class="num" :class="{ faint: !Number(item.institutionAmount) }">
@@ -482,6 +482,10 @@ bindLoad(load);
   color: #1d4ed8;
   font-size: 11px;
   font-weight: 500;
+}
+.org-settle {
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 .data-row:hover td { background: #f8fafc; }
