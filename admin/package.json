@@ -1,6 +1,6 @@
 {
   "name": "half-there-class-admin",
-  "version": "1.0.96",
+  "version": "1.0.97",
   "private": true,
   "scripts": {
     "dev": "vite",
