@@ -3,14 +3,6 @@ export const CAMP = {
   title: 'AI科研与跨学科创新实践营',
   slogan: '别只会用AI，用AI做出点不一样的！',
   hint: '点击任一章节即可跳转到对应内容',
-  gallery: [
-    { src: 'image1.jpg', alt: '课程总览海报：3天6小时实践课程' },
-    { src: 'image2.jpg', alt: '精选AI实验项目' },
-    { src: 'image3.jpg', alt: '从提问、实验到路演的课堂场景' },
-    { src: 'image5.jpg', alt: '12章课程路线图' },
-    { src: 'image6.jpg', alt: '研究实践流程与小组分工' },
-    { src: 'image7.jpg', alt: 'AI图像分类实验三步：样本、训练、导出' },
-  ],
 };
 
 export const CHAPTERS = [

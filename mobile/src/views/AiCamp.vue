@@ -35,18 +35,6 @@
             {{ CAMP.hint }}
           </div>
         </div>
-        <div class="gallery">
-          <button
-            v-for="img in CAMP.gallery"
-            :key="img.src"
-            type="button"
-            class="fig"
-            @click="preview(img.src, img.alt)"
-          >
-            <img :src="media(img.src)" :alt="img.alt" />
-            <span>{{ img.alt }}</span>
-          </button>
-        </div>
         <button type="button" class="card card-lead" @click="open(leadChapter.id)">
           <div class="card-top">
             <span class="num">{{ leadChapter.id }}</span>
@@ -787,11 +775,6 @@ td:first-child { background: #f8fbff; font-weight: 700; }
 }
 .bar-nav { display: flex; gap: 6px; }
 
-.gallery {
-  display: grid;
-  gap: 10px;
-  margin: 0 0 14px;
-}
 .fig {
   display: block;
   width: 100%;
