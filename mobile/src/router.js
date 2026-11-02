@@ -14,6 +14,7 @@ const routes = [
     ],
   },
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { public: true } },
+  { path: '/camp/:id?', name: 'ai-camp', component: () => import('./views/AiCamp.vue'), meta: { public: true } },
   { path: '/frozen', name: 'frozen', component: () => import('./views/Frozen.vue') },
   { path: '/courses', name: 'courses', component: () => import('./views/CourseList.vue') },
   { path: '/course/:id', name: 'course-detail', component: () => import('./views/CourseDetail.vue') },
@@ -41,7 +42,7 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
-  if (to.path === '/login' || to.path === '/frozen') return true;
+  if (to.meta.public || to.path === '/login' || to.path === '/frozen') return true;
   if (isLoggedIn()) {
     const locked = await freezeCheck();
     if (locked) return to.path === '/frozen' ? true : '/frozen';

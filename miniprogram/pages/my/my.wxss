@@ -126,6 +126,32 @@
 .wallet::after {
   content: ''; position: absolute; right: 16rpx; top: 28rpx; width: 8rpx; height: 8rpx; border-radius: 50%; background: #7c5cfc;
 }
+.bill { background: #fff7ed; }
+.bill::before {
+  content: ''; position: absolute; left: 18rpx; top: 14rpx; width: 28rpx; height: 36rpx;
+  border: 3rpx solid #c2410c; border-radius: 4rpx; box-sizing: border-box;
+}
+.bill::after {
+  content: ''; position: absolute; left: 24rpx; top: 24rpx; width: 16rpx; height: 3rpx; background: #c2410c;
+  box-shadow: 0 8rpx 0 #c2410c;
+}
+.user { background: #eef2ff; }
+.user::before {
+  content: ''; position: absolute; left: 22rpx; top: 14rpx; width: 20rpx; height: 20rpx;
+  border: 3rpx solid #4f46e5; border-radius: 50%; box-sizing: border-box;
+}
+.user::after {
+  content: ''; position: absolute; left: 16rpx; top: 38rpx; width: 32rpx; height: 12rpx;
+  border: 3rpx solid #4f46e5; border-bottom: 0; border-radius: 16rpx 16rpx 0 0; box-sizing: border-box;
+}
+.file { background: #ecfeff; }
+.file::before {
+  content: ''; position: absolute; left: 18rpx; top: 14rpx; width: 28rpx; height: 36rpx;
+  border: 3rpx solid #0e7490; border-radius: 4rpx; box-sizing: border-box;
+}
+.file::after {
+  content: ''; position: absolute; left: 24rpx; top: 22rpx; width: 16rpx; height: 3rpx; background: #0e7490;
+}
 .swap { background: #e0f2fe; }
 .swap::before, .swap::after {
   content: ''; position: absolute; left: 14rpx; width: 28rpx; height: 3rpx; background: #0284c7;

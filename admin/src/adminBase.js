@@ -11,6 +11,14 @@ export function adminBase() {
   return '/';
 }
 
+/** Vue Router history base：公开 DIY 挂在 /diy，其余走后台入口 */
+export function routerHistoryBase() {
+  if (typeof window === 'undefined') return '/';
+  const path = window.location.pathname || '';
+  if (path === '/diy' || path.startsWith('/diy/')) return '/';
+  return adminBase();
+}
+
 /** 拼到后台入口下的绝对路径（用于 location 硬跳转） */
 export function withAdminBase(path = '/') {
   const base = adminBase().replace(/\/$/, '');

@@ -17,6 +17,7 @@ import { ScheduleModule } from './modules/schedule/schedule.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { FinanceModule } from './modules/finance/finance.module';
 import { SetupModule } from './modules/setup/setup.module';
+import { DiyPosterModule } from './modules/diy-poster/diy-poster.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SetupModule } from './modules/setup/setup.module';
     StaffModule,
     FinanceModule,
     SetupModule,
+    DiyPosterModule,
   ],
   controllers: [AppController],
   providers: [AppService],

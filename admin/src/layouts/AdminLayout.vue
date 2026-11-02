@@ -343,6 +343,8 @@ const menuSource = [
       { to: '/courses', label: '课程列表', icon: 'list', perm: 'course.list' },
       { to: '/assign', label: '预先排课', icon: 'list', perm: 'course.assign' },
       { to: '/term', label: '学期排课', icon: 'cal', perm: 'course.term' },
+      { to: '/schedule-poster', label: '系统课表海报', icon: 'cal', perm: ['course.list', 'course.term'] },
+      { to: '/schedule-poster-diy', label: 'DIY 排课海报', icon: 'cal', perm: ['course.list', 'course.term'] },
       { to: '/categories', label: '分类管理', icon: 'folder', perm: 'course.category' },
       { to: '/schools', label: '学校管理', icon: 'building', perm: 'course.school' },
     ],
@@ -384,7 +386,7 @@ const menuSource = [
       { to: '/finance/split', label: '分成比例', icon: 'users', perm: 'finance.split' },
       { to: '/finance/sheet', label: '分成打款单', icon: 'list', perm: 'finance.sheet', hideIf: 'finance.split' },
       { to: '/finance/payouts', label: '财务打款', icon: 'receipt', perm: 'finance.payout' },
-      { to: '/finance/bank', label: '交易流水', icon: 'list', perm: 'finance.bank' },
+      { to: '/finance/bank', label: '浦发银行', icon: 'list', perm: 'finance.bank' },
       { to: '/finance/rules', label: '课程分成规则', icon: 'gear', perm: 'finance.rule', hideIf: 'finance.split' },
       { to: '/reimbursements', label: '报销单', icon: 'receipt', perm: 'finance.reimburse' },
     ],
@@ -408,6 +410,8 @@ const menus = computed(() => {
       children: [
         { to: '/courses', label: '课程列表', icon: 'list' },
         { to: '/term', label: '学期排课', icon: 'cal' },
+        { to: '/schedule-poster', label: '系统课表海报', icon: 'cal' },
+        { to: '/schedule-poster-diy', label: 'DIY 排课海报', icon: 'cal' },
         { to: '/categories', label: '分类管理', icon: 'folder' },
       ],
     }];

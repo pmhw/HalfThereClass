@@ -71,10 +71,47 @@ export const notify = {
         okText: options.okText || '确定',
         cancelText: options.cancelText || '取消',
         danger: !!options.danger,
+        equalActions: !!options.equalActions,
         icon: options.icon || (options.danger ? 'trash' : 'help'),
         resolve: (ok) => {
           state.dialog = null;
           resolve(!!ok);
+        },
+      };
+    });
+  },
+  /**
+   * 多选一：resolve(actionId)；取消 / 点遮罩 resolve(null)
+   * actions: [{ id, text, disabled?, primary?, danger? }]
+   * equal: true 时各按钮同色同款（默认 true）
+   */
+  choose(options = {}) {
+    if (state.dialog?.resolve) {
+      if (state.dialog.mode === 'prompt') state.dialog.resolve(null);
+      else if (state.dialog.mode === 'choose') state.dialog.resolve(null);
+      else state.dialog.resolve(false);
+    }
+    const actions = (Array.isArray(options.actions) ? options.actions : [])
+      .map((a) => ({
+        id: String(a?.id ?? ''),
+        text: String(a?.text || a?.id || '').trim(),
+        disabled: !!a?.disabled,
+        primary: !!a?.primary,
+        danger: !!a?.danger,
+      }))
+      .filter((a) => a.id && a.text);
+    return new Promise((resolve) => {
+      state.dialog = {
+        mode: 'choose',
+        title: options.title || '请选择',
+        message: options.message || '',
+        actions,
+        equal: options.equal !== false,
+        cancelText: options.cancelText === false ? '' : (options.cancelText || '取消'),
+        icon: options.icon || 'help',
+        resolve: (id) => {
+          state.dialog = null;
+          resolve(id == null ? null : String(id));
         },
       };
     });

@@ -34,7 +34,7 @@ Page({
   },
 
   onUnload() {
-    this.clearCooldownTimer();
+    this.clearDataTimer();
   },
 
   onShow() {
@@ -190,6 +190,14 @@ Page({
   goIncome() {
     if (!util.requireLogin()) return;
     wx.navigateTo({ url: '/pages/income/income' });
+  },
+  goReimburse() {
+    if (!util.requireLogin()) return;
+    wx.navigateTo({ url: '/pages/reimburse/reimburse' });
+  },
+  goProfile() {
+    if (!util.requireLogin()) return;
+    wx.navigateTo({ url: '/pages/profile/profile' });
   },
   goAdjust() {
     if (!util.requireLogin()) return;

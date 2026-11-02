@@ -35,10 +35,10 @@ export function splitNotes(config = DEFAULT_SPLIT_CONFIG) {
   const step = Number(config.feeStep) || 0;
   const unit = Number(config.feeUnit) || 0;
   const basis = config.basis === 'school' ? '校方金额' : '利润（校方金额 − 课时费等成本）';
-  const cuts = [config.teacherFee ? '教师课时费转账手续费' : '', config.orgFee ? '机构转账手续费' : '', '计入该合集的报销'].filter(Boolean);
+  const cuts = [config.teacherFee ? '教师课时费转账手续费' : '', config.orgFee ? '机构转账手续费' : '', '计入该合集的报销', '未挂个人的开票税额'].filter(Boolean);
   return [
     `分成池（可分配）= ${basis} − ${cuts.join(' − ')}。`,
-    `成员应分 = 分成池 × 分成比例；税费 = 应分 × ${Number(config.taxRate) || 0}%，从每人应分中代扣，留在对公账户用于缴税，不参与分配。比例合计不足 100% 的部分为「未分配留存」，同样留在对公账户。`,
+    `成员应分 = 分成池 × 分成比例；税费 = 应分 × ${Number(config.taxRate) || 0}%，从每人应分中代扣，留在对公账户用于缴税，不参与分配。挂到个人的开票税额从该人分成中再扣。比例合计不足 100% 的部分为「未分配留存」，同样留在对公账户。`,
     step > 0
       ? `转账手续费按每笔转账金额计：每 ${yuan(step)} 收 ${yuan(unit)}，不足 ${yuan(step)} 也按一档（例如 ${yuan(step * 1.2)} 收 ${yuan(unit * 2)}）。`
       : '转账不收手续费。',
@@ -47,7 +47,7 @@ export function splitNotes(config = DEFAULT_SPLIT_CONFIG) {
     config.memberFee
       ? '分成人员到账扣转账手续费。同一人当月在多个合集都有分成、或同时领课时费的，合并为一笔转账，手续费按合计金额只收一次；合并后由分成承担的手续费，按各合集应分金额比例分摊，所以单个合集里会出现带零头的手续费，加起来仍是整档。'
       : '分成人员到账不扣转账手续费。',
-    '报销款随同一笔转账发放，不扣税、不扣手续费。实发 = 应分 − 税费 − 手续费（+ 报销）。',
+    '报销款随同一笔转账发放，不扣税、不扣手续费。实发 = 应分 − 税费 − 个人开票 − 手续费（+ 报销）。',
   ];
 }
 
@@ -84,11 +84,16 @@ export function payeeKey(member) {
   return member?.userId ? `u:${member.userId}` : `n:${String(member?.name || '').trim()}`;
 }
 
+function deductionPersonKey(d) {
+  if (d?.userId) return `u:${d.userId}`;
+  const name = String(d?.userName || '').trim();
+  return name ? `n:${name}` : '';
+}
+
 /**
  * 计算一个月所有合集的分成（与后端 split-calc.ts 同一口径）：
- * 每个合集：基数（利润 / 校方合计）− 教师课时费打款手续费 − 机构打款手续费（平台承担时）− 关联该合集的当月报销 = 可分配；
- * 人员应分 = 可分配 × 比例，税费 = 应分 × 税率。
- * 同一收款人当月跨合集合并为一笔转账：手续费按（应分合计 − 税费合计）分档只收一次，再按应分占比分摊回各合集。
+ * 每个合集：基数 − 教师/机构打款手续费（平台承担时）− 报销 − 未挂个人的开票 = 可分配；
+ * 人员应分 = 可分配 × 比例，税费 = 应分 × 税率；挂到个人的开票从该人分成再扣。
  */
 export function computeSplitMonth(collections, statsMap, config = DEFAULT_SPLIT_CONFIG, deductions = []) {
   const taxRate = Number(config.taxRate) || 0;
@@ -142,25 +147,67 @@ export function computeSplitMonth(collections, statsMap, config = DEFAULT_SPLIT_
       .sort((a, b) => b.amount - a.amount);
     const orgFeeTotal = round2(orgs.reduce((acc, o) => acc + o.fee, 0));
     const base = config.basis === 'school' ? sum.schoolAmount : sum.profitAmount;
-    const reimbursements = (deductions || []).filter((d) => Number(d.collectionId) === Number(collection?.id));
+    const linked = (deductions || []).filter((d) => Number(d.collectionId) === Number(collection?.id));
+    const reimbursements = linked.filter((d) => !d.kind || d.kind === 'reimburse');
+    const allInvoices = linked.filter((d) => d.kind === 'invoice');
+    const invoices = allInvoices.filter((d) => !deductionPersonKey(d));
+    const personalInvoices = allInvoices.filter((d) => !!deductionPersonKey(d));
     const reimburseTotal = round2(reimbursements.reduce((acc, d) => acc + Number(d.amount || 0), 0));
-    const pool = round2(Math.max(0, base - teacherFeeTotal - orgFeeTotal - reimburseTotal));
+    const invoiceTotal = round2(invoices.reduce((acc, d) => acc + Number(d.amount || 0), 0));
+    const invoicePersonalTotal = round2(personalInvoices.reduce((acc, d) => acc + Number(d.amount || 0), 0));
+    const pool = round2(Math.max(0, base - teacherFeeTotal - orgFeeTotal - reimburseTotal - invoiceTotal));
     const members = (collection?.members || []).map((m) => {
+      const key = payeeKey(m);
       const ratio = Number(m.ratio) || 0;
       const gross = round2(pool * ratio / 100);
       const tax = round2(gross * taxRate / 100);
-      return { key: payeeKey(m), name: m.name, userId: m.userId || null, ratio, gross, tax, fee: 0, net: 0, merged: false, withTeacher: false };
+      const mine = personalInvoices.filter((d) => deductionPersonKey(d) === key);
+      const invoiceCut = round2(mine.reduce((acc, d) => acc + Number(d.amount || 0), 0));
+      return {
+        key,
+        name: m.name,
+        userId: m.userId || null,
+        ratio,
+        gross,
+        tax,
+        invoiceCut,
+        invoices: mine,
+        fee: 0,
+        net: 0,
+        merged: false,
+        withTeacher: false,
+      };
     });
-    return { id: collection?.id, name: collection?.name, ...sum, base, teachers, teacherFeeTotal, orgs, orgFeeTotal, reimbursements, reimburseTotal, pool, members };
+    return {
+      id: collection?.id,
+      name: collection?.name,
+      ...sum,
+      base,
+      teachers,
+      teacherFeeTotal,
+      orgs,
+      orgFeeTotal,
+      reimbursements,
+      reimburseTotal,
+      invoices,
+      invoiceTotal,
+      personalInvoices,
+      invoicePersonalTotal,
+      pool,
+      members,
+    };
   });
 
   const payeeMap = new Map();
   for (const calc of calcs) {
     for (const m of calc.members) {
       if (!m.name && !m.userId) continue;
-      const cur = payeeMap.get(m.key) || { key: m.key, name: m.name, userId: m.userId, gross: 0, tax: 0, fee: 0, net: 0, items: [] };
+      const cur = payeeMap.get(m.key) || {
+        key: m.key, name: m.name, userId: m.userId, gross: 0, tax: 0, invoiceCut: 0, fee: 0, net: 0, items: [],
+      };
       cur.gross = round2(cur.gross + m.gross);
       cur.tax = round2(cur.tax + m.tax);
+      cur.invoiceCut = round2(cur.invoiceCut + m.invoiceCut);
       cur.items.push({ collectionId: calc.id, collectionName: calc.name, ratio: m.ratio, member: m });
       payeeMap.set(m.key, cur);
     }
@@ -170,7 +217,7 @@ export function computeSplitMonth(collections, statsMap, config = DEFAULT_SPLIT_
     // 收款人同时是授课教师：分成与课时费合并为一笔转账，手续费按合计金额分档只收一次。
     // 课时费部分仍按原口径承担自己的手续费（不影响分成池），分成部分只承担合并后多出的手续费。
     const teacherAmount = p.userId ? teacherTotals.get(`id:${p.userId}`) || 0 : 0;
-    const splitAmount = round2(p.gross - p.tax);
+    const splitAmount = round2(Math.max(0, p.gross - p.tax - p.invoiceCut));
     if (teacherAmount > 0) {
       const teacherOwnFee = transferFee(teacherAmount, config);
       const combinedFee = transferFee(teacherAmount + splitAmount, config);
@@ -180,14 +227,14 @@ export function computeSplitMonth(collections, statsMap, config = DEFAULT_SPLIT_
       p.withTeacher = null;
       p.fee = config.memberFee ? transferFee(splitAmount, config) : 0;
     }
-    p.net = round2(Math.max(0, p.gross - p.tax - p.fee));
+    p.net = round2(Math.max(0, p.gross - p.tax - p.invoiceCut - p.fee));
     let left = p.fee;
     p.items.forEach((item, idx) => {
       const m = item.member;
       const share = idx === p.items.length - 1 ? round2(left) : (p.gross > 0 ? round2(p.fee * m.gross / p.gross) : 0);
       left = round2(left - share);
       m.fee = share;
-      m.net = round2(Math.max(0, m.gross - m.tax - share));
+      m.net = round2(Math.max(0, m.gross - m.tax - m.invoiceCut - share));
       m.merged = p.items.length > 1;
       m.withTeacher = !!p.withTeacher;
     });
@@ -200,10 +247,11 @@ export function computeSplitMonth(collections, statsMap, config = DEFAULT_SPLIT_
       (acc, m) => ({
         gross: round2(acc.gross + m.gross),
         tax: round2(acc.tax + m.tax),
+        invoiceCut: round2(acc.invoiceCut + (m.invoiceCut || 0)),
         fee: round2(acc.fee + m.fee),
         net: round2(acc.net + m.net),
       }),
-      { gross: 0, tax: 0, fee: 0, net: 0 },
+      { gross: 0, tax: 0, invoiceCut: 0, fee: 0, net: 0 },
     );
     calc.retained = round2(calc.pool - calc.totals.gross);
   }

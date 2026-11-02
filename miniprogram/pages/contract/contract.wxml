@@ -9,7 +9,7 @@
   <view class="card wait" wx:elif="{{paper.contractPending}}">
     <view class="badge amber">审核中</view>
     <view class="h">签名已提交</view>
-    <view class="sub">管理员审核通过后，本学期合同生效，预分配课程将自动解锁。</view>
+    <view class="sub">{{paper.tip || '管理员审核通过后，本学期合同生效，预分配课程将自动解锁。'}}</view>
     <button class="btn btn-block" bindtap="exportPdf">导出已提交合同</button>
   </view>
 
@@ -50,56 +50,172 @@
     <button class="btn btn-primary btn-block go" bindtap="goCert">去认证</button>
   </view>
 
+  <view class="card wait" wx:elif="{{identity.ocrStatus === 'manual_review'}}">
+    <view class="badge amber">信息处理中</view>
+    <view class="h">身份信息需要人工确认</view>
+    <view class="sub">您的身份证照片已提交后台人工处理。处理完成后即可继续签署合同。</view>
+    <view class="progress-list">
+      <view class="done">已读取认证资料</view>
+      <view class="done">OCR 识别</view>
+      <view class="on">人工确认</view>
+      <view>合同信息填写</view>
+      <view>合同预览</view>
+      <view>签字确认</view>
+    </view>
+  </view>
+
   <block wx:elif="{{loaded}}">
-    <view class="card annex" wx:if="{{paper.courseAnnex}}">
-      <view class="annex-title">将写入合同的预分配课程</view>
-      <text class="annex-body">{{paper.courseAnnex}}</text>
+    <view class="card resume" wx:if="{{showResume && resume}}">
+      <view class="h">{{resume.title}}</view>
+      <view class="sub">{{resume.message}}</view>
+      <button class="btn btn-primary btn-block" bindtap="continueResume">{{resume.action}}</button>
     </view>
 
-    <view class="card bank-card">
-      <view class="label">收款信息<text class="req">*</text></view>
-      <view class="hint">签订合同须绑定收款账户，用于后续劳务报酬发放</view>
-      <view class="label gap">收款开户行</view>
-      <view class="input">
-        <input placeholder="如中国银行某某支行" placeholder-class="ph" value="{{bankName}}" bindinput="onBankName" />
+    <block wx:else>
+      <view class="steps">
+        <text class="{{step === 1 ? 'on' : (step > 1 ? 'done' : '')}}">① 信息确认</text>
+        <text class="arrow">→</text>
+        <text class="{{step === 2 ? 'on' : (step > 2 ? 'done' : '')}}">② 合同预览</text>
+        <text class="arrow">→</text>
+        <text class="{{step === 3 ? 'on' : ''}}">③ 签字确认</text>
       </view>
-      <view class="label gap">收款名</view>
-      <view class="input">
-        <input placeholder="与银行卡户名一致" placeholder-class="ph" value="{{bankAccountName}}" bindinput="onBankAccountName" />
-      </view>
-      <view class="label gap">银行账号</view>
-      <view class="input">
-        <input type="number" placeholder="劳务报酬收款账号" placeholder-class="ph" value="{{bankAccount}}" bindinput="onBankAccount" />
-      </view>
-    </view>
 
-    <view class="card paper">
-      <view class="paper-head">
-        <view class="seal">合同</view>
-        <view class="title">{{paper.title}}</view>
-      </view>
-      <view class="body-label">合同正文（可在框内上下滑动阅读）</view>
-      <scroll-view scroll-y class="body" enhanced="{{true}}" show-scrollbar="{{true}}">
-        <rich-text nodes="{{html}}"></rich-text>
-      </scroll-view>
-    </view>
+      <block wx:if="{{step === 1}}">
+        <view class="card">
+          <view class="h">身份证信息</view>
+          <view class="hint">已使用教师认证资料。如信息有误，请修改后再提交。</view>
 
-    <view class="card sign-card" id="signArea">
-      <view class="label">手写签名<text class="req">*</text></view>
-      <view class="hint">请下滑到此处签名；在框内书写，提交后需管理员审核</view>
-      <view class="pad-wrap">
-        <canvas canvas-id="sign" class="pad" disable-scroll="{{true}}"
-          bindtouchstart="touchStart" bindtouchmove="touchMove" bindtouchend="touchEnd"></canvas>
-        <view class="placeholder" wx:if="{{!drew}}">在这里签名</view>
-      </view>
-      <view class="clear" bindtap="clearPad">重写</view>
-    </view>
+          <view wx:if="{{!identity.hasPhotos}}" class="warn-box">
+            <view class="h">身份证资料不完整</view>
+            <view class="sub">当前教师认证资料中缺少身份证照片，无法自动生成合同信息。</view>
+            <button class="btn btn-primary btn-block go" bindtap="goCert">前往教师认证补充资料</button>
+          </view>
 
-    <view class="agree" bindtap="toggle">
-      <view class="box {{agreed ? 'on' : ''}}"></view>
-      <text>我已阅读并同意《{{paper.title}}》</text>
-    </view>
-    <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">确认签订并提交审核</button>
-    <view class="foot">审核通过后本学期合同生效；历史合同永久保留备查。</view>
+          <block wx:else>
+            <view class="id-status">
+              <text class="ok">已认证 ✓</text>
+              <text wx:if="{{identity.ocrStatus === 'success' || identity.ocrStatus === 'manual_confirmed'}}" class="ok">已识别 ✓</text>
+              <text wx:elif="{{identity.ocrStatus === 'partial'}}" class="warn">部分识别</text>
+              <text wx:elif="{{ocrRunning}}" class="muted">正在识别…</text>
+              <text wx:elif="{{identity.ocrStatus === 'failed'}}" class="warn">识别失败</text>
+              <text class="link" bindtap="togglePhotos">{{viewPhotos ? '收起照片' : '查看认证身份证'}}</text>
+            </view>
+
+            <view class="photo-row" wx:if="{{viewPhotos}}">
+              <image wx:if="{{identity.idCard}}" src="{{identity.idCard}}" mode="aspectFit"></image>
+              <image wx:if="{{identity.idCardBack}}" src="{{identity.idCardBack}}" mode="aspectFit"></image>
+            </view>
+
+            <view class="ocr-bar" wx:if="{{ocrRunning}}"><text>正在识别身份证信息……</text></view>
+            <view class="ok-tip" wx:elif="{{identity.ocrStatus === 'success' || identity.ocrStatus === 'manual_confirmed'}}">身份证信息已自动识别，请核对</view>
+            <view class="warn-tip" wx:elif="{{identity.ocrStatus === 'partial'}}">部分识别成功，请补全高亮字段</view>
+            <view class="warn-tip" wx:elif="{{identity.ocrStatus === 'failed'}}">{{identity.ocrError || '识别失败，请手动填写或重新识别'}}</view>
+
+            <view class="actions-row" wx:if="{{identity.ocrStatus === 'failed'}}">
+              <button class="btn" disabled="{{ocrRunning}}" bindtap="retryOcr">重新识别</button>
+              <button class="btn" bindtap="requestManual">转人工处理</button>
+            </view>
+
+            <view class="sec-title">认证资料</view>
+            <view class="label">姓名<text class="req">*</text></view>
+            <view class="input {{missName ? 'miss' : ''}}">
+              <input value="{{form.name}}" bindinput="onField" data-key="name" placeholder="姓名" />
+            </view>
+            <view class="label gap">性别</view>
+            <picker mode="selector" range="{{genderOptions}}" value="{{genderIndex}}" bindchange="onGender">
+              <view class="input picker">{{form.gender || '请选择'}}</view>
+            </picker>
+            <view class="label gap">民族</view>
+            <view class="input">
+              <input value="{{form.ethnicity}}" bindinput="onField" data-key="ethnicity" placeholder="如：汉" />
+            </view>
+            <view class="label gap">出生日期</view>
+            <picker mode="date" value="{{form.birthday}}" bindchange="onBirthday">
+              <view class="input picker">{{form.birthday || '请选择'}}</view>
+            </picker>
+            <view class="label gap">身份证号码<text class="req">*</text></view>
+            <view class="input {{missId ? 'miss' : ''}}">
+              <input value="{{form.idNumber}}" maxlength="18" bindinput="onField" data-key="idNumber" placeholder="18 位身份证号" />
+            </view>
+            <view class="label gap">身份证住址<text class="req">*</text></view>
+            <view class="input {{missAddress ? 'miss' : ''}}">
+              <input value="{{form.address}}" bindinput="onField" data-key="address" placeholder="身份证住址" />
+            </view>
+
+            <view class="sec-title">本次合同补充信息</view>
+            <view class="label">联系地址</view>
+            <view class="input">
+              <input value="{{form.contactAddress}}" bindinput="onField" data-key="contactAddress" placeholder="可与身份证住址不同" />
+            </view>
+            <view class="label gap">电子邮箱</view>
+            <view class="input">
+              <input value="{{form.email}}" bindinput="onField" data-key="email" placeholder="选填" />
+            </view>
+            <view class="label gap">收款开户行<text class="req">*</text></view>
+            <view class="input">
+              <input value="{{form.bankName}}" bindinput="onField" data-key="bankName" placeholder="如中国银行某某支行" />
+            </view>
+            <view class="label gap">收款名<text class="req">*</text></view>
+            <view class="input">
+              <input value="{{form.bankAccountName}}" bindinput="onField" data-key="bankAccountName" placeholder="与银行卡户名一致" />
+            </view>
+            <view class="label gap">银行账号<text class="req">*</text></view>
+            <view class="input">
+              <input type="number" value="{{form.bankAccount}}" bindinput="onField" data-key="bankAccount" placeholder="劳务报酬收款账号" />
+            </view>
+          </block>
+        </view>
+
+        <view class="card annex" wx:if="{{paper.courseAnnex}}">
+          <view class="annex-title">预分配课程（写入合同附件）</view>
+          <text class="annex-body">{{paper.courseAnnex}}</text>
+        </view>
+
+        <view class="foot-actions" wx:if="{{identity.hasPhotos}}">
+          <button class="btn" disabled="{{saving}}" bindtap="saveDraftTap">保存草稿</button>
+          <button class="btn btn-primary" disabled="{{saving}}" bindtap="goPreview">确认信息，生成合同</button>
+        </view>
+      </block>
+
+      <block wx:elif="{{step === 2}}">
+        <view class="card paper">
+          <view class="paper-head">
+            <view class="seal">合同</view>
+            <view class="title">{{paper.title}}</view>
+          </view>
+          <view class="body-label">合同正文（可在框内上下滑动阅读）</view>
+          <scroll-view scroll-y class="body" enhanced="{{true}}" show-scrollbar="{{true}}">
+            <rich-text nodes="{{html}}"></rich-text>
+          </scroll-view>
+        </view>
+        <view class="agree" bindtap="togglePreview">
+          <view class="box {{previewOk ? 'on' : ''}}"></view>
+          <text>我已确认以上合同内容及个人信息准确无误</text>
+        </view>
+        <view class="foot-actions">
+          <button class="btn" bindtap="backToFill">返回修改</button>
+          <button class="btn btn-primary" disabled="{{!previewOk || saving}}" bindtap="goSign">确认合同，进入签字</button>
+        </view>
+      </block>
+
+      <block wx:else>
+        <view class="card">
+          <view class="h">甲方签字</view>
+          <view class="sub">法定代表人 / 授权代表：{{paper.partyA.legalRep || '（后台配置）'}}</view>
+          <view class="hint">甲方信息由后台合同模板控制，教师不可修改。</view>
+        </view>
+        <view class="card sign-card">
+          <view class="label">乙方签字<text class="req">*</text></view>
+          <view class="hint">请在框内手写签名；提交后需管理员审核</view>
+          <view class="pad-wrap">
+            <canvas canvas-id="sign" class="pad" disable-scroll="{{true}}"
+              bindtouchstart="touchStart" bindtouchmove="touchMove" bindtouchend="touchEnd"></canvas>
+            <view class="placeholder" wx:if="{{!drew}}">请在此处签名</view>
+          </view>
+          <view class="clear" bindtap="clearPad">重签</view>
+        </view>
+        <button class="btn btn-primary btn-block submit" bindtap="submit" loading="{{saving}}" disabled="{{saving}}">确认签署</button>
+      </block>
+    </block>
   </block>
 </view>

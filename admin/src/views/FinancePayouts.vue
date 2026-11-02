@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>财务打款</h1>
-        <p>汇总当月要打的款：教师课时费（每位教师所有课程合计一笔）、机构费（每个机构合计一笔）与分成收款人（同一用户或同名虚拟人员跨合集合并一笔，扣税费与转账手续费）；既授课又参与分成的用户，课时费与分成合并为一笔、手续费只扣一次；当月已通过的报销也并入同一人的这笔打款。打款后标记「已打款」，系统保存当时金额，所含报销单同时变为「已报销」。</p>
+        <p>汇总当月要打的款。对公不够时，先到「浦发银行」从企业私户提取垫付；勾选打款时可选用垫付池，也可直接打入收款人企业私户。进账补还在浦发银行页确认。</p>
       </div>
       <div class="actions">
         <router-link class="btn" to="/finance/split">分成规则</router-link>
@@ -43,6 +43,12 @@
         <router-link :to="{ path: '/finance/statement', query: { month } }">去固定结算单 →</router-link>
       </p>
 
+      <p class="tip">
+        垫付池可用 {{ money(advanceTotals.pool) }} · 待补还 {{ money(advanceTotals.owed) }}
+        <template v-if="advanceTotals.pendingRepay"> · 待确认补还 {{ money(advanceTotals.pendingRepay) }}</template>
+        · <router-link to="/finance/bank">去浦发银行管理企业私户 / 垫付 →</router-link>
+      </p>
+
       <article class="card payout-card">
         <div class="toolbar">
           <div class="filters">
@@ -59,6 +65,13 @@
           </div>
           <div class="batch" :title="data.locked ? '' : lockHint">
             <span v-if="selected.length" class="sel-info">已选 {{ selected.length }} 位 · 实发 {{ money(selectedNet) }}</span>
+            <button
+              v-if="selectedWaivable.length"
+              class="btn tiny"
+              type="button"
+              :disabled="busy"
+              @click="waiveSelected"
+            >免选中手续费（{{ selectedWaivable.length }}）</button>
             <button class="btn primary tiny" type="button" :disabled="!selectedUnpaid.length || busy" @click="mark(selectedUnpaid, 'paid')">
               标记已打款{{ selectedUnpaid.length ? `（${selectedUnpaid.length}）` : '' }}
             </button>
@@ -120,16 +133,24 @@
                   <small v-if="row.reimburse" class="fee-note reimb-note">+ 报销 {{ money(row.reimburse.total) }}</small>
                 </td>
                 <td class="num minus">{{ row.tax ? `−${money(row.tax)}` : '—' }}</td>
-                <td v-if="(row.kind === 'both' && row.teacherPart) || row.reimburse" class="num">
-                  <span :class="{ minus: payeeFee(row) }">{{ payeeFee(row) ? `−${money(payeeFee(row))}` : '—' }}</span>
-                  <small class="fee-note">{{ row.kind === 'reimburse' ? '转账' : '合并一笔' }}共 {{ money(row.transferFee) }}<template v-if="row.platformFee">，平台承担 {{ money(row.platformFee) }}</template></small>
+                <td v-if="(row.kind === 'both' && row.teacherPart) || row.reimburse" class="num fee-cell">
+                  <span :class="{ minus: displayPayeeFee(row), waived: isWaived(row) }">{{ displayPayeeFee(row) ? `−${money(displayPayeeFee(row))}` : (isWaived(row) ? '免扣' : '—') }}</span>
+                  <small class="fee-note">{{ row.kind === 'reimburse' ? '转账' : '合并一笔' }}共 {{ money(isWaived(row) ? 0 : row.transferFee) }}<template v-if="!isWaived(row) && row.platformFee">，平台承担 {{ money(row.platformFee) }}</template></small>
+                  <button v-if="canWaive(row)" class="fee-waive" :class="{ on: isWaived(row), spdb: isSpdb(row) }" type="button" @click="toggleWaive(row)">
+                    {{ isWaived(row) ? '已免手续费' : (isSpdb(row) ? '浦发同行 · 点此免扣' : '免手续费') }}
+                  </button>
                 </td>
                 <td v-else-if="row.feeBy === 'platform'" class="num">
                   <span class="platform-fee">{{ money(row.fee) }}</span>
                   <small class="fee-note">平台承担</small>
                 </td>
-                <td v-else class="num minus">{{ row.fee ? `−${money(row.fee)}` : '—' }}</td>
-                <td class="num net">{{ money(row.net) }}</td>
+                <td v-else class="num fee-cell">
+                  <span :class="{ minus: displayPayeeFee(row), waived: isWaived(row) }">{{ displayPayeeFee(row) ? `−${money(displayPayeeFee(row))}` : (isWaived(row) ? '免扣' : '—') }}</span>
+                  <button v-if="canWaive(row)" class="fee-waive" :class="{ on: isWaived(row), spdb: isSpdb(row) }" type="button" @click="toggleWaive(row)">
+                    {{ isWaived(row) ? '已免手续费' : (isSpdb(row) ? '浦发同行 · 点此免扣' : '免手续费') }}
+                  </button>
+                </td>
+                <td class="num net">{{ money(displayNet(row)) }}</td>
                 <td>
                   <span v-if="row.status === 'paid'" class="status paid">已打款</span>
                   <span v-else class="status unpaid">未打款</span>
@@ -144,11 +165,11 @@
                     v-else-if="row.status !== 'paid'"
                     class="btn tiny primary"
                     type="button"
-                    :disabled="busy || !data.locked || !(row.net > 0)"
+                    :disabled="busy || !data.locked || !(displayNet(row) > 0)"
                     @click="mark([row.key], 'paid')"
                   >已打款</button>
                   <template v-else>
-                    <button v-if="row.changed && row.net > 0" class="btn tiny" type="button" :disabled="busy || !data.locked" @click="mark([row.key], 'paid')">按现金额更新</button>
+                    <button v-if="row.changed && displayNet(row) > 0" class="btn tiny" type="button" :disabled="busy || !data.locked" @click="mark([row.key], 'paid')">按现金额更新</button>
                     <button class="btn tiny" type="button" :disabled="busy || !data.locked" @click="mark([row.key], 'unpaid')">撤销</button>
                   </template>
                 </td>
@@ -268,14 +289,18 @@ const router = useRouter();
 const month = useFinanceMonth(onMonthChange);
 
 const emptyTotals = { net: 0, tax: 0, fee: 0, teacherNet: 0, orgNet: 0, splitNet: 0, reimburseNet: 0, paid: 0, unpaid: 0, paidCount: 0, unpaidCount: 0 };
-const data = ref({ list: [], totals: { ...emptyTotals }, locked: false });
+const data = ref({ list: [], totals: { ...emptyTotals }, locked: false, advances: { list: [], totals: { pool: 0, owed: 0, pendingRepay: 0 } } });
 const tab = ref('all');
 const checked = ref(new Set());
 const opened = ref(new Set());
+/** 标记打款时免扣收款人手续费（同行如浦发） */
+const waived = ref(new Set());
 const busy = ref(false);
 const updatedAt = ref('');
 const { loading, ready, error, run, bindLoad } = usePageLoad();
 const live = useFinanceLive(() => load());
+
+const advanceTotals = computed(() => data.value.advances?.totals || { pool: 0, owed: 0, pendingRepay: 0 });
 
 const kind = ref('all');
 const kindLabel = { teacher: '课时费', org: '机构', split: '分成', both: '课时费+分成', reimburse: '报销' };
@@ -326,6 +351,58 @@ const lockHint = '月度结算单固定后才能修改打款状态';
 function payeeFee(row) {
   return row.feeBy === 'payee' ? Number(row.fee || 0) : 0;
 }
+
+function isSpdb(row) {
+  return /浦发|上海浦东发展|SPDB/i.test(String(row?.bankName || ''));
+}
+
+function canWaive(row) {
+  return row && row.status !== 'paid' && payeeFee(row) > 0;
+}
+
+function isWaived(row) {
+  if (!row) return false;
+  if (row.waiveFee || Number(row.waivedFee) > 0) return true;
+  return waived.value.has(row.key);
+}
+
+function displayPayeeFee(row) {
+  if (isWaived(row)) return 0;
+  if (row?.status === 'paid' && row.paidFee != null && row.feeBy === 'payee') {
+    return Number(row.paidFee) || 0;
+  }
+  return payeeFee(row);
+}
+
+function displayNet(row) {
+  if (row?.status === 'paid' && row.paidNet != null) return Number(row.paidNet) || 0;
+  const base = Number(row?.net || 0);
+  if (!isWaived(row)) return base;
+  return round2(base + payeeFee(row));
+}
+
+function toggleWaive(row) {
+  if (!canWaive(row)) return;
+  const next = new Set(waived.value);
+  if (next.has(row.key)) next.delete(row.key);
+  else next.add(row.key);
+  waived.value = next;
+}
+
+function seedSpdbWaive(list) {
+  const next = new Set(waived.value);
+  for (const row of list || []) {
+    if (canWaive(row) && isSpdb(row)) next.add(row.key);
+    if (row.status === 'paid') next.delete(row.key);
+    if (!(payeeFee(row) > 0)) next.delete(row.key);
+  }
+  // 去掉已不存在的 key
+  const alive = new Set((list || []).map((r) => r.key));
+  for (const key of [...next]) {
+    if (!alive.has(key)) next.delete(key);
+  }
+  waived.value = next;
+}
 function formatSessionDates(dates) {
   const list = Array.isArray(dates) ? dates.filter(Boolean) : [];
   if (!list.length) return '—';
@@ -334,14 +411,21 @@ function formatSessionDates(dates) {
 
 function canSelect(row) {
   if (!data.value.locked) return false;
-  return row.status === 'paid' || row.net > 0;
+  return row.status === 'paid' || displayNet(row) > 0;
 }
 const selectable = computed(() => visibleRows.value.filter(canSelect));
 const selected = computed(() => rows.value.filter((r) => checked.value.has(r.key)));
-const selectedUnpaid = computed(() => selected.value.filter((r) => r.status !== 'paid' && r.net > 0).map((r) => r.key));
+const selectedUnpaid = computed(() => selected.value.filter((r) => r.status !== 'paid' && displayNet(r) > 0).map((r) => r.key));
 const selectedPaid = computed(() => selected.value.filter((r) => r.status === 'paid').map((r) => r.key));
-const selectedNet = computed(() => round2(selected.value.reduce((acc, r) => acc + Number(r.net || 0), 0)));
+const selectedNet = computed(() => round2(selected.value.reduce((acc, r) => acc + displayNet(r), 0)));
+const selectedWaivable = computed(() => selected.value.filter((r) => canWaive(r) && !isWaived(r)));
 const allChecked = computed(() => selectable.value.length > 0 && selectable.value.every((r) => checked.value.has(r.key)));
+
+function waiveSelected() {
+  const next = new Set(waived.value);
+  for (const row of selectedWaivable.value) next.add(row.key);
+  waived.value = next;
+}
 
 function toggle(key) {
   const next = new Set(checked.value);
@@ -372,9 +456,11 @@ async function load() {
       totals: { ...emptyTotals, ...(result?.totals || {}) },
       locked: !!result?.locked,
       config: result?.config || {},
+      advances: result?.advances || { list: [], totals: { pool: 0, owed: 0, pendingRepay: 0 } },
     };
     const keys = new Set(data.value.locked ? data.value.list.map((r) => r.key) : []);
     checked.value = new Set([...checked.value].filter((k) => keys.has(k)));
+    seedSpdbWaive(data.value.list);
     updatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   });
 }
@@ -382,6 +468,7 @@ async function load() {
 function onMonthChange() {
   checked.value = new Set();
   opened.value = new Set();
+  waived.value = new Set();
   load();
 }
 
@@ -392,27 +479,66 @@ async function mark(keys, status) {
     return;
   }
   const list = rows.value.filter((r) => keys.includes(r.key));
-  const total = round2(list.reduce((acc, r) => acc + Number(r.net || 0), 0));
+  const waiveFeeKeys = status === 'paid'
+    ? list.filter((r) => isWaived(r) && canWaive(r)).map((r) => r.key)
+    : [];
+  const waivedFeeTotal = round2(list.filter((r) => waiveFeeKeys.includes(r.key)).reduce((acc, r) => acc + payeeFee(r), 0));
+  const total = round2(list.reduce((acc, r) => acc + displayNet(r), 0));
   const names = list.slice(0, 3).map((r) => r.name).join('、') + (list.length > 3 ? ` 等 ${list.length} 位` : '');
   const reimbCount = list.reduce((acc, r) => acc + (r.reimburse?.items.length || 0), 0);
   const reimbTotal = round2(list.reduce((acc, r) => acc + Number(r.reimburse?.total || 0), 0));
   const ok = await notify.confirm(status === 'paid'
     ? {
       title: '确认已打款',
-      message: `确认已向 ${names} 打款，合计实发 ${money(total)}？系统将保存当前金额。${reimbCount ? `其中含报销 ${money(reimbTotal)}（${reimbCount} 笔），这些报销单会同时标记为「已报销」。` : ''}`,
+      message: `确认已向 ${names} 打款，合计实发 ${money(total)}？系统将保存当前金额。${waivedFeeTotal ? `其中 ${waiveFeeKeys.length} 笔已勾选同行免手续费（加回 ${money(waivedFeeTotal)}）。` : ''}${reimbCount ? `其中含报销 ${money(reimbTotal)}（${reimbCount} 笔），这些报销单会同时标记为「已报销」。` : ''}`,
       okText: '已打款',
     }
     : {
       title: '改为未打款',
-      message: `将 ${names} 的 ${month.value} 打款状态改为未打款？${reimbCount ? '随这笔打款报销的单据会退回「已通过」。' : ''}`,
+      message: `将 ${names} 的 ${month.value} 打款状态改为未打款？${reimbCount ? '随这笔打款报销的单据会退回「已通过」。' : ''}若曾用垫付池或打入企业私户，将一并冲回。`,
       okText: '改为未打款',
       danger: true,
     });
   if (!ok) return;
+  let useAdvance = false;
+  let toPrivate = false;
+  if (status === 'paid') {
+    const pool = Number(advanceTotals.value.pool) || 0;
+    const dest = await notify.choose({
+      title: '打款去向',
+      message: [
+        `合计实发 ${money(total)}。`,
+        '「打入企业私户」：占用可用余额记入各收款人企业私户。',
+        '「对公结算」：对公账户对外打款，不消耗垫付池。',
+        `「平台结算」：从垫付池扣减本次实发（当前可用 ${money(pool)}）。`,
+      ].join('\n'),
+      actions: [
+        { id: 'private', text: '打入企业私户' },
+        { id: 'corp', text: '对公结算' },
+        { id: 'platform', text: pool > 0 ? '平台结算' : '平台结算（垫付池为空）', disabled: !(pool > 0) },
+      ],
+    });
+    if (!dest) return;
+    toPrivate = dest === 'private';
+    useAdvance = dest === 'platform';
+  }
   busy.value = true;
   try {
-    const result = await api.financeMarkPayouts(month.value, { keys, status });
-    notify.success(status === 'paid' ? `已标记 ${result.count} 位已打款` : `已改为未打款 ${result.count} 位`);
+    const result = await api.financeMarkPayouts(month.value, {
+      keys,
+      status,
+      useAdvance: !!useAdvance,
+      toPrivate: !!toPrivate,
+      waiveFeeKeys,
+    });
+    const tip = status === 'paid'
+      ? (toPrivate && result.privateCredits?.length
+        ? `已标记 ${result.count} 位已打款，并打入企业私户 ${money(result.privateCredits.reduce((s, u) => s + Number(u.amount || 0), 0))}`
+        : (useAdvance && result.advanceUses?.length
+          ? `已标记 ${result.count} 位已打款，并消耗垫付 ${money(result.advanceUses.reduce((s, u) => s + Number(u.amount || 0), 0))}`
+          : `已标记 ${result.count} 位已打款`))
+      : `已改为未打款 ${result.count} 位`;
+    notify.success(tip);
     checked.value = new Set();
     live.notify('payout');
     await load();
@@ -467,6 +593,15 @@ bindLoad(load);
 .source { text-align: left; }
 .platform-fee { color: #667085; }
 .fee-note { display: block; margin-top: 2px; color: #98a2b3; font-size: 11px; }
+.fee-cell .waived { color: #067647; font-weight: 600; }
+.fee-waive {
+  display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid #d0d5dd; background: #fff; color: #475467;
+  font-size: 11px; font-weight: 600; cursor: pointer; line-height: 1.6;
+}
+.fee-waive.spdb { border-color: #b2ddff; color: #175cd3; background: #f0f9ff; }
+.fee-waive.on { border-color: #abefc6; color: #067647; background: #ecfdf3; }
+.fee-waive:hover { filter: brightness(0.98); }
 .tabs { display: inline-flex; gap: 4px; background: #f2f4f7; padding: 3px; border-radius: 10px; }
 .tabs button {
   border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #475467; cursor: pointer;

@@ -53,6 +53,10 @@ const getCert = () => get('/user/cert');
 const submitCert = (data) => post('/user/cert', data);
 const getContract = () => get('/user/contract');
 const saveContractDraft = (body) => post('/user/contract/draft', body || {});
+const runContractOcr = (force = false) => post('/user/contract/ocr', { force });
+const advanceContractPreview = () => post('/user/contract/advance-preview', {});
+const confirmContractPreview = () => post('/user/contract/confirm-preview', {});
+const requestContractManualReview = (reason) => post('/user/contract/manual-review', { reason: reason || '教师申请人工处理' });
 const exportContract = (id) => get('/user/contract/export', id ? { id } : {});
 const listContracts = () => get('/user/contracts');
 const signContract = (filePath) => {
@@ -86,6 +90,10 @@ module.exports = {
   uploadCertFile,
   getContract,
   saveContractDraft,
+  runContractOcr,
+  advanceContractPreview,
+  confirmContractPreview,
+  requestContractManualReview,
   exportContract,
   listContracts,
   signContract,

@@ -11,6 +11,8 @@ Page({
   },
 
   onLoad() {
+    const util = require('../../utils/util.js');
+    if (!util.requireLogin()) return;
     this.loadUserInfo();
   },
 

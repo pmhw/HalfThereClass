@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { clearToken, getProfile, getToken } from './api';
-import { adminBase } from './adminBase';
+import { routerHistoryBase } from './adminBase';
 import Login from './views/Login.vue';
 import AdminLayout from './layouts/AdminLayout.vue';
 import Dashboard from './views/Dashboard.vue';
@@ -10,6 +10,8 @@ import Schools from './views/Schools.vue';
 import Orders from './views/Orders.vue';
 import Comments from './views/Comments.vue';
 import Term from './views/Term.vue';
+import SchedulePoster from './views/SchedulePoster.vue';
+import SchedulePosterDiy from './views/SchedulePosterDiy.vue';
 import Admins from './views/Admins.vue';
 import People from './views/People.vue';
 import Faculty from './views/Faculty.vue';
@@ -35,9 +37,10 @@ import { SETTINGS_PERMS, SETUP_PERMS, allow, canOpen, landingPath } from './acce
 import { financeUnlocked, isFinancePath, requireFinancePin } from './financePin';
 
 const router = createRouter({
-  history: createWebHistory(adminBase()),
+  history: createWebHistory(routerHistoryBase()),
   routes: [
     { path: '/login', component: Login, meta: { public: true } },
+    { path: '/diy/:token', component: SchedulePosterDiy, meta: { public: true, diyPublic: true, title: 'DIY 临时课表' } },
     {
       path: '/',
       component: AdminLayout,
@@ -47,6 +50,9 @@ const router = createRouter({
         { path: 'categories', component: Categories, meta: { title: '分类管理', crumb: '课程 / 分类管理', perm: 'course.category' } },
         { path: 'schools', component: Schools, meta: { title: '学校管理', crumb: '课程 / 学校管理', perm: 'course.school' } },
         { path: 'term', component: Term, meta: { title: '学期排课', crumb: '课程 / 学期排课', perm: 'course.term' } },
+        { path: 'schedule-poster', component: SchedulePoster, meta: { title: '系统课表海报', crumb: '课程 / 系统课表海报', perm: ['course.list', 'course.term'] } },
+        { path: 'schedule-poster-diy', component: SchedulePosterDiy, meta: { title: 'DIY 排课海报', crumb: '课程 / DIY 排课海报', perm: ['course.list', 'course.term'] } },
+        { path: 'schedule-poster-diy/live/:shareId', component: SchedulePosterDiy, meta: { title: 'DIY 实时查看', crumb: '课程 / DIY 临时链接', perm: ['course.list', 'course.term'], diyLive: true } },
         { path: 'orders', component: Orders, meta: { title: '订单管理', crumb: '交易 / 订单管理', perm: 'trade.order' } },
         { path: 'comments', component: Comments, meta: { title: '评价管理', crumb: '交易 / 评价管理', perm: 'trade.comment' } },
         { path: 'people', component: People, meta: { title: '用户管理', crumb: '用户 / 用户列表', perm: 'people.user' } },
@@ -65,7 +71,7 @@ const router = createRouter({
         { path: 'finance/split', component: FinanceSplit, meta: { title: '分成比例', crumb: '财务 / 分成比例', perm: 'finance.split', month: true } },
         { path: 'finance/sheet', component: FinanceSheet, beforeEnter: (to) => (allow(getProfile(), 'finance.split') ? { path: '/finance/split', query: { ...to.query, tab: 'sheet' } } : true), meta: { title: '分成打款单', crumb: '财务 / 分成打款单', perm: ['finance.sheet', 'finance.split', 'finance.payout'], month: true } },
         { path: 'finance/payouts', component: FinancePayouts, meta: { title: '财务打款', crumb: '财务 / 财务打款', perm: 'finance.payout', month: true } },
-        { path: 'finance/bank', component: FinanceBank, meta: { title: '交易流水', crumb: '财务 / 交易流水', perm: 'finance.bank' } },
+        { path: 'finance/bank', component: FinanceBank, meta: { title: '浦发银行', crumb: '财务 / 浦发银行', perm: 'finance.bank' } },
         { path: 'finance/rules', component: FinanceRules, beforeEnter: (to) => (allow(getProfile(), 'finance.split') ? { path: '/finance/split', query: { ...to.query, dialog: 'course-rules' } } : true), meta: { title: '课程分成规则', crumb: '财务 / 课程分成规则', perm: 'finance.rule' } },
         { path: 'reimbursements', component: Reimbursements, meta: { title: '报销单', crumb: '财务 / 报销单', perm: 'finance.reimburse', month: 'all', monthDefault: 'all' } },
         { path: 'admins', component: Admins, meta: { title: '管理员', crumb: '权限 / 管理员', perm: 'admin.account' } },
@@ -88,6 +94,7 @@ async function financeGuard(to, from, profile) {
 }
 
 router.beforeEach((to, from) => {
+  if (to.meta?.public) return true;
   const token = getToken();
   const profile = getProfile();
   if (token && !profile) {

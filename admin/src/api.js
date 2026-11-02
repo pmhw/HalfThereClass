@@ -45,12 +45,40 @@ export function clearToken() {
   clearFinanceToken();
 }
 
+function deviceFingerprint() {
+  const key = 'htc_device_fp';
+  try {
+    let id = localStorage.getItem(key);
+    if (!id) {
+      const seed = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        String(screen.width),
+        String(screen.height),
+        String(screen.colorDepth || ''),
+        String(new Date().getTimezoneOffset()),
+        Math.random().toString(36).slice(2),
+        Date.now().toString(36),
+      ].join('|');
+      let hash = 0;
+      for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+      id = `fp_${Math.abs(hash).toString(36)}_${Date.now().toString(36)}`;
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return '';
+  }
+}
+
 function authHeaders() {
   const headers = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const financeToken = getFinanceToken();
   if (financeToken) headers['X-Finance-Token'] = financeToken;
+  const fp = deviceFingerprint();
+  if (fp) headers['X-Device-Fingerprint'] = fp;
   return headers;
 }
 
@@ -129,9 +157,14 @@ async function rawFetch(url, options = {}, attempt = 0) {
 
   if (payload.code !== 0) {
     if (payload.code === 401) {
+      if (options.public) {
+        throw new Error(Array.isArray(payload.message) ? payload.message[0] : (payload.message || '未授权'));
+      }
       clearToken();
       accountLock.message = '';
-      if (!location.pathname.endsWith('/login')) location.href = withAdminBase('/login');
+      if (!location.pathname.endsWith('/login') && !location.pathname.startsWith('/diy')) {
+        location.href = withAdminBase('/login');
+      }
     }
     const message = Array.isArray(payload.message) ? payload.message[0] : payload.message;
     const text = message || '请求失败';
@@ -268,6 +301,38 @@ export const api = {
   financePayouts: (month) => request(withQuery('/api/admin/finance/payouts', { month })),
   financeSplitSheet: (month) => request(withQuery('/api/admin/finance/split/sheet', { month })),
   financeMarkPayouts: (month, body) => request(`/api/admin/finance/payouts/${month}/mark`, { method: 'POST', body }),
+  financeAdvances: () => request('/api/admin/finance/advances'),
+  financeCreateAdvance: (body) => request('/api/admin/finance/advances', { method: 'POST', body }),
+  financeCloseAdvance: (id) => request(`/api/admin/finance/advances/${id}/close`, { method: 'POST' }),
+  financeRepayAdvance: (id, body) => request(`/api/admin/finance/advances/${id}/repay`, { method: 'POST', body }),
+  financeConfirmAdvanceRepay: (id) => request(`/api/admin/finance/advance-repays/${id}/confirm`, { method: 'POST' }),
+  financeRejectAdvanceRepay: (id) => request(`/api/admin/finance/advance-repays/${id}`, { method: 'DELETE' }),
+  financeInvoices: (month) => request(withQuery('/api/admin/finance/invoices', { month })),
+  financeCreateInvoice: (body) => request('/api/admin/finance/invoices', { method: 'POST', body }),
+  financeUpdateInvoice: (id, body) => request(`/api/admin/finance/invoices/${id}`, { method: 'PUT', body }),
+  financeDeleteInvoice: (id) => request(`/api/admin/finance/invoices/${id}`, { method: 'DELETE' }),
+  async financeImportInvoicePdf(file, fields = {}) {
+    if (!(await requireFinancePin())) throw new Error('请输入财务密码');
+    const body = new FormData();
+    body.append('file', file);
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value != null && value !== '') body.append(key, String(value));
+    });
+    const response = await fetch('/api/admin/finance/invoices/import-pdf', {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    });
+    keepFinanceToken(response);
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error(`导入失败（HTTP ${response.status}）`);
+    }
+    if (payload.code !== 0) throw new Error(payload.message || '导入失败');
+    return payload.data;
+  },
   setupCheck: () => request('/api/admin/setup/check'),
   setupIgnore: (id, ignored) => request(`/api/admin/setup/ignore/${encodeURIComponent(id)}`, { method: 'PUT', body: { ignored } }),
   financeRules: () => request('/api/admin/finance/rules'),
@@ -418,8 +483,32 @@ export const api = {
   },
   bankTxns: () => request('/api/admin/finance/bank-txns'),
   allocateBankTxn: (id, body) => request(`/api/admin/finance/bank-txns/${id}/allocs`, { method: 'POST', body }),
-  lockBankAlloc: (id, locked) => request(`/api/admin/finance/bank-txns/allocs/${id}/lock`, { method: 'PUT', body: { locked } }),
-  removeBankAlloc: (id) => request(`/api/admin/finance/bank-txns/allocs/${id}`, { method: 'DELETE' }),
+  async lockBankAlloc(id, locked) {
+    // 已解锁则直接放行；未解锁时弹一次（与进入财务页共用同一会话）
+    if (!locked && !(await requireFinancePin())) throw new Error('请输入财务密码');
+    return request(`/api/admin/finance/bank-txns/allocs/${id}/lock`, { method: 'PUT', body: { locked } });
+  },
+  removeBankAlloc: () => Promise.reject(new Error('归属记录禁止删除，请解除企业私户归属后重新划入')),
+  privateAccounts: () => request('/api/admin/finance/private-accounts'),
+  privateAccount: (id) => request(`/api/admin/finance/private-accounts/${id}`),
+  financeReserves: () => request('/api/admin/finance/reserves'),
+  financeSyncReserves: (month) => request(`/api/admin/finance/reserves/sync/${month}`, { method: 'POST' }),
+  financeManualReserve: (body) => request('/api/admin/finance/reserves/manual', { method: 'POST', body }),
+  financeCreateExpense: (body) => request('/api/admin/finance/expenses', { method: 'POST', body }),
+  financeMatchExpense: (id, body) => request(`/api/admin/finance/expenses/${id}/match`, { method: 'POST', body }),
+  financeVoidExpense: (id) => request(`/api/admin/finance/expenses/${id}/void`, { method: 'POST' }),
+  async depositPrivateAccount(body) {
+    if (!(await requireFinancePin())) throw new Error('请输入财务密码');
+    return request('/api/admin/finance/private-accounts/deposit', { method: 'POST', body });
+  },
+  async withdrawPrivateAccount(body) {
+    if (!(await requireFinancePin())) throw new Error('请输入财务密码');
+    return request('/api/admin/finance/private-accounts/withdraw', { method: 'POST', body });
+  },
+  async adjustPrivateAccount(body) {
+    if (!(await requireFinancePin())) throw new Error('请输入财务密码');
+    return request('/api/admin/finance/private-accounts/adjust', { method: 'POST', body });
+  },
   async importBankTxns(file) {
     if (!(await requireFinancePin())) throw new Error('请输入财务密码');
     const body = new FormData();
@@ -445,4 +534,15 @@ export const api = {
     }
     return payload.data;
   },
+
+  // DIY 超级临时链接（管理端）
+  diyShares: () => request('/api/admin/diy-poster/shares', { noDedupe: true }),
+  createDiyShare: (body) => request('/api/admin/diy-poster/shares', { method: 'POST', body }),
+  diyShare: (id, since) => request(withQuery(`/api/admin/diy-poster/shares/${id}`, { since }), { noDedupe: true }),
+  updateDiyShare: (id, body) => request(`/api/admin/diy-poster/shares/${id}`, { method: 'PUT', body }),
+  deleteDiyShare: (id) => request(`/api/admin/diy-poster/shares/${id}`, { method: 'DELETE' }),
+
+  // DIY 公开临时链接（免登录）
+  publicDiyShare: (token, since) => request(withQuery(`/api/diy-poster/share/${encodeURIComponent(token)}`, { since }), { public: true, noDedupe: true }),
+  updatePublicDiyShare: (token, body) => request(`/api/diy-poster/share/${encodeURIComponent(token)}`, { method: 'PUT', body, public: true }),
 };

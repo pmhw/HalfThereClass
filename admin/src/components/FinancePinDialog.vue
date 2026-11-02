@@ -19,7 +19,7 @@
     <form v-else class="pin-body" @submit.prevent="submit(pin)">
       <PinInput ref="pinRef" v-model="pin" autofocus :disabled="busy" :error="errorTick" @complete="submit" />
       <p class="pin-error" :class="{ show: error }">{{ error || ' ' }}</p>
-      <p class="pin-tip">验证通过后，本浏览器所有标签页共用；只要还在后台操作就一直有效，连续 2 小时无操作才需重新输入。所有管理员共用一个财务密码，忘记请联系系统管理员。</p>
+      <p class="pin-tip">验证通过后，本浏览器各财务页与敏感操作共用，无需反复输入；有点击/键盘操作会自动续期，连续 2 小时无操作才需重新输入。所有管理员共用一个财务密码，忘记请联系系统管理员。</p>
       <div class="pin-actions">
         <button class="btn" type="button" @click="cancel">取消</button>
         <button class="btn primary" type="submit" :disabled="busy || pin.length !== 6">{{ busy ? '验证中' : '确定' }}</button>

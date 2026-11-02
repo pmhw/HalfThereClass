@@ -43,7 +43,7 @@ export const ADMIN_PERMISSION_GROUPS = [
       { key: 'finance.split', label: '分成比例' },
       { key: 'finance.sheet', label: '分成打款单（只读）' },
       { key: 'finance.payout', label: '财务打款' },
-      { key: 'finance.bank', label: '交易流水' },
+      { key: 'finance.bank', label: '浦发银行' },
       { key: 'finance.rule', label: '课程分成规则' },
       { key: 'finance.reimburse', label: '报销单' },
     ],

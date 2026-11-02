@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>月度结算单</h1>
-        <p>按月汇总已同步课次。确认后点「固定」，各收益报表才统计该月。机构标签与机构费按当前课程承接机构 / 教师绑定机构刷新（已固定月份仍用结算快照）。</p>
+        <p>按月汇总已同步课次。确认后点「固定」，各收益报表才统计该月。未固定时改正课程校方价格 / 课时费会自动跟随；机构标签与机构费按当前承接机构刷新（已固定月份仍用结算快照）。</p>
       </div>
     </div>
 
@@ -20,7 +20,7 @@
           </p>
           <p v-else-if="rows.length">
             共 {{ data.total?.sessionCount || 0 }} 节 · 校方 {{ money(data.total?.schoolAmount) }} · 利润 {{ money(data.total?.profitAmount) }}。
-            核对下表无误后点右侧按钮固定，固定后才计入各收益报表。
+            校方价改正后本页会自动同步；核对无误后点右侧固定，固定后才计入各收益报表。
           </p>
           <p v-else>该月还没有已上课次，课次收益会按上课日期自动同步进来。</p>
         </div>
@@ -69,11 +69,42 @@
                 <th>课程</th>
                 <th class="num">上课数量</th>
                 <th class="teacher-col">
-                  <select v-model="teacherFilter" class="teacher-filter" aria-label="按教师筛选">
-                    <option value="">全部教师</option>
-                    <option v-for="teacher in teacherOptions" :key="teacher.value" :value="teacher.value">{{ teacher.label }}</option>
-                  </select>
-                  <span class="teacher-col-label">教师</span>
+                  <div class="teacher-filter-wrap">
+                    <button
+                      type="button"
+                      class="teacher-filter-btn"
+                      :class="{ open: teacherMenuOpen, filtered: !!teacherFilter }"
+                      :aria-expanded="teacherMenuOpen"
+                      aria-haspopup="listbox"
+                      @click.stop="toggleTeacherMenu"
+                    >
+                      {{ teacherFilterLabel }}
+                    </button>
+                    <div v-if="teacherMenuOpen" class="teacher-menu" role="listbox" @click.stop>
+                      <button
+                        type="button"
+                        class="teacher-menu-item"
+                        role="option"
+                        :aria-selected="!teacherFilter"
+                        :class="{ on: !teacherFilter }"
+                        @click="pickTeacher('')"
+                      >
+                        全部
+                      </button>
+                      <button
+                        v-for="teacher in teacherOptions"
+                        :key="teacher.value"
+                        type="button"
+                        class="teacher-menu-item"
+                        role="option"
+                        :aria-selected="teacherFilter === teacher.value"
+                        :class="{ on: teacherFilter === teacher.value }"
+                        @click="pickTeacher(teacher.value)"
+                      >
+                        {{ teacher.label }}
+                      </button>
+                    </div>
+                  </div>
                 </th>
                 <th class="num">校方价格</th>
                 <th class="num">课时费<CalcTip name="statement.sessionFee" /></th>
@@ -150,7 +181,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { money } from '../format';
@@ -169,6 +200,7 @@ const month = useFinanceMonth(() => load());
 
 const data = ref({ list: [], total: {}, schoolTotals: [], locked: false });
 const teacherFilter = ref('');
+const teacherMenuOpen = ref(false);
 const lockSaving = ref(false);
 const { loading, ready, error, run, bindLoad } = usePageLoad();
 const live = useFinanceLive(() => load());
@@ -191,10 +223,31 @@ const teacherOptions = computed(() => {
     .sort((a, b) => String(a.label).localeCompare(String(b.label), 'zh'));
 });
 
+const teacherFilterLabel = computed(() => {
+  if (!teacherFilter.value) return '教师';
+  return teacherOptions.value.find((item) => item.value === teacherFilter.value)?.label || '教师';
+});
+
 const visibleRows = computed(() => {
   if (!teacherFilter.value) return rows.value;
   return rows.value.filter((item) => teacherKey(item) === teacherFilter.value);
 });
+
+function toggleTeacherMenu() {
+  teacherMenuOpen.value = !teacherMenuOpen.value;
+}
+
+function pickTeacher(value) {
+  teacherFilter.value = value;
+  teacherMenuOpen.value = false;
+}
+
+function onDocClick() {
+  teacherMenuOpen.value = false;
+}
+
+onMounted(() => document.addEventListener('click', onDocClick));
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
 
 function sumRows(items, school = '') {
   const sub = {
@@ -252,6 +305,7 @@ const schoolGroups = computed(() => {
 
 watch(month, () => {
   teacherFilter.value = '';
+  teacherMenuOpen.value = false;
 });
 
 watch(teacherOptions, (list) => {
@@ -453,21 +507,63 @@ bindLoad(load);
 }
 .stmt-table thead th.num { text-align: right; }
 
-.teacher-col { min-width: 132px; vertical-align: bottom; }
-.teacher-filter {
+.teacher-col { min-width: 88px; position: relative; }
+.teacher-filter-wrap { position: relative; display: inline-block; }
+.teacher-filter-btn {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+.teacher-filter-btn.filtered,
+.teacher-filter-btn.open {
+  color: #175cd3;
+  text-decoration-style: solid;
+}
+.teacher-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 140px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+}
+.teacher-menu-item {
   display: block;
   width: 100%;
-  max-width: 148px;
-  margin-bottom: 6px;
-  padding: 4px 8px;
-  border: 1px solid #d0d5dd;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
   border-radius: 8px;
-  background: #fff;
-  color: #101828;
-  font-size: 12px;
+  background: transparent;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.teacher-menu-item:hover { background: #f2f4f7; }
+.teacher-menu-item.on {
+  background: #eff8ff;
+  color: #175cd3;
   font-weight: 600;
 }
-.teacher-col-label { display: block; }
 
 .cell-school { color: #667085; min-width: 96px; }
 .cell-course { min-width: 168px; }

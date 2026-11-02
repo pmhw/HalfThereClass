@@ -711,6 +711,7 @@ import GradePicker from '../components/GradePicker.vue';
 import SearchSelect from '../components/SearchSelect.vue';
 import TeacherChangeDialog from '../components/TeacherChangeDialog.vue';
 import { usePageLoad } from '../composables/usePageLoad';
+import { notifyFinanceChanged } from '../composables/useFinanceLive';
 import { parseGrades } from '../grades';
 import { notify } from '../notify';
 
@@ -1229,8 +1230,10 @@ async function persist(teacherFrom) {
   }
   if (teacherFrom) body.teacherFrom = teacherFrom;
   try {
-    const saved = form.value.id ? await api.updateCourse(form.value.id, body) : await api.createCourse(body);
+    const wasEdit = !!form.value.id;
+    const saved = wasEdit ? await api.updateCourse(form.value.id, body) : await api.createCourse(body);
     if (teacherFrom) notice.value = changeNotice(saved?.teacherChange);
+    if (wasEdit) notifyFinanceChanged('course-fee');
     form.value = null;
     await load();
     return true;

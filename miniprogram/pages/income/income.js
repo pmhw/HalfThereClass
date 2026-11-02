@@ -1,8 +1,10 @@
 const { get } = require('../../utils/request.js');
+const util = require('../../utils/util.js');
 
 Page({
   data: { list: [], total: '', count: 0 },
   onShow() {
+    if (!util.requireLogin()) return;
     get('/teacher/incomes').then((list) => {
       const rows = list || [];
       const shown = rows.filter((item) => item.showFee);

@@ -47,15 +47,34 @@
               @keydown.enter.exact.prevent="okDialog"
             />
           </label>
-          <div class="notify-dialog-actions">
-            <button class="btn" type="button" @click="cancelDialog">{{ dialog.cancelText }}</button>
-            <button
-              class="btn"
-              :class="dialog.danger ? 'danger-fill' : 'primary'"
-              type="button"
-              :disabled="dialog.mode === 'prompt' && dialog.required && !String(promptValue || '').trim()"
-              @click="okDialog"
-            >{{ dialog.okText }}</button>
+          <div class="notify-dialog-actions" :class="{ choose: dialog.mode === 'choose', equal: dialog.equal || dialog.equalActions }">
+            <template v-if="dialog.mode === 'choose'">
+              <button
+                v-for="act in dialog.actions || []"
+                :key="act.id"
+                class="btn"
+                :class="dialog.equal ? 'choose-btn' : (act.danger ? 'danger-fill' : (act.primary ? 'primary' : ''))"
+                type="button"
+                :disabled="act.disabled"
+                @click="chooseDialog(act.id)"
+              >{{ act.text }}</button>
+              <button v-if="dialog.cancelText" class="btn ghost" type="button" @click="cancelDialog">{{ dialog.cancelText }}</button>
+            </template>
+            <template v-else>
+              <button
+                class="btn"
+                :class="dialog.equalActions ? 'choose-btn' : ''"
+                type="button"
+                @click="cancelDialog"
+              >{{ dialog.cancelText }}</button>
+              <button
+                class="btn"
+                :class="dialog.equalActions ? 'choose-btn' : (dialog.danger ? 'danger-fill' : 'primary')"
+                type="button"
+                :disabled="dialog.mode === 'prompt' && dialog.required && !String(promptValue || '').trim()"
+                @click="okDialog"
+              >{{ dialog.okText }}</button>
+            </template>
           </div>
         </div>
       </div>
@@ -82,8 +101,14 @@ function iconOf(type) {
 function cancelDialog() {
   const d = notify.state.dialog;
   if (!d) return;
-  if (d.mode === 'prompt') d.resolve(null);
+  if (d.mode === 'prompt' || d.mode === 'choose') d.resolve(null);
   else d.resolve(false);
+}
+
+function chooseDialog(id) {
+  const d = notify.state.dialog;
+  if (!d || d.mode !== 'choose') return;
+  d.resolve(id);
 }
 
 function okDialog() {
@@ -95,6 +120,7 @@ function okDialog() {
     d.resolve(true, text);
     return;
   }
+  if (d.mode === 'choose') return;
   d.resolve(true);
 }
 
@@ -264,7 +290,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
   background: #fff;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
-.notify-dialog-actions { position: relative; display: flex; justify-content: center; gap: 10px; }
+.notify-dialog-actions { position: relative; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.notify-dialog-actions.choose { flex-direction: column; align-items: stretch; }
+.notify-dialog-actions.equal .choose-btn,
+.notify-dialog-actions .choose-btn {
+  height: 40px;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  color: #344054;
+  font-weight: 600;
+}
+.notify-dialog-actions .choose-btn:hover:not(:disabled) {
+  border-color: #98a2b3;
+  background: #f8fafc;
+}
+.notify-dialog-actions .choose-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.notify-dialog-actions .ghost {
+  border: 0; background: transparent; color: #667085; box-shadow: none; height: 36px;
+}
+.notify-dialog-actions .ghost:hover { color: #344054; background: #f2f4f7; }
 
 .notify-dialog-enter-active, .notify-dialog-leave-active { transition: opacity 0.2s ease; }
 .notify-dialog-enter-active .notify-dialog,

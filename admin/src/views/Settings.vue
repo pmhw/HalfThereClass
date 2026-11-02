@@ -4,7 +4,7 @@
       <div>
         <p class="crumb">系统 / 设置</p>
         <h1>系统设置</h1>
-        <p>密钥仍在弹窗里配置。用户协议和教师合同会打开编辑页，左边编写、右边预览。</p>
+        <p>密钥仍在弹窗里配置。用户协议和教师合同会打开编辑页，左边编写、右边预览，也可导出预览打印件。</p>
       </div>
     </div>
     <PageLoad
@@ -58,22 +58,36 @@
         </span>
         <em :class="form.key ? 'ok' : 'wait'">{{ form.key ? '已配置' : '未配置' }}</em>
       </button>
-      <router-link class="settings-card" to="/settings/agreement">
-        <span class="settings-icon doc"><Icon name="book" /></span>
-        <span class="settings-copy">
-          <strong>用户协议</strong>
-          <small>教师登录前阅读并勾选，支持 Markdown 排版</small>
+      <article class="settings-card">
+        <router-link class="settings-main" to="/settings/agreement">
+          <span class="settings-icon doc"><Icon name="book" /></span>
+          <span class="settings-copy">
+            <strong>用户协议</strong>
+            <small>教师登录前阅读并勾选，支持 Markdown 排版与导出预览</small>
+          </span>
+        </router-link>
+        <span class="doc-side">
+          <em :class="agreement.title ? 'ok' : 'wait'">{{ agreement.title || '未配置' }}</em>
+          <button class="btn tiny" type="button" :disabled="exportingDoc === 'agreement'" @click="exportDoc('agreement')">
+            {{ exportingDoc === 'agreement' ? '打开中…' : '导出预览' }}
+          </button>
         </span>
-        <em :class="agreement.title ? 'ok' : 'wait'">{{ agreement.title || '未配置' }}</em>
-      </router-link>
-      <router-link class="settings-card" to="/settings/contract">
-        <span class="settings-icon file"><Icon name="receipt" /></span>
-        <span class="settings-copy">
-          <strong>教师服务合同</strong>
-          <small>认证通过后签订。未签订不能安排课程，也不能抢课</small>
+      </article>
+      <article class="settings-card">
+        <router-link class="settings-main" to="/settings/contract">
+          <span class="settings-icon file"><Icon name="receipt" /></span>
+          <span class="settings-copy">
+            <strong>教师服务合同</strong>
+            <small>认证通过后签订。未签订不能安排课程，也不能抢课。可导出预览打印件。</small>
+          </span>
+        </router-link>
+        <span class="doc-side">
+          <em :class="contract.title ? 'ok' : 'wait'">{{ contract.title || '未配置' }}</em>
+          <button class="btn tiny" type="button" :disabled="exportingDoc === 'contract'" @click="exportDoc('contract')">
+            {{ exportingDoc === 'contract' ? '打开中…' : '导出预览' }}
+          </button>
         </span>
-        <em :class="contract.title ? 'ok' : 'wait'">{{ contract.title || '未配置' }}</em>
-      </router-link>
+      </article>
       <button type="button" class="settings-card" @click="openPartyA">
         <span class="settings-icon corp">甲</span>
         <span class="settings-copy">
@@ -351,6 +365,7 @@ import PageLoad from '../components/PageLoad.vue';
 import PinInput from '../components/PinInput.vue';
 import { usePageLoad } from '../composables/usePageLoad';
 import { notify } from '../notify';
+import { buildDocExportHtml, fillContractPreview, openDocExport } from '../docExport';
 
 const entryUrl = ref(adminEntryUrl());
 const entryCopied = ref(false);
@@ -368,6 +383,7 @@ const sms = ref({
 });
 const agreement = ref({ title: '', content: '' });
 const contract = ref({ title: '', content: '' });
+const exportingDoc = ref('');
 const partyA = ref({ name: '', creditCode: '', address: '', legalRep: '', phone: '', email: '' });
 const database = ref({ exists: false, size: 0, updatedAt: null, hasInit: false });
 const isSuper = !!getProfile()?.isSuper;
@@ -723,6 +739,35 @@ async function saveInit() {
   }
 }
 
+async function exportDoc(kind) {
+  const paper = kind === 'contract' ? contract.value : agreement.value;
+  const title = String(paper?.title || '').trim() || (kind === 'contract' ? '教师服务合同' : '用户协议');
+  const raw = String(paper?.content || '').trim();
+  if (!raw) {
+    notify.error('还没有内容，请先打开编辑页填写');
+    return;
+  }
+  exportingDoc.value = kind;
+  try {
+    let content = raw;
+    let note = '';
+    let filled = false;
+    if (kind === 'contract') {
+      content = fillContractPreview(raw, partyA.value || {});
+      note = partyA.value?.name ? `甲方：${partyA.value.name}` : '未配置合同甲方时，对公信息显示为空白线';
+      filled = true;
+    }
+    const html = buildDocExportHtml({ title, content, note, filled });
+    const result = openDocExport(html, `${title}.html`);
+    if (result.opened) notify.success('已打开导出预览，可打印或另存为 PDF');
+    else notify.success('弹窗被拦截，已下载 HTML，打开后选择「打印 → 另存为 PDF」');
+  } catch (err) {
+    notify.error(err?.message || '导出预览失败');
+  } finally {
+    exportingDoc.value = '';
+  }
+}
+
 bindLoad(load);
 </script>
 
@@ -798,6 +843,22 @@ bindLoad(load);
   font-weight: 600;
 }
 .form label.check input { width: auto; }
+.settings-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+  color: inherit;
+  text-decoration: none;
+}
+.doc-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: none;
+}
 .settings-copy { min-width: 0; flex: 1; }
 .settings-copy strong { display: block; font-size: 15px; font-weight: 650; }
 .settings-copy small {

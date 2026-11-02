@@ -5,6 +5,10 @@ import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
 import { Perm } from '@/modules/admin/admin.permissions';
 import { FinanceService } from './finance.service';
 import { BankTxnService } from './bank.service';
+import { AdvanceService } from './advance.service';
+import { InvoiceService } from './invoice.service';
+import { PrivateAccountService } from './private-account.service';
+import { ReserveService } from './reserve.service';
 
 @Controller('admin/finance')
 @UseGuards(JwtAuthGuard, AdminPermissionGuard)
@@ -12,6 +16,10 @@ export class FinanceAdminController {
   constructor(
     private finance: FinanceService,
     private bank: BankTxnService,
+    private advances: AdvanceService,
+    private invoices: InvoiceService,
+    private privateAccounts: PrivateAccountService,
+    private reserves: ReserveService,
   ) {}
 
   @Perm('finance.overview')
@@ -105,13 +113,21 @@ export class FinanceAdminController {
   @Perm('finance.statement')
   @Post('statement/:month/lock')
   lockMonth(@Param('month') month: string, @Body() body: { note?: string }, @Req() req: any) {
-    return this.finance.lockMonth(month, Number(req.user?.adminId) || undefined, body?.note);
+    return this.finance.lockMonth(month, Number(req.user?.adminId) || undefined, body?.note, {
+      adminId: Number(req.user?.adminId) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
   }
 
   @Perm('finance.statement')
   @Post('statement/:month/unlock')
-  unlockMonth(@Param('month') month: string) {
-    return this.finance.unlockMonth(month);
+  unlockMonth(@Param('month') month: string, @Req() req: any) {
+    return this.finance.unlockMonth(month, {
+      adminId: Number(req.user?.adminId) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
   }
 
   @Perm('finance.split')
@@ -159,7 +175,11 @@ export class FinanceAdminController {
   @Perm('finance.payout')
   @Post('payouts/:month/mark')
   markPayouts(@Param('month') month: string, @Body() body: any, @Req() req: any) {
-    return this.finance.markSplitPayouts(month, body, Number(req.user?.adminId) || undefined);
+    return this.finance.markSplitPayouts(month, body, Number(req.user?.adminId) || undefined, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
   }
 
   @Perm('finance.org')
@@ -232,19 +252,192 @@ export class FinanceAdminController {
 
   @Perm('finance.bank')
   @Post('bank-txns/:id/allocs')
-  allocateBankTxn(@Param('id') id: string, @Body() body: { userId?: number | null; name?: string; amount?: number; note?: string }) {
-    return this.bank.allocate(Number(id), body);
+  allocateBankTxn(
+    @Param('id') id: string,
+    @Body() body: { userId?: number | null; name?: string; amount?: number; note?: string; accountId?: number },
+    @Req() req: any,
+  ) {
+    return this.bank.allocate(Number(id), body, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
   }
 
   @Perm('finance.bank')
   @Put('bank-txns/allocs/:id/lock')
-  lockBankAlloc(@Param('id') id: string, @Body() body: { locked?: boolean }) {
-    return this.bank.setLock(Number(id), body?.locked !== false);
+  lockBankAlloc(@Param('id') id: string, @Body() body: { locked?: boolean }, @Req() req: any) {
+    return this.bank.setLock(Number(id), body?.locked !== false, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
   }
 
   @Perm('finance.bank')
   @Delete('bank-txns/allocs/:id')
   removeBankAlloc(@Param('id') id: string) {
     return this.bank.removeAlloc(Number(id));
+  }
+
+  @Perm('finance.bank', 'finance.payout')
+  @Get('private-accounts')
+  listPrivateAccounts() {
+    return this.privateAccounts.list();
+  }
+
+  @Perm('finance.bank', 'finance.payout')
+  @Get('private-accounts/:id')
+  privateAccountDetail(@Param('id') id: string) {
+    return this.privateAccounts.getAccountDetail(Number(id));
+  }
+
+  @Perm('finance.bank')
+  @Post('private-accounts/deposit')
+  async depositPrivate(@Body() body: any, @Req() req: any) {
+    const available = await this.bank.availableBalanceCents();
+    return this.privateAccounts.depositFromAvailable(body, available, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
+  }
+
+  @Perm('finance.bank')
+  @Post('private-accounts/withdraw')
+  withdrawPrivate(@Body() body: any, @Req() req: any) {
+    return this.privateAccounts.withdrawToAvailable(body, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
+  }
+
+  @Perm('finance.bank')
+  @Post('private-accounts/adjust')
+  async adjustPrivate(@Body() body: any, @Req() req: any) {
+    const available = await this.bank.availableBalanceCents();
+    return this.privateAccounts.adjust(body, available, {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    });
+  }
+
+  @Perm('finance.payout')
+  @Get('advances')
+  listAdvances() {
+    return this.advances.list();
+  }
+
+  @Perm('finance.payout')
+  @Post('advances')
+  createAdvance(@Body() body: any, @Req() req: any) {
+    return this.advances.create(body, Number(req.user?.adminId) || undefined);
+  }
+
+  @Perm('finance.payout')
+  @Post('advances/:id/close')
+  closeAdvance(@Param('id') id: string) {
+    return this.advances.close(Number(id));
+  }
+
+  @Perm('finance.payout', 'finance.bank')
+  @Post('advances/:id/repay')
+  repayAdvance(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.advances.repayFromTxn(Number(id), body, Number(req.user?.adminId) || undefined);
+  }
+
+  @Perm('finance.payout', 'finance.bank')
+  @Post('advance-repays/:id/confirm')
+  confirmAdvanceRepay(@Param('id') id: string, @Req() req: any) {
+    return this.advances.confirmRepay(Number(id), Number(req.user?.adminId) || undefined);
+  }
+
+  @Perm('finance.payout', 'finance.bank')
+  @Delete('advance-repays/:id')
+  rejectAdvanceRepay(@Param('id') id: string) {
+    return this.advances.rejectRepay(Number(id));
+  }
+
+  @Perm('finance.split')
+  @Get('invoices')
+  listInvoices(@Query('month') month?: string) {
+    return this.invoices.list(month);
+  }
+
+  @Perm('finance.split')
+  @Post('invoices')
+  createInvoice(@Body() body: any, @Req() req: any) {
+    return this.invoices.create(body, Number(req.user?.adminId) || undefined, this.audit(req));
+  }
+
+  @Perm('finance.split')
+  @Put('invoices/:id')
+  updateInvoice(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.invoices.update(Number(id), body, this.audit(req));
+  }
+
+  @Perm('finance.split')
+  @Delete('invoices/:id')
+  removeInvoice(@Param('id') id: string, @Req() req: any) {
+    return this.invoices.remove(Number(id), this.audit(req));
+  }
+
+  @Perm('finance.split')
+  @Post('invoices/import-pdf')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 12 * 1024 * 1024 } }))
+  importInvoicePdf(
+    @UploadedFile() file: { buffer?: Buffer; originalname?: string; mimetype?: string },
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    return this.invoices.importPdf(file, body, Number(req.user?.adminId) || undefined);
+  }
+
+  @Perm('finance.bank')
+  @Get('reserves')
+  listReserves() {
+    return this.reserves.list();
+  }
+
+  @Perm('finance.bank')
+  @Post('reserves/sync/:month')
+  syncReserves(@Param('month') month: string, @Req() req: any) {
+    return this.finance.syncMonthReserves(month, this.audit(req));
+  }
+
+  @Perm('finance.bank')
+  @Post('reserves/manual')
+  async manualReserve(@Body() body: any, @Req() req: any) {
+    const available = await this.bank.availableBalanceCents();
+    return this.reserves.manualAdjust(body, available, this.audit(req));
+  }
+
+  @Perm('finance.bank')
+  @Post('expenses')
+  async createExpense(@Body() body: any, @Req() req: any) {
+    const available = body?.afterImport === true ? null : await this.bank.availableBalanceCents();
+    return this.reserves.createExpense(body, available, this.audit(req));
+  }
+
+  @Perm('finance.bank')
+  @Post('expenses/:id/match')
+  matchExpense(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.reserves.matchExpense(Number(id), body, this.audit(req));
+  }
+
+  @Perm('finance.bank')
+  @Post('expenses/:id/void')
+  voidExpense(@Param('id') id: string, @Req() req: any) {
+    return this.reserves.voidExpense(Number(id), this.audit(req));
+  }
+
+  private audit(req: any) {
+    return {
+      adminId: Number(req.user?.adminId || req.admin?.id) || null,
+      adminName: String(req.admin?.name || req.admin?.username || req.user?.username || '').trim(),
+      req,
+    };
   }
 }

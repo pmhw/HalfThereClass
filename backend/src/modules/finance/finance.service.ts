@@ -4,6 +4,11 @@ import { calculateSessionProfit, moneyPct, monthKey, prevMonthKey } from './prof
 import { calculateFee, calculateCourseOrgFee, roundMoney } from '@/modules/staff/fee';
 import { StaffService } from '@/modules/staff/staff.service';
 import { CourseStat, SplitDeduction, SplitMember, computeSplitMonth, payeeKey, transferFee } from './split-calc';
+import { AdvanceService } from './advance.service';
+import { InvoiceService } from './invoice.service';
+import { PrivateAccountService, PrivateAuditCtx } from './private-account.service';
+import { ReserveService, ReserveAuditCtx } from './reserve.service';
+import { BankTxnService } from './bank.service';
 
 type OrgFeeInfo = {
   id: number;
@@ -83,6 +88,11 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => StaffService)) private staff: StaffService,
+    private advances: AdvanceService,
+    private invoices: InvoiceService,
+    private privateAccounts: PrivateAccountService,
+    private bank: BankTxnService,
+    private reserves: ReserveService,
   ) {}
 
   onModuleInit() {
@@ -1507,34 +1517,57 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     const settlement = await this.prisma.monthlySettlement.findUnique({ where: { month } });
     const locked = !!settlement?.locked;
 
-    const rows = await this.prisma.profitRecord.findMany({
+    const profitInclude = {
+      course: {
+        select: {
+          id: true,
+          title: true,
+          school: true,
+          price: true,
+          sessionFee: true,
+          organizationId: true,
+          organization: { select: { id: true, name: true, status: true, feeVisibility: true } },
+          teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
+        },
+      },
+      teacher: {
+        select: {
+          id: true,
+          nickname: true,
+          organizationId: true,
+          organization: { select: { id: true, name: true, status: true, feeVisibility: true } },
+          teacherCert: { select: { realName: true } },
+        },
+      },
+      institution: { select: { id: true, name: true, feeVisibility: true } },
+    } as const;
+
+    let rows = await this.prisma.profitRecord.findMany({
       where: { settlementMonth: month },
       orderBy: [{ sessionDate: 'asc' }, { id: 'asc' }],
-      include: {
-        course: {
-          select: {
-            id: true,
-            title: true,
-            school: true,
-            price: true,
-            sessionFee: true,
-            organizationId: true,
-            organization: { select: { id: true, name: true, status: true } },
-            teacher: { select: { id: true, nickname: true, teacherCert: { select: { realName: true } } } },
-          },
-        },
-        teacher: {
-          select: {
-            id: true,
-            nickname: true,
-            organizationId: true,
-            organization: { select: { id: true, name: true, status: true } },
-            teacherCert: { select: { realName: true } },
-          },
-        },
-        institution: { select: { id: true, name: true } },
-      },
+      include: profitInclude,
     });
+
+    // 未固定：课程校方价改过后，当月校方合计自动跟着重算（已固定月份不动）。
+    // 课时费以保存规则 / 编辑课程时刷新为准，这里不拿课程默认课时费对比个人覆盖价。
+    if (!locked && rows.length) {
+      const cents = (value: number | null | undefined) => Math.round(Number(value || 0) * 100);
+      const staleCourseIds = [...new Set(
+        rows
+          .filter((row) => row.course?.price != null && cents(row.totalAmount) !== cents(row.course.price))
+          .map((row) => row.courseId),
+      )];
+      if (staleCourseIds.length) {
+        for (const courseId of staleCourseIds) {
+          await this.refreshUnlockedCourseProfits(courseId);
+        }
+        rows = await this.prisma.profitRecord.findMany({
+          where: { settlementMonth: month },
+          orderBy: [{ sessionDate: 'asc' }, { id: 'asc' }],
+          include: profitInclude,
+        });
+      }
+    }
 
     const groups = new Map<string, any>();
     const total: any = {
@@ -1557,6 +1590,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
           hasOrg: !!live,
           organizationId: live?.id || null,
           organizationName: live?.name || null,
+          settleToOrg: !!live && live.feeVisibility === 'hidden',
         };
       }
       const snap = row.institution || courseOrg || teacherOrg || null;
@@ -1565,7 +1599,15 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         hasOrg,
         organizationId: hasOrg ? (row.institutionId || snap?.id || row.course?.organizationId || row.teacher?.organizationId || null) : null,
         organizationName: hasOrg ? (snap?.name || null) : null,
+        settleToOrg: !!(snap && snap.feeVisibility === 'hidden') || row.settleTo === 'org',
       };
+    };
+    /** 未固定月份跟随机构「不看金额」；已固定沿用快照。无老师的承接课也按结算给机构汇总，避免金额悬空 */
+    const effectiveSettleTo = (row: (typeof rows)[number], org: ReturnType<typeof resolveOrg>) => {
+      if (!locked && org.settleToOrg) return 'org' as const;
+      if (row.settleTo === 'org') return 'org' as const;
+      if (!row.teacherId && org.hasOrg) return 'org' as const;
+      return 'teacher' as const;
     };
     const add = (acc: any, row: (typeof rows)[number]) => {
       const school = round(Number(row.totalAmount || 0) - Number(row.refundAmount || 0));
@@ -1574,16 +1616,21 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
           ? row.sessionFee
           : (Number(row.teacherAmount || 0) + Number(row.institutionAmount || 0)),
       ));
-      const { hasOrg } = resolveOrg(row);
+      const org = resolveOrg(row);
+      const settleTo = effectiveSettleTo(row, org);
       let teacherAmt = round(Number(row.teacherAmount || 0));
       let instAmt = round(Number(row.institutionAmount || 0));
-      if (!hasOrg) {
+      if (!org.hasOrg) {
         // 无机构归属：机构费清零；教师费按课时费全额，避免把历史分佣加进教师
         teacherAmt = fee > 0 ? fee : teacherAmt;
         instAmt = 0;
-      } else if (row.settleTo === 'org') {
+      } else if (settleTo === 'org') {
         teacherAmt = 0;
-        instAmt = round(Number(row.orgSettleAmount ?? row.institutionAmount ?? 0));
+        // 整笔成本给机构：优先 orgSettleAmount；历史「机构承接」无老师时用教师费+机构费
+        const fallback = round(Number(row.teacherAmount || 0) + Number(row.institutionAmount || 0));
+        instAmt = round(Number(row.orgSettleAmount || 0) > 0
+          ? row.orgSettleAmount
+          : (fallback > 0 ? fallback : row.institutionAmount || 0));
       }
       const cost = round(teacherAmt + instAmt);
       acc.sessionCount += 1;
@@ -1603,9 +1650,10 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         const c = row.course;
         const t = row.teacher;
         const org = resolveOrg(row);
+        const settleTo = effectiveSettleTo(row, org);
         const teacherLabel = t?.teacherCert?.realName || t?.nickname || '';
         let teacherName = teacherLabel || '—';
-        if (row.settleTo === 'org') {
+        if (settleTo === 'org') {
           // 课时费整笔结算给机构：教师列标明机构，避免误看成个人课时费
           teacherName = org.organizationName
             ? `机构结算 · ${org.organizationName}`
@@ -1620,7 +1668,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
           courseTitle: c?.title || `课程#${row.courseId}`,
           school: c?.school || '—',
           teacherName,
-          settleTo: row.settleTo || 'teacher',
+          settleTo,
           organizationId: org.organizationId,
           organizationName: org.organizationName,
           hasOrg: org.hasOrg,
@@ -1691,7 +1739,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 确认后固定该月结算单：固定后各收益报表才统计该月 */
-  async lockMonth(month: string, adminId?: number, note?: string) {
+  async lockMonth(month: string, adminId?: number, note?: string, audit: ReserveAuditCtx = {}) {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
     const stmt = await this.monthlyStatement(month);
     if (stmt.locked) throw new BadRequestException('该月已固定，如需修改请先解除固定');
@@ -1716,21 +1764,44 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       where: { settlementMonth: month, settlementStatus: 'pending' },
       data: { settlementStatus: 'settled', settledAt: now },
     });
-    return this.prisma.monthlySettlement.upsert({
+    const row = await this.prisma.monthlySettlement.upsert({
       where: { month },
       create: { month, ...data },
       update: data,
     });
+    // 固定后：代扣税费 / 留存进入对公预留，不再算进当前可用（企业私户不动）
+    await this.syncMonthReserves(month, { ...audit, adminId: adminId || audit.adminId });
+    return row;
   }
 
   /** 解除固定：可重新调整并重新固定 */
-  async unlockMonth(month: string) {
+  async unlockMonth(month: string, audit: ReserveAuditCtx = {}) {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
     await this.prisma.monthlySettlement.update({
       where: { month },
       data: { locked: false, lockedAt: null, lockedBy: null },
     });
+    // 解除后释放该月税费/留存预留（开票税额仍按发票挂着）
+    await this.reserves.syncMonthCorporate(month, { taxCents: 0, retentionCents: 0 }, audit);
     return { ok: true };
+  }
+
+  /** 按当月分成试算同步对公预留：代扣税费 + 比例留存（须已固定） */
+  async syncMonthReserves(month: string, audit: ReserveAuditCtx = {}) {
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
+    const locked = await this.isMonthLocked(month);
+    if (!locked) throw new BadRequestException(`${month} 尚未固定结算单，固定后再同步税费预留`);
+    const { calcs, list } = await this.buildSplitPayouts(month);
+    const taxCents = Math.round(list.reduce((sum, p) => sum + Number(p.tax || 0), 0) * 100);
+    // pool(元) × 未分配百分点 → 分（×left 等价于 ×left/100×100）
+    const retentionCents = Math.round(
+      calcs.reduce((sum, c) => {
+        const ratioSum = (c.members || []).reduce((s: number, m: any) => s + (Number(m.ratio) || 0), 0);
+        const left = Math.max(0, 100 - ratioSum);
+        return sum + Number(c.pool || 0) * left;
+      }, 0),
+    );
+    return this.reserves.syncMonthCorporate(month, { taxCents, retentionCents }, audit);
   }
 
   /** 该月是否已固定（未固定时收益报表不统计） */
@@ -1861,7 +1932,40 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** 收益规则：改课程校方价格 / 课时费；承接机构课程同步刷新教师实得 */
+  /**
+   * 课程校方价 / 课时费改完后，把「未固定月份」已同步课次按新规则重算。
+   * 已固定月份不动；打款状态仍由各页按锁定月份保护。
+   */
+  async refreshUnlockedCourseProfits(courseId: number) {
+    const id = Number(courseId);
+    if (!Number.isInteger(id) || id <= 0) return { refreshed: 0, skippedLocked: 0, failed: 0 };
+    await this.completePastSessions([id]);
+    const sessions = await this.prisma.courseSession.findMany({
+      where: { courseId: id, status: 'completed' },
+      select: this.syncSessionSelect,
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    });
+    if (!sessions.length) return { refreshed: 0, skippedLocked: 0, failed: 0 };
+    const locked = await this.staff.fixedMonths(sessions.map((session) => monthKey(session.date)));
+    let refreshed = 0;
+    let skippedLocked = 0;
+    let failed = 0;
+    for (const session of sessions) {
+      if (locked.has(monthKey(session.date))) {
+        skippedLocked += 1;
+        continue;
+      }
+      try {
+        const saved = await this.syncCourseSessionProfit(session);
+        if (saved) refreshed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { refreshed, skippedLocked, failed };
+  }
+
+  /** 收益规则：改课程校方价格 / 课时费；未固定月结算单跟随更新 */
   async saveCourseRule(courseId: number, body: any) {
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
@@ -1888,7 +1992,8 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     }
     const saved = await this.prisma.course.update({ where: { id: courseId }, data });
     if (courseOrg) await this.staff.refreshCourseOrgGrants(courseId);
-    return saved;
+    const refresh = await this.refreshUnlockedCourseProfits(courseId);
+    return { ...saved, refresh };
   }
 
   async getSplitConfig(): Promise<SplitConfig> {
@@ -1996,7 +2101,8 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
   async splitPayouts(month?: string) {
     const { calcs, ...rest } = await this.buildSplitPayouts(month);
     void calcs;
-    return rest;
+    const advances = await this.advances.list();
+    return { ...rest, advances };
   }
 
   /**
@@ -2042,12 +2148,15 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         teacherFeeTotal: c.teacherFeeTotal,
         orgFeeTotal: c.orgFeeTotal,
         reimburseTotal: c.reimburseTotal,
+        invoiceTotal: c.invoiceTotal || 0,
+        invoicePersonalTotal: c.invoicePersonalTotal || 0,
         pool: c.pool,
         members: c.members.map((m) => ({
           name: m.name,
           ratio: m.ratio,
           gross: m.gross,
           tax: m.tax,
+          invoiceCut: m.invoiceCut || 0,
           fee: m.fee,
           net: m.net,
           note: this.memberFeeNote(c.id, m, byKey.get(m.key), cfg),
@@ -2059,6 +2168,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         name: p.name,
         gross: p.gross,
         tax: p.tax,
+        invoiceCut: Number(p.invoiceCut || 0),
         fee: payeeFee(p),
         reimburse: Number(p.reimburse?.total || 0),
         net: p.net,
@@ -2078,10 +2188,10 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     const step = Number(cfg.feeStep) || 0;
     const unit = Number(cfg.feeUnit) || 0;
     const basis = cfg.basis === 'school' ? '校方金额' : '利润（校方金额 − 课时费等成本）';
-    const poolCuts = [cfg.teacherFee ? '教师课时费转账手续费' : '', cfg.orgFee ? '机构转账手续费' : '', '计入该合集的报销'].filter(Boolean);
+    const poolCuts = [cfg.teacherFee ? '教师课时费转账手续费' : '', cfg.orgFee ? '机构转账手续费' : '', '计入该合集的报销', '未挂个人的开票税额'].filter(Boolean);
     return [
       `分成池 = ${basis} − ${poolCuts.join(' − ')}。`,
-      `成员应分 = 分成池 × 分成比例；税费 = 应分 × ${Number(cfg.taxRate) || 0}%，从每人应分中代扣，留在对公账户用于缴税，不参与分配。比例合计不足 100% 的部分为「留存」，同样留在对公账户。`,
+      `成员应分 = 分成池 × 分成比例；个人代扣税费 = 应分 × ${Number(cfg.taxRate) || 0}%，留在对公账户缴税。未挂个人的开票税额在分成前从合集可分配中扣除；挂到个人的开票税额从该人分成实发中再扣。比例合计不足 100% 的部分为「留存」，同样留在对公账户。`,
       step > 0
         ? `转账手续费按每笔转账金额计：每 ${yuan(step)} 收 ${yuan(unit)}，不足 ${yuan(step)} 也按一档（例如 ${yuan(step * 1.2)} 收 ${yuan(unit * 2)}）。`
         : '转账不收手续费。',
@@ -2090,7 +2200,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       cfg.memberFee
         ? '分成人员到账扣转账手续费。同一人当月在多个合集都有分成、或同时领课时费的，合并为一笔转账，手续费按合计金额只收一次；合并后由分成承担的手续费，按各合集应分金额比例分摊，所以单个合集里会出现带零头的手续费，加起来仍是整档。'
         : '分成人员到账不扣转账手续费。',
-      '报销款随同一笔转账发放，不扣税、不扣手续费。实发 = 应分 − 税费 − 手续费 + 报销。',
+      '报销款随同一笔转账发放，不扣税、不扣手续费。实发 = 应分 − 税费 − 个人开票 − 手续费 + 报销。',
     ];
   }
 
@@ -2130,20 +2240,22 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         : `转账手续费 ${feeText(p.gross)}从${label}中扣除`);
     }
     if (p.kind === 'split') {
-      const amount = roundMoney(p.gross - p.tax);
+      const invoiceCut = Number(p.invoiceCut || 0);
+      const amount = roundMoney(Math.max(0, p.gross - p.tax - invoiceCut));
       if (!cfg.memberFee) notes.push('分成到账不扣转账手续费');
       else if (items.length > 1) {
-        notes.push(`在 ${items.length} 个合集分成，合并为一笔转账：应分 ${yuan(p.gross)} − 税 ${yuan(p.tax)} = ${yuan(amount)}，手续费只收一次 ${feeText(amount)}，按应分金额比例分摊到各合集：${shares()}`);
-      } else if (amount > 0) {
-        notes.push(`应分 ${yuan(p.gross)} − 税 ${yuan(p.tax)} = ${yuan(amount)}，手续费 ${feeText(amount)}`);
+        notes.push(`在 ${items.length} 个合集分成，合并为一笔转账：应分 ${yuan(p.gross)} − 税 ${yuan(p.tax)}${invoiceCut ? ` − 开票 ${yuan(invoiceCut)}` : ''} = ${yuan(amount)}，手续费只收一次 ${feeText(amount)}，按应分金额比例分摊到各合集：${shares()}`);
+      } else if (amount > 0 || invoiceCut > 0) {
+        notes.push(`应分 ${yuan(p.gross)} − 税 ${yuan(p.tax)}${invoiceCut ? ` − 开票 ${yuan(invoiceCut)}` : ''} = ${yuan(amount)}，手续费 ${feeText(amount)}`);
       }
     }
     if (p.kind === 'both') {
       const teacher = Number(p.teacherPart?.gross || 0);
-      const split = roundMoney(Number(p.splitPart?.gross || 0) - Number(p.splitPart?.tax || 0));
+      const invoiceCut = Number(p.splitPart?.invoiceCut || p.invoiceCut || 0);
+      const split = roundMoney(Math.max(0, Number(p.splitPart?.gross || 0) - Number(p.splitPart?.tax || 0) - invoiceCut));
       const total = roundMoney(teacher + split);
       const extra = Number(p.splitPart?.fee || 0);
-      let text = `课时费 ${yuan(teacher)} 与分成 ${yuan(split)}（已扣税）合并为一笔转账，按合计 ${yuan(total)} 只收一次手续费 ${feeText(total)}。`
+      let text = `课时费 ${yuan(teacher)} 与分成 ${yuan(split)}（已扣税${invoiceCut ? `、开票 ${yuan(invoiceCut)}` : ''}）合并为一笔转账，按合计 ${yuan(total)} 只收一次手续费 ${feeText(total)}。`
         + `其中课时费单独转账本应收 ${feeText(teacher)}，${cfg.teacherFee ? '由平台承担（已在分成池扣除）' : '从课时费中扣除'}；`;
       const mergedExtra = roundMoney(Math.max(0, transferFee(total, cfg) - transferFee(teacher, cfg)));
       if (!cfg.memberFee) text += mergedExtra > 0 ? `合并后多出的 ${yuan(mergedExtra)} 不向分成人员收取，由平台承担` : '合并后未跨档，没有多出的手续费';
@@ -2151,6 +2263,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       else text += '合并后未跨档，分成部分不再收手续费';
       notes.push(text);
     }
+    if (p.invoiceCut) notes.push(`个人开票税额 ${yuan(p.invoiceCut)} 已从分成实发中扣除`);
     if (p.reimburse?.total) notes.push(`含报销 ${yuan(p.reimburse.total)} 一并转账，报销不扣税、不扣手续费`);
     return notes.join('；');
   }
@@ -2190,7 +2303,8 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         platformFee: roundMoney(Math.max(0, transfer - fee)),
         net: roundMoney(t.net + p.net),
         teacherPart: { gross: t.gross, fee: t.feeBy === 'payee' ? t.fee : 0, net: t.net },
-        splitPart: { gross: p.gross, tax: p.tax, fee: p.fee, net: p.net },
+        invoiceCut: p.invoiceCut || 0,
+        splitPart: { gross: p.gross, tax: p.tax, invoiceCut: p.invoiceCut || 0, fee: p.fee, net: p.net },
         courses: t.items,
         items: p.items,
         priorTeacherPaid: priorTeacherPaid?.status === 'paid' ? priorTeacherPaid.net : null,
@@ -2203,13 +2317,24 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       const rec = recordMap.get(p.key);
       recordMap.delete(p.key);
       const paid = rec?.status === 'paid';
+      const detail = paid ? this.parsePayoutDetail(rec!.detail) : null;
+      const livePayeeFee = p.feeBy === 'payee' ? Number(p.fee || 0) : 0;
+      const waiveFee = paid && (!!detail?.waiveFee || Number(detail?.waivedFee) > 0
+        || (livePayeeFee > 0 && Number(rec!.fee) === 0 && Math.abs(Number(rec!.net) - roundMoney(Number(p.net) + livePayeeFee)) < 0.01));
+      const waivedFee = waiveFee ? (Number(detail?.waivedFee) || livePayeeFee) : 0;
+      const expectedNet = waiveFee ? roundMoney(Number(p.net) + livePayeeFee) : Number(p.net);
       return {
         ...p,
+        // 已免扣：列表按打款快照展示，不再用实时试算的 −手续费
+        ...(waiveFee ? { fee: 0, transferFee: 0, platformFee: 0 } : {}),
         status: paid ? 'paid' : 'unpaid',
         paidAt: paid ? rec!.paidAt : null,
         note: rec?.note || '',
         paidNet: paid ? rec!.net : null,
-        changed: paid ? Math.abs(Number(rec!.net) - p.net) > 0.009 : false,
+        paidFee: paid ? Number(rec!.fee) : null,
+        waiveFee,
+        waivedFee,
+        changed: paid ? Math.abs(Number(rec!.net) - expectedNet) > 0.009 : false,
       };
     });
     // 已打款但规则调整后不再参与分成的收款人，仍保留打款记录
@@ -2227,6 +2352,7 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         gross: 0,
         tax: 0,
         fee: 0,
+        transferFee: 0,
         net: 0,
         items: detail.items,
         ...(both ? { courses: detail.courses } : {}),
@@ -2234,6 +2360,9 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
         paidAt: rec.paidAt,
         note: rec.note || '',
         paidNet: rec.net,
+        paidFee: Number(rec.fee),
+        waiveFee: !!detail.waiveFee || Number(detail.waivedFee) > 0,
+        waivedFee: Number(detail.waivedFee) || 0,
         changed: true,
       });
     }
@@ -2418,12 +2547,32 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     } catch {
       detail = [];
     }
-    if (Array.isArray(detail)) return { items: detail, courses: undefined as any[] | undefined, reimburseIds: [] as number[] };
+    if (Array.isArray(detail)) {
+      return {
+        items: detail,
+        courses: undefined as any[] | undefined,
+        reimburseIds: [] as number[],
+        waiveFee: false,
+        waivedFee: 0,
+      };
+    }
     const obj = detail && typeof detail === 'object' ? detail : {};
+    // 旧版误把数组展开成 {0:..,1:..} 时尽量还原 items
+    let items = Array.isArray(obj.items) ? obj.items : [];
+    if (!items.length) {
+      const numeric = Object.keys(obj)
+        .filter((k) => /^\d+$/.test(k))
+        .sort((a, b) => Number(a) - Number(b))
+        .map((k) => obj[k])
+        .filter((v) => v && typeof v === 'object');
+      if (numeric.length) items = numeric;
+    }
     return {
-      items: Array.isArray(obj.items) ? obj.items : [],
+      items,
       courses: Array.isArray(obj.courses) ? obj.courses : undefined,
       reimburseIds: Array.isArray(obj.reimburseIds) ? obj.reimburseIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : [],
+      waiveFee: !!obj.waiveFee,
+      waivedFee: Number(obj.waivedFee) || 0,
     };
   }
 
@@ -2437,13 +2586,35 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** 标记已打款 / 未打款；已打款保存当时金额快照 */
-  async markSplitPayouts(month: string, body: any, adminId?: number) {
+  /** 打款快照始终存对象，便于附带免手续费等标记 */
+  private payoutDetailObject(p: any, extra: Record<string, unknown> = {}) {
+    const base = this.payoutDetail(p);
+    const obj = Array.isArray(base) ? { items: base } : { ...base };
+    return { ...obj, ...extra };
+  }
+
+  /**
+   * 标记已打款 / 未打款；已打款保存当时金额快照。
+   * useAdvance=true 时从垫付池按 FIFO 消耗；
+   * toPrivate=true 时实发打入收款人企业私户（与 useAdvance 互斥）。
+   */
+  async markSplitPayouts(month: string, body: any, adminId?: number, audit: PrivateAuditCtx = {}) {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
     const status = body?.status === 'unpaid' ? 'unpaid' : 'paid';
     const keys = [...new Set<string>((Array.isArray(body?.keys) ? body.keys : []).map((k: any) => String(k)))].filter(Boolean);
     if (!keys.length) throw new BadRequestException('请选择收款人');
     const note = body?.note === undefined ? undefined : String(body.note || '').trim().slice(0, 200) || null;
+    const toPrivate = body?.toPrivate === true;
+    const useAdvance = !toPrivate && body?.useAdvance === true;
+    /** 同行（如浦发）免扣收款人转账手续费：实发加回原扣费 */
+    const waiveFeeKeys = new Set(
+      (Array.isArray(body?.waiveFeeKeys) ? body.waiveFeeKeys : []).map((k: any) => String(k)).filter(Boolean),
+    );
+    const auditCtx: PrivateAuditCtx = {
+      adminId: adminId || audit.adminId || null,
+      adminName: audit.adminName || '',
+      req: audit.req,
+    };
 
     const current = await this.splitPayouts(month);
     if (!current.locked) throw new BadRequestException(`${month} 月度结算单尚未固定，请先在「月度结算单」确认并固定后再修改打款状态`);
@@ -2452,6 +2623,52 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       (await this.prisma.splitPayout.findMany({ where: { month, payeeKey: { in: keys } } }))
         .map((r) => [r.payeeKey, this.parsePayoutDetail(r.detail).reimburseIds]),
     );
+
+    const settledAmount = (p: any, key: string) => {
+      const baseNet = Number(p.net || 0);
+      const deducted = p.feeBy === 'payee' ? Number(p.fee || 0) : 0;
+      if (waiveFeeKeys.has(key) && deducted > 0) {
+        return {
+          fee: 0,
+          net: roundMoney(baseNet + deducted),
+          waivedFee: deducted,
+        };
+      }
+      return { fee: Number(p.fee || 0), net: baseNet, waivedFee: 0 };
+    };
+
+    let advanceUses: any[] = [];
+    let privateCredits: any[] = [];
+    if (status === 'paid' && useAdvance) {
+      const needCents = Math.round(
+        keys.reduce((sum, key) => {
+          const p = byKey.get(key);
+          if (!p) return sum;
+          const { net } = settledAmount(p, key);
+          if (!(net > 0)) return sum;
+          return sum + Math.round(net * 100);
+        }, 0),
+      );
+      const consumed = await this.advances.consumeForPayout(month, needCents, keys, adminId);
+      advanceUses = consumed.uses;
+    }
+    if (status === 'paid' && toPrivate) {
+      const items = keys.map((key) => {
+        const p = byKey.get(key);
+        if (!p) return null;
+        const { net } = settledAmount(p, key);
+        if (!(net > 0)) return null;
+        return {
+          key,
+          userId: p.userId || null,
+          name: p.name,
+          amountCents: Math.round(net * 100),
+        };
+      }).filter(Boolean) as { key: string; userId: number | null; name: string; amountCents: number }[];
+      const available = await this.bank.availableBalanceCents();
+      privateCredits = await this.privateAccounts.creditPayouts(month, items, available, auditCtx);
+    }
+
     const now = new Date();
     let count = 0;
     for (const key of keys) {
@@ -2459,20 +2676,29 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       if (!p) continue;
       const before = prior.get(key) || [];
       if (status === 'paid') {
-        if (!(p.net > 0) && p.status !== 'paid') continue;
+        const settled = settledAmount(p, key);
+        if (!(settled.net > 0) && p.status !== 'paid') continue;
         const reimburseIds: number[] = (p.reimburse?.items || []).map((i: any) => i.id);
+        const paidNote = [
+          note,
+          toPrivate ? '已打入企业私户' : '',
+          settled.waivedFee > 0 ? `同行免手续费 ${yuan(settled.waivedFee)}` : '',
+        ].filter(Boolean).join(' · ') || null;
         const data = {
           userId: p.userId || null,
           name: p.name,
           gross: p.gross,
           tax: p.tax,
-          fee: p.fee,
-          net: p.net,
-          detail: JSON.stringify(this.payoutDetail(p)),
+          fee: settled.fee,
+          net: settled.net,
+          detail: JSON.stringify(this.payoutDetailObject(
+            p,
+            settled.waivedFee > 0 ? { waiveFee: true, waivedFee: settled.waivedFee } : {},
+          )),
           status: 'paid',
           paidAt: now,
           paidBy: adminId || null,
-          ...(note !== undefined ? { note } : {}),
+          ...(paidNote !== undefined ? { note: paidNote } : {}),
         };
         await this.prisma.splitPayout.upsert({
           where: { month_payeeKey: { month, payeeKey: key } },
@@ -2496,8 +2722,24 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       }
       count += 1;
     }
-    if (!count) throw new BadRequestException(status === 'paid' ? '所选收款人没有可打款金额' : '没有可撤销的记录');
-    return { ok: true, count };
+    if (!count) {
+      if (advanceUses.length) {
+        await this.prisma.financeAdvanceUse.deleteMany({ where: { id: { in: advanceUses.map((u) => u.id) } } });
+      }
+      if (privateCredits.length) {
+        await this.privateAccounts.refundPayouts(month, keys, auditCtx);
+      }
+      throw new BadRequestException(status === 'paid' ? '所选收款人没有可打款金额' : '没有可撤销的记录');
+    }
+    if (status === 'unpaid') {
+      await this.advances.refundPayoutUses(month, keys);
+      await this.privateAccounts.refundPayouts(month, keys, auditCtx);
+    }
+    // 固定月份：打款状态变化后重算税费/留存预留（不影响企业私户）
+    if (current.locked) {
+      await this.syncMonthReserves(month, auditCtx);
+    }
+    return { ok: true, count, advanceUses, privateCredits };
   }
 
   /** 撤销打款：随该笔打款标记的报销退回「已通过」，等待下次打款 */
@@ -2514,28 +2756,35 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     return { month, locked: stmt.locked, stats: this.statsFromStatement(stmt), reimbursements };
   }
 
-  /** 当月从合集利润中扣除的报销：审核通过 / 已报销且关联了合集 */
+  /** 当月从合集利润中扣除的报销 + 开票税额 */
   async splitDeductions(month: string): Promise<SplitDeduction[]> {
-    const rows = await this.prisma.reimbursement.findMany({
-      where: { month, splitCollectionId: { not: null }, status: { in: ['approved', 'reimbursed'] } },
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        amount: true,
-        status: true,
-        splitCollectionId: true,
-        user: { select: { id: true, nickname: true, phone: true, teacherCert: { select: { realName: true } } } },
-      },
-    });
-    return rows.map((r) => ({
-      id: r.id,
-      collectionId: r.splitCollectionId as number,
-      amount: Number(r.amount) || 0,
-      title: r.title,
-      userName: r.user ? this.splitUserName(r.user) : '',
-      status: r.status,
-    }));
+    const [rows, invoiceRows] = await Promise.all([
+      this.prisma.reimbursement.findMany({
+        where: { month, splitCollectionId: { not: null }, status: { in: ['approved', 'reimbursed'] } },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          amount: true,
+          status: true,
+          splitCollectionId: true,
+          user: { select: { id: true, nickname: true, phone: true, teacherCert: { select: { realName: true } } } },
+        },
+      }),
+      this.invoices.deductions(month),
+    ]);
+    return [
+      ...rows.map((r) => ({
+        id: r.id,
+        collectionId: r.splitCollectionId as number,
+        amount: Number(r.amount) || 0,
+        title: r.title,
+        userName: r.user ? this.splitUserName(r.user) : '',
+        status: r.status,
+        kind: 'reimburse' as const,
+      })),
+      ...invoiceRows,
+    ];
   }
 
   private statsFromStatement(stmt: Awaited<ReturnType<FinanceService['monthlyStatement']>>): CourseStat[] {
@@ -2558,11 +2807,13 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
       cur.institutionAmount = roundMoney(cur.institutionAmount + item.institutionAmount);
       cur.costAmount = roundMoney(cur.costAmount + item.costAmount);
       cur.profitAmount = roundMoney(cur.profitAmount + item.profitAmount);
-      if (Number(item.teacherAmount) > 0) {
+      const orgPay = this.orgPayoutAmount(item);
+      // 无教师 ID 的课时费并入机构打款，不进教师分成统计
+      if (Number(item.teacherAmount) > 0 && item.teacherId) {
         cur.teachers.push({ teacherId: item.teacherId, name: item.teacherName, amount: item.teacherAmount });
       }
-      if (item.organizationId && Number(item.institutionAmount) > 0) {
-        cur.orgs.push({ orgId: item.organizationId, name: this.orgPayeeName(item), amount: item.institutionAmount });
+      if (item.organizationId && orgPay > 0) {
+        cur.orgs.push({ orgId: item.organizationId, name: this.orgPayeeName(item), amount: orgPay });
       }
       stats.set(item.courseId, cur);
     }
@@ -2573,20 +2824,37 @@ export class FinanceService implements OnModuleInit, OnModuleDestroy {
     return item.organizationName || `机构#${item.organizationId}`;
   }
 
+  /**
+   * 机构应打款额：月结单里的机构费 + 无教师可领的悬空课时费（机构承接）。
+   * settleTo=org 时金额已在 institutionAmount；历史行可能仍把整笔留在 teacherAmount。
+   */
+  private orgPayoutAmount(item: {
+    institutionAmount?: number;
+    teacherAmount?: number;
+    teacherId?: number | null;
+    organizationId?: number | null;
+  }) {
+    if (!item.organizationId) return 0;
+    const inst = Number(item.institutionAmount) || 0;
+    const orphan = !item.teacherId && Number(item.teacherAmount) > 0 ? Number(item.teacherAmount) : 0;
+    return roundMoney(inst + orphan);
+  }
+
   /** 机构打款：每个机构当月全部课程的机构费（含机构结算的整节课时费）合计一笔；手续费规则同教师 */
   private orgPayees(stmt: Awaited<ReturnType<FinanceService['monthlyStatement']>>, config: SplitConfig) {
     const map = new Map<number, any>();
     for (const item of stmt.list) {
-      if (!item.organizationId || !(Number(item.institutionAmount) > 0)) continue;
+      const pay = this.orgPayoutAmount(item);
+      if (!item.organizationId || !(pay > 0)) continue;
       const cur = map.get(item.organizationId) || { orgId: item.organizationId, name: this.orgPayeeName(item), amount: 0, items: [] as any[] };
-      cur.amount = roundMoney(cur.amount + Number(item.institutionAmount));
+      cur.amount = roundMoney(cur.amount + pay);
       cur.items.push({
         courseId: item.courseId,
         courseTitle: item.courseTitle,
         school: item.school,
         teacherName: item.teacherName,
         sessionCount: item.sessionCount,
-        amount: roundMoney(Number(item.institutionAmount)),
+        amount: pay,
       });
       map.set(item.organizationId, cur);
     }

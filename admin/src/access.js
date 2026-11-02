@@ -49,7 +49,7 @@ export const PERMISSION_GROUPS = [
       { key: 'finance.split', label: '分成比例', desc: '股东分成、分成规则与合集、月度结算单' },
       { key: 'finance.sheet', label: '分成打款单（只读）', desc: '股东查看每月月度结算单，不能修改' },
       { key: 'finance.payout', label: '财务打款', desc: '按人合并打款并标记已打款' },
-      { key: 'finance.bank', label: '交易流水', desc: '导入银行交易查询，按金额归属并锁定' },
+      { key: 'finance.bank', label: '浦发银行', desc: '导入浦发交易查询，锁定个人资金、提取垫付' },
       { key: 'finance.rule', label: '课程分成规则', desc: '课程校方价格与课时费（在分成比例页右上角打开）' },
       { key: 'finance.reimburse', label: '报销单', desc: '报销审核、扣除方式与打款' },
     ],
@@ -114,7 +114,7 @@ export const SETUP_PERMS = [
   'org.list', 'finance.overview', 'finance.statement', 'finance.teacher', 'finance.split', 'finance.payout',
 ];
 
-const SCHOOL_PATHS = ['/courses', '/categories', '/term'];
+const SCHOOL_PATHS = ['/courses', '/categories', '/term', '/schedule-poster', '/schedule-poster-diy'];
 
 /** 当前账号能否打开该路由（路由守卫与标签恢复共用） */
 export function canOpen(profile, route) {

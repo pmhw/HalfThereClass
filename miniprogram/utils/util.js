@@ -122,7 +122,7 @@ const assetUrl = (path) => {
   const config = require('../config/index.js');
   const token = wx.getStorageSync('token');
   let url = `${config.origin}${path.startsWith('/') ? path : `/${path}`}`;
-  if (token && /\/uploads\/(certs|signs)\//.test(path)) {
+  if (token && /\/uploads\/(certs|signs|reimbursements)\//.test(path)) {
     url += `${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`;
   }
   return url;

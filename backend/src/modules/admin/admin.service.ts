@@ -1,6 +1,6 @@
 import { copyFileSync, createReadStream, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes, randomUUID } from 'crypto';
 import { spawn } from 'child_process';
@@ -8,6 +8,7 @@ import { tmpdir } from 'os';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '@/common/prisma/prisma.service';
 import { AdminPermissionGuard } from '@/common/guards/admin-permission.guard';
+import { FinanceService } from '@/modules/finance/finance.service';
 import {
   FINANCE_PIN_KEY,
   type SharedFinancePin,
@@ -131,6 +132,7 @@ export class AdminService implements OnModuleInit {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private smsService: SmsService,
+    @Inject(forwardRef(() => FinanceService)) private finance: FinanceService,
   ) {}
 
   async onModuleInit() {
@@ -2199,12 +2201,21 @@ export class AdminService implements OnModuleInit {
     const ownerId = this.isSchool(actor)
       ? course.ownerId
       : (data.ownerId === undefined ? course.ownerId : await this.normalizeSchoolOwner(data.ownerId));
+    const feeTouched = (data.price !== undefined && data.price !== '') || data.sessionFee !== undefined;
     return this.prisma.course.update({
       where: { id },
       data: { ...this.courseData(data, teacherId, actor), ...place, ownerId },
     }).then(async (saved) => {
       if (teacherId) await this.ensureTeacherGrantLock(teacherId, id);
       if (data.teacherId !== undefined) await syncTermTeacher(this.prisma, id, saved.activeSemesterId, teacherId);
+      // 校方价 / 课时费改正后，未固定月结算单跟着刷新
+      if (feeTouched) {
+        try {
+          await this.finance.refreshUnlockedCourseProfits(id);
+        } catch {
+          /* 财务刷新失败不阻断课程保存 */
+        }
+      }
       return saved;
     });
   }

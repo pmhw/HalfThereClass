@@ -79,9 +79,9 @@ export function isFinancePath(path) {
   return path === '/finance' || path.startsWith('/finance/') || path === '/reimbursements';
 }
 
-/** 弹出财务密码框：输入正确返回 true，取消返回 false。同时触发多次只弹一个框 */
-export function requireFinancePin({ unset = false } = {}) {
-  if (!unset && financeUnlocked()) return Promise.resolve(true);
+/** 弹出财务密码框：输入正确返回 true，取消返回 false。同时触发多次只弹一个框。force=true 时即使已解锁也再验一次 */
+export function requireFinancePin({ unset = false, force = false } = {}) {
+  if (!unset && !force && financeUnlocked()) return Promise.resolve(true);
   financeGate.unset = unset;
   financeGate.open = true;
   return new Promise((resolve) => waiters.push(resolve));

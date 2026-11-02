@@ -132,6 +132,8 @@ async function bootstrap() {
   app.useStaticAssets(join(uploadsRoot, 'signs'), { prefix: '/uploads/signs/' });
   app.use('/uploads/reimbursements', requireUploadAuth);
   app.useStaticAssets(join(uploadsRoot, 'reimbursements'), { prefix: '/uploads/reimbursements/' });
+  app.use('/uploads/invoices', requireUploadAuth);
+  app.useStaticAssets(join(uploadsRoot, 'invoices'), { prefix: '/uploads/invoices/' });
 
   // 高德要求代理以 _AMapService 作为一级路由，不能挂在 /api 下
   app.use('/_AMapService', amapServiceProxy(app.get(PrismaService)));
@@ -204,6 +206,12 @@ async function bootstrap() {
   }
 
   if (www) {
+    // DIY 超级临时链接：挂在 /diy/:token，不暴露后台入口；资源仍从 ADMIN_ENTRY 加载
+    server.get(/^\/diy(?:\/.*)?$/, (req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      return sendAdminIndex(res, www, adminPrefix);
+    });
+
     const entryRe = new RegExp(`^/${adminEntry}(?:/.*)?$`);
     server.get(entryRe, (req, res, next) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
@@ -236,6 +244,7 @@ async function bootstrap() {
     console.log(`🔒 后台入口后缀 ADMIN_ENTRY=${adminEntry}（请收藏完整地址，勿泄露）`);
   }
   if (mobileWww) console.log(`📱 手机端: http://localhost:${port}/m/`);
+  if (www) console.log(`🔗 DIY 临时链接: http://localhost:${port}/diy/<token>`);
   console.log(`📦 版本: ${version}`);
 }
 

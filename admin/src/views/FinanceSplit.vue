@@ -93,7 +93,7 @@
         <article class="card kpi">
           <div class="label">可分配合计<CalcTip name="split.pool" :ctx="config" /></div>
           <div class="value">{{ money(summary.pool) }}</div>
-          <div class="meta"><span class="flat">{{ results.length }} 个合集<template v-if="summary.reimburse"> · 已扣报销 {{ money(summary.reimburse) }}</template></span></div>
+          <div class="meta"><span class="flat">{{ results.length }} 个合集<template v-if="summary.reimburse"> · 已扣报销 {{ money(summary.reimburse) }}</template><template v-if="summary.invoice"> · 已扣开票 {{ money(summary.invoice) }}</template></span></div>
         </article>
         <article class="card kpi">
           <div class="label">税费合计<CalcTip name="split.taxTotal" :ctx="config" /></div>
@@ -120,6 +120,72 @@
       <p v-if="unassigned.count" class="unassigned">
         {{ month }} 还有 {{ unassigned.count }} 门有课次的课程未归入任何合集（利润 {{ money(unassigned.profit) }}）。
       </p>
+
+      <article class="card invoice-card">
+        <div class="invoice-head">
+          <div>
+            <strong>开票费用</strong>
+            <p class="muted">导入 PDF 识别税额；关联合集后从分成池扣，指定承担人则只扣该人实发。</p>
+          </div>
+          <div class="invoice-actions">
+            <input ref="invoiceFile" class="file" type="file" accept="application/pdf,.pdf" @change="onInvoicePdf" />
+            <button class="btn tiny" type="button" @click="openManualInvoice">手动录入</button>
+            <button class="btn primary tiny" type="button" :disabled="invoiceBusy" @click="invoiceFile?.click()">{{ invoiceBusy ? '识别中…' : '导入发票 PDF' }}</button>
+          </div>
+        </div>
+        <div v-if="!invoices.length" class="invoice-empty">本月还没有开票记录</div>
+        <div v-else class="invoice-scroll">
+          <table class="invoice-table">
+            <thead>
+              <tr>
+                <th>发票</th>
+                <th>合集</th>
+                <th>承担人</th>
+                <th class="num">价税合计</th>
+                <th class="num">税额（扣除）</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="inv in invoices" :key="inv.id">
+                <td class="inv-meta">
+                  <strong>{{ inv.title || inv.invoiceNo || `发票#${inv.id}` }}</strong>
+                  <small v-if="invoiceMeta(inv)">{{ invoiceMeta(inv) }}</small>
+                </td>
+                <td>
+                  <select class="inv-select" :value="inv.collectionId || ''" @change="bindInvoiceCollection(inv, $event.target.value)">
+                    <option value="">未关联</option>
+                    <option v-for="c in data.collections || []" :key="c.id" :value="c.id">{{ c.name }}</option>
+                  </select>
+                </td>
+                <td class="inv-person">
+                  <select
+                    class="inv-select"
+                    :value="invoicePersonValue(inv)"
+                    :disabled="!inv.collectionId"
+                    @change="bindInvoicePerson(inv, $event.target.value)"
+                  >
+                    <option value="">合集池扣除</option>
+                    <option v-for="opt in invoicePersonOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                  <span
+                    v-if="inv.collectionId"
+                    class="inv-badge"
+                    :class="(inv.userId || inv.userName) ? 'personal' : 'pool'"
+                  >
+                    {{ (inv.userId || inv.userName) ? '个人分成扣' : '合集池扣' }}
+                  </span>
+                </td>
+                <td class="num">{{ money(inv.amount) }}</td>
+                <td class="num inv-tax">{{ money(inv.tax) }}</td>
+                <td class="ops">
+                  <button class="link danger" type="button" @click="removeInvoice(inv)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
 
       <article v-for="item in results" :key="item.collection.id" class="card split-card">
         <header class="split-card-head">
@@ -150,8 +216,18 @@
               <strong>{{ money(item.calc.reimburseTotal) }}</strong>
             </div>
           </template>
+          <template v-if="item.calc.invoices?.length">
+            <span class="op">−</span>
+            <div>
+              <small>开票税额·合集池（{{ item.calc.invoices.length }} 笔）<CalcTip name="split.invoice" /></small>
+              <strong>{{ money(item.calc.invoiceTotal) }}</strong>
+            </div>
+          </template>
           <span class="op">=</span>
           <div class="pool"><small>可分配<CalcTip name="split.pool" :ctx="config" /></small><strong>{{ money(item.calc.pool) }}</strong></div>
+          <div v-if="item.calc.invoicePersonalTotal" class="flow-meta">
+            另有个人承担开票 {{ money(item.calc.invoicePersonalTotal) }}（{{ item.calc.personalInvoices?.length || 0 }} 笔），从对应人员分成中扣除
+          </div>
           <div class="flow-meta">
             {{ item.calc.sessionCount }} 节 · 校方 {{ money(item.calc.schoolAmount) }} · 成本 {{ money(item.calc.costAmount) }}
           </div>
@@ -207,6 +283,30 @@
             </tbody>
           </table>
           <router-link class="mini-link" :to="{ path: '/reimbursements' }">去报销单调整</router-link>
+        </details>
+        <details v-if="item.calc.invoices?.length || item.calc.personalInvoices?.length" class="teacher-fees" open>
+          <summary>开票税额明细</summary>
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>发票</th>
+                <th>承担</th>
+                <th class="num">税额</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="inv in item.calc.invoices" :key="`pool-${inv.id}`">
+                <td>{{ inv.title || inv.invoiceNo || `发票#${inv.id}` }}</td>
+                <td>合集池</td>
+                <td class="num">{{ money(inv.amount) }}</td>
+              </tr>
+              <tr v-for="inv in item.calc.personalInvoices || []" :key="`person-${inv.id}`">
+                <td>{{ inv.title || inv.invoiceNo || `发票#${inv.id}` }}</td>
+                <td>{{ inv.userName || (inv.userId ? `用户#${inv.userId}` : '个人') }}</td>
+                <td class="num">{{ money(inv.amount) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </details>
         <details v-if="item.calc.orgs.length" class="teacher-fees">
           <summary>机构打款手续费明细</summary>
@@ -453,6 +553,7 @@
               − 教师打款手续费 {{ money(formCalc.teacherFeeTotal) }}（{{ formCalc.teachers.length }} 笔）
               <template v-if="formCalc.orgs.length">− 机构打款手续费 {{ money(formCalc.orgFeeTotal) }}（{{ formCalc.orgs.length }} 笔）</template>
               <template v-if="formCalc.reimbursements.length">− 报销 {{ money(formCalc.reimburseTotal) }}（{{ formCalc.reimbursements.length }} 笔）</template>
+              <template v-if="formCalc.invoices?.length">− 开票税额 {{ money(formCalc.invoiceTotal) }}（{{ formCalc.invoices.length }} 笔）</template>
             </div>
             <SplitTable :calc="formCalc" compact />
           </div>
@@ -500,6 +601,8 @@ const SplitTable = defineComponent({
     return () => {
       const { calc, notes } = props;
       const mark = (idx) => (notes[idx] ? h('sup', { class: 'note-mark' }, noteMark(notes, idx)) : null);
+      const showInvoice = calc.members.some((m) => Number(m.invoiceCut) > 0) || Number(calc.totals?.invoiceCut) > 0;
+      const colCount = showInvoice ? 7 : 6;
       const rows = calc.members.map((m, idx) => h('tr', { key: idx }, [
         h('td', [
           m.name || '—',
@@ -509,6 +612,7 @@ const SplitTable = defineComponent({
         h('td', { class: 'num' }, `${plain(m.ratio)}%`),
         h('td', { class: 'num' }, money(m.gross)),
         h('td', { class: 'num minus' }, m.tax ? `−${money(m.tax)}` : '—'),
+        showInvoice ? h('td', { class: 'num minus', title: '挂到该人的开票税额' }, m.invoiceCut ? `−${money(m.invoiceCut)}` : '—') : null,
         h('td', {
           class: 'num minus',
           title: m.withTeacher
@@ -520,24 +624,25 @@ const SplitTable = defineComponent({
           m.withTeacher ? h('span', { class: 'merged-tag teacher' }, '含课时费') : m.merged ? h('span', { class: 'merged-tag' }, '合并') : null,
         ]),
         h('td', { class: 'num net' }, money(m.net)),
-      ]));
-      if (!rows.length) rows.push(h('tr', [h('td', { class: 'empty-cell', colspan: 6 }, '还没有分成人员')]));
+      ].filter(Boolean)));
+      if (!rows.length) rows.push(h('tr', [h('td', { class: 'empty-cell', colspan: colCount }, '还没有分成人员')]));
       const foot = [
         h('tr', { class: 'total' }, [
           h('td', '合计'),
           h('td', { class: 'num' }, `${plain(calc.ratioSum)}%`),
           h('td', { class: 'num' }, money(calc.totals.gross)),
           h('td', { class: 'num minus' }, calc.totals.tax ? `−${money(calc.totals.tax)}` : '—'),
+          showInvoice ? h('td', { class: 'num minus' }, calc.totals.invoiceCut ? `−${money(calc.totals.invoiceCut)}` : '—') : null,
           h('td', { class: 'num minus' }, calc.totals.fee ? `−${money(calc.totals.fee)}` : '—'),
           h('td', { class: 'num net' }, money(calc.totals.net)),
-        ]),
+        ].filter(Boolean)),
       ];
       if (calc.ratioSum < 100 && calc.members.length) {
         foot.push(h('tr', { class: 'retained' }, [
           h('td', '未分配留存'),
           h('td', { class: 'num' }, `${plain(round2(100 - calc.ratioSum))}%`),
           h('td', { class: 'num' }, money(calc.retained)),
-          h('td', { colspan: 3 }, ''),
+          h('td', { colspan: colCount - 3 }, ''),
         ]));
       }
       return h('table', { class: ['split-table', { compact: props.compact }] }, [
@@ -546,9 +651,10 @@ const SplitTable = defineComponent({
           h('th', { class: 'num' }, '比例'),
           h('th', { class: 'num' }, '应分'),
           h('th', { class: 'num' }, '税费'),
+          showInvoice ? h('th', { class: 'num' }, '开票') : null,
           h('th', { class: 'num' }, '转账手续费'),
           h('th', { class: 'num' }, '实发'),
-        ])]),
+        ].filter(Boolean))]),
         h('tbody', rows),
         h('tfoot', foot),
       ]);
@@ -608,6 +714,9 @@ watch(() => [route.path, route.query.tab, route.query.dialog], ([path, queryTab,
 }, { immediate: true });
 
 const data = ref({ collections: [], courses: [], users: [], stats: [], reimbursements: [], history: [], locked: false });
+const invoices = ref([]);
+const invoiceFile = ref(null);
+const invoiceBusy = ref(false);
 const config = ref({ ...DEFAULT_SPLIT_CONFIG });
 const savedConfig = ref(JSON.stringify(DEFAULT_SPLIT_CONFIG));
 const configSaving = ref(false);
@@ -653,6 +762,8 @@ function flowNote(calc) {
   if (calc.teacherFeeTotal) cuts.push(`教师打款手续费 ${yuan(calc.teacherFeeTotal)}（每位教师当月合并一笔，按本合集课时费占比分摊）`);
   if (calc.orgFeeTotal) cuts.push(`机构打款手续费 ${yuan(calc.orgFeeTotal)}`);
   if (calc.reimburseTotal) cuts.push(`报销 ${yuan(calc.reimburseTotal)}`);
+  if (calc.invoiceTotal) cuts.push(`开票税额·合集池 ${yuan(calc.invoiceTotal)}`);
+  if (calc.invoicePersonalTotal) cuts.push(`开票税额·个人 ${yuan(calc.invoicePersonalTotal)}（从对应人员分成扣，不影响可分配）`);
   const head = `可分配 ${yuan(calc.pool)} = ${config.value.basis === 'school' ? '校方合计' : '利润'} ${yuan(calc.base)}${cuts.length ? ` − ${cuts.join(' − ')}` : ''}`;
   const tail = [`各人应分 = 可分配 × 比例，税费按 ${plain(config.value.taxRate)}% 从应分代扣、留在对公账户`];
   if (calc.retained > 0) tail.push(`未分配留存 ${yuan(calc.retained)} 留在对公账户`);
@@ -668,13 +779,14 @@ function noteMark(notes, index) {
 const summary = computed(() => results.value.reduce((acc, { calc }) => ({
   pool: round2(acc.pool + calc.pool),
   reimburse: round2(acc.reimburse + calc.reimburseTotal),
+  invoice: round2(acc.invoice + Number(calc.invoiceTotal || 0) + Number(calc.invoicePersonalTotal || 0)),
   tax: round2(acc.tax + calc.totals.tax),
   teacherFee: round2(acc.teacherFee + calc.teacherFeeTotal),
   orgFee: round2(acc.orgFee + calc.orgFeeTotal),
   memberFee: round2(acc.memberFee + calc.totals.fee),
   fee: round2(acc.fee + calc.teacherFeeTotal + calc.orgFeeTotal + calc.totals.fee),
   net: round2(acc.net + calc.totals.net),
-}), { pool: 0, reimburse: 0, tax: 0, teacherFee: 0, orgFee: 0, memberFee: 0, fee: 0, net: 0 }));
+}), { pool: 0, reimburse: 0, invoice: 0, tax: 0, teacherFee: 0, orgFee: 0, memberFee: 0, fee: 0, net: 0 }));
 
 const historyMonths = computed(() => (data.value.history || []).map((h) => ({
   month: h.month,
@@ -756,6 +868,38 @@ const userOptions = computed(() => (data.value.users || []).map((u) => ({
 })));
 const roleText = { teacher: '教师', user: '用户', admin: '管理员' };
 
+/** 开票承担人：系统用户 + 合集里的虚拟分成人员 */
+const invoicePersonOptions = computed(() => {
+  const map = new Map();
+  for (const u of data.value.users || []) {
+    map.set(`u:${u.id}`, { value: `u:${u.id}`, label: u.name, userId: u.id, userName: u.name });
+  }
+  for (const c of data.value.collections || []) {
+    for (const m of c.members || []) {
+      if (m.userId) {
+        const key = `u:${m.userId}`;
+        if (!map.has(key)) map.set(key, { value: key, label: m.name, userId: m.userId, userName: m.name });
+      } else if (String(m.name || '').trim()) {
+        const name = String(m.name).trim();
+        const key = `n:${name}`;
+        if (!map.has(key)) map.set(key, { value: key, label: `${name}（虚拟）`, userId: null, userName: name });
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh'));
+});
+
+function invoicePersonValue(inv) {
+  if (inv?.userId) return `u:${inv.userId}`;
+  if (inv?.userName) return `n:${String(inv.userName).trim()}`;
+  return '';
+}
+
+function invoiceMeta(inv) {
+  const parts = [inv?.sellerName, inv?.invoiceNo].map((s) => String(s || '').trim()).filter(Boolean);
+  return parts.join(' · ');
+}
+
 function setMemberType(m, type) {
   if (type === 'user') {
     m.type = 'user';
@@ -779,7 +923,10 @@ const ratioClass = computed(() => {
 
 async function load() {
   await run(async () => {
-    const result = await api.financeSplit(month.value);
+    const [result, invoiceData] = await Promise.all([
+      api.financeSplit(month.value),
+      api.financeInvoices(month.value).catch(() => ({ list: [] })),
+    ]);
     data.value = {
       collections: Array.isArray(result?.collections) ? result.collections : [],
       courses: Array.isArray(result?.courses) ? result.courses : [],
@@ -789,6 +936,7 @@ async function load() {
       history: Array.isArray(result?.history) ? result.history : [],
       locked: !!result?.locked,
     };
+    invoices.value = Array.isArray(invoiceData?.list) ? invoiceData.list : [];
     configSaved.value = result?.configSaved !== false;
     if (!configDirty.value || !ready.value) {
       config.value = { ...DEFAULT_SPLIT_CONFIG, ...(result?.config || {}) };
@@ -922,6 +1070,116 @@ async function remove(collection) {
 }
 
 
+async function onInvoicePdf(ev) {
+  const file = ev.target?.files?.[0];
+  ev.target.value = '';
+  if (!file) return;
+  invoiceBusy.value = true;
+  try {
+    const firstCollection = data.value.collections?.[0]?.id || '';
+    const result = await api.financeImportInvoicePdf(file, {
+      month: month.value,
+      collectionId: firstCollection,
+    });
+    notify.success(result.tip || '发票已导入');
+    live.notify('split');
+    await load();
+  } catch (err) {
+    notify.error(err.message || '导入失败');
+  } finally {
+    invoiceBusy.value = false;
+  }
+}
+
+async function openManualInvoice() {
+  const taxText = await notify.prompt({
+    title: '手动录入开票税额',
+    message: `归属月份 ${month.value}。录入后可关联合集，并可指定由某位分成人员个人承担`,
+    value: '',
+    okText: '下一步',
+    required: true,
+  });
+  if (taxText == null) return;
+  const tax = Number(taxText);
+  if (!Number.isFinite(tax) || tax < 0) {
+    notify.error('税额不正确');
+    return;
+  }
+  const title = await notify.prompt({
+    title: '发票备注',
+    message: '可选：发票项目或说明',
+    value: '开票费用',
+    okText: '保存',
+    required: false,
+  });
+  if (title === null) return;
+  try {
+    await api.financeCreateInvoice({
+      month: month.value,
+      tax,
+      amount: tax,
+      title: String(title || '开票费用').trim(),
+      collectionId: data.value.collections?.[0]?.id || null,
+      status: 'confirmed',
+    });
+    notify.success('已录入，可在列表里指定合集与承担人');
+    live.notify('split');
+    await load();
+  } catch (err) {
+    notify.error(err.message || '保存失败');
+  }
+}
+
+async function bindInvoiceCollection(inv, value) {
+  try {
+    await api.financeUpdateInvoice(inv.id, {
+      ...inv,
+      collectionId: value ? Number(value) : null,
+      // 取消合集时一并清掉个人承担，避免悬挂
+      userId: value ? inv.userId : null,
+      userName: value ? inv.userName : '',
+    });
+    live.notify('split');
+    await load();
+  } catch (err) {
+    notify.error(err.message || '关联失败');
+  }
+}
+
+async function bindInvoicePerson(inv, value) {
+  try {
+    const opt = invoicePersonOptions.value.find((item) => item.value === value);
+    await api.financeUpdateInvoice(inv.id, {
+      ...inv,
+      userId: opt?.userId || null,
+      userName: opt?.userName || '',
+    });
+    live.notify('split');
+    await load();
+  } catch (err) {
+    notify.error(err.message || '指定承担人失败');
+  }
+}
+
+async function removeInvoice(inv) {
+  const who = inv.userId || inv.userName ? '个人分成' : '合集分成池';
+  const ok = await notify.confirm({
+    title: '删除开票记录',
+    message: `删除「${inv.title || inv.invoiceNo || inv.id}」？${who}将不再扣除这笔税额。`,
+    okText: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api.financeDeleteInvoice(inv.id);
+    notify.success('已删除');
+    live.notify('split');
+    await load();
+  } catch (err) {
+    notify.error(err.message || '删除失败');
+  }
+}
+
 bindLoad(load);
 </script>
 
@@ -1029,6 +1287,47 @@ bindLoad(load);
   background: #fffaeb; color: #b54708; font-size: 13px; border: 1px solid #fedf89;
 }
 
+.invoice-card { margin-bottom: 16px; padding: 0; overflow: hidden; }
+.invoice-head {
+  display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap;
+  padding: 16px 20px 12px; border-bottom: 1px solid #f2f4f7;
+}
+.invoice-head strong { font-size: 15px; color: #0f172a; }
+.invoice-head .muted { margin: 4px 0 0; max-width: 52rem; color: #667085; font-size: 12px; line-height: 1.55; }
+.invoice-actions { display: flex; gap: 8px; align-items: center; flex: none; }
+.invoice-actions .file { display: none; }
+.invoice-empty { padding: 28px 20px; color: #98a2b3; font-size: 13px; text-align: center; }
+.invoice-scroll { overflow-x: auto; }
+.invoice-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
+.invoice-table th, .invoice-table td {
+  padding: 12px 16px; border-bottom: 1px solid #f2f4f7; text-align: left; vertical-align: middle;
+}
+.invoice-table th {
+  background: #f8fafc; color: #667085; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.invoice-table tbody tr:last-child td { border-bottom: 0; }
+.invoice-table tbody tr:hover td { background: #fcfcfd; }
+.invoice-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.invoice-table .ops { width: 64px; text-align: right; white-space: nowrap; }
+.inv-meta strong { display: block; color: #0f172a; font-weight: 600; line-height: 1.35; }
+.inv-meta small { display: block; margin-top: 3px; color: #98a2b3; font-size: 12px; }
+.inv-select {
+  width: 100%; min-width: 132px; max-width: 200px; height: 34px;
+  padding: 0 28px 0 10px; border: 1px solid #e4e7ec; border-radius: 8px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2398a2b3' d='M3 4.5 6 8l3-3.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  color: #344054; font-size: 13px; appearance: none; cursor: pointer;
+}
+.inv-select:disabled { opacity: 0.45; cursor: not-allowed; background-color: #f9fafb; }
+.inv-select:focus { outline: none; border-color: #84b0f5; box-shadow: 0 0 0 3px rgba(46, 144, 250, 0.15); }
+.inv-person { min-width: 168px; }
+.inv-person .inv-select { display: block; }
+.inv-badge {
+  display: inline-flex; margin-top: 6px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1.6;
+}
+.inv-badge.pool { background: #f2f4f7; color: #475467; }
+.inv-badge.personal { background: #eff8ff; color: #175cd3; }
+.inv-tax { color: #b42318; font-weight: 600; }
 .split-card { padding: 0; margin-bottom: 16px; overflow: hidden; }
 .split-card-head {
   display: flex; justify-content: space-between; gap: 16px; padding: 16px 20px 12px;

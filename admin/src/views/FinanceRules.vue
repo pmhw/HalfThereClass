@@ -154,8 +154,9 @@ async function load() {
 async function save() {
   saving.value = true;
   try {
-    await api.financeSaveRule(form.value.id, { price: form.value.price, sessionFee: form.value.sessionFee });
-    notify.success('已保存');
+    const saved = await api.financeSaveRule(form.value.id, { price: form.value.price, sessionFee: form.value.sessionFee });
+    const refreshed = Number(saved?.refresh?.refreshed || 0);
+    notify.success(refreshed > 0 ? `已保存，未固定月份已同步 ${refreshed} 节课次` : '已保存');
     form.value = null;
     notifyFinanceChanged('rule');
     await load();
