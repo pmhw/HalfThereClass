@@ -47,9 +47,38 @@
             <span>{{ img.alt }}</span>
           </button>
         </div>
+        <button type="button" class="card card-lead" @click="open(leadChapter.id)">
+          <div class="card-top">
+            <span class="num">{{ leadChapter.id }}</span>
+            <span class="ico"><component :is="iconOf(leadChapter.icon)" /></span>
+          </div>
+          <div class="card-title">{{ leadChapter.title }}</div>
+          <div class="card-brief">{{ leadChapter.brief }}</div>
+          <span class="go" aria-hidden="true">→</span>
+        </button>
+        <div class="day-pack">
+          <div class="day-pack-h">三天课程安排 · Day 1–3</div>
+          <div class="day-row">
+            <button
+              v-for="item in dayChapters"
+              :key="item.id"
+              type="button"
+              class="card card-day"
+              @click="open(item.id)"
+            >
+              <span class="num">{{ item.id }}</span>
+              <span class="ico"><component :is="iconOf(item.icon)" /></span>
+              <div class="day-copy">
+                <div class="card-title">{{ dayLabel(item) }} · {{ item.title.replace(/^Day\s*\d+：/, '') }}</div>
+                <div class="card-brief">{{ item.brief }}</div>
+              </div>
+              <span class="go" aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
         <div class="grid">
           <button
-            v-for="item in CHAPTERS"
+            v-for="item in restChapters"
             :key="item.id"
             type="button"
             class="card"
@@ -71,6 +100,17 @@
           <div class="chap-kicker">CHAPTER {{ chapter.id }}</div>
           <h2>{{ chapter.title }}</h2>
           <p>{{ chapter.brief }}</p>
+        </div>
+        <div v-if="isDayChapter" class="day-tabs">
+          <button
+            v-for="item in dayChapters"
+            :key="item.id"
+            type="button"
+            :class="{ on: item.id === chapter.id }"
+            @click="open(item.id)"
+          >
+            {{ dayLabel(item) }}
+          </button>
         </div>
         <article v-for="(block, i) in chapter.blocks" :key="i" class="block">
           <p v-if="block.type === 'lead'" class="lead">{{ block.text }}</p>
@@ -194,10 +234,21 @@ import { toast } from '../utils/helpers';
 const route = useRoute();
 const router = useRouter();
 
+const DAY_IDS = ['02', '03', '04'];
+const leadChapter = CHAPTERS[0];
+const dayChapters = CHAPTERS.filter((c) => DAY_IDS.includes(c.id));
+const restChapters = CHAPTERS.filter((c) => c.id !== '01' && !DAY_IDS.includes(c.id));
+
 const chapter = computed(() => CHAPTERS.find((c) => c.id === route.params.id) || null);
 const index = computed(() => CHAPTERS.findIndex((c) => c.id === chapter.value?.id));
+const isDayChapter = computed(() => DAY_IDS.includes(chapter.value?.id));
 const canPrev = computed(() => !!chapter.value);
 const canNext = computed(() => !chapter.value || index.value < CHAPTERS.length - 1);
+
+function dayLabel(item) {
+  const m = String(item.title || '').match(/Day\s*\d+/i);
+  return m ? m[0] : item.id;
+}
 const previewSrc = ref('');
 const previewAlt = ref('');
 
@@ -426,6 +477,56 @@ h1 i {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.card-lead { width: 100%; margin-bottom: 10px; }
+.day-pack {
+  margin: 0 0 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, #eef6ff, #f7fbff);
+  border: 1px solid #d7e7ff;
+  border-radius: 20px;
+}
+.day-pack-h {
+  margin: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1d4ed8;
+}
+.day-row {
+  display: grid;
+  gap: 8px;
+}
+.card.card-day {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px 10px;
+}
+.card-day .num { font-size: 16px; margin: 0; }
+.card-day .card-title { margin: 0; font-size: 13px; }
+.card-day .card-brief { margin: 2px 0 0; font-size: 11px; padding-right: 0; }
+.card-day .ico { width: 32px; height: 32px; }
+.card-day .ico :deep(svg) { width: 32px; height: 32px; }
+.day-copy { min-width: 0; }
+.day-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.day-tabs button {
+  height: 36px;
+  border-radius: 999px;
+  background: #e8f1ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 800;
+}
+.day-tabs button.on {
+  background: #2563eb;
+  color: #fff;
+}
 .card {
   position: relative;
   text-align: left;
@@ -585,26 +686,34 @@ h1 i {
 .table-hint { padding-top: 4px; }
 table {
   width: max-content;
-  min-width: 680px;
+  min-width: 760px;
   border-collapse: collapse;
   font-size: 12px;
 }
 th, td {
   border-bottom: 1px solid #e8eef8;
-  padding: 8px 10px;
+  padding: 8px 12px;
   text-align: left;
   vertical-align: top;
-  line-height: 1.5;
-  min-width: 96px;
-  max-width: 220px;
+  line-height: 1.55;
+  min-width: 150px;
+  max-width: 280px;
 }
 th { background: #eef5ff; color: #1d4ed8; font-weight: 700; }
 th:first-child, td:first-child {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: #eef5ff;
+  width: 58px;
+  min-width: 58px;
+  max-width: 58px;
+  padding: 8px 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  word-break: break-word;
+  box-shadow: 6px 0 8px -6px rgba(20, 50, 110, 0.18);
 }
+th:first-child { background: #e8f1ff; }
 td:first-child { background: #f8fbff; font-weight: 700; }
 .prompt-h {
   display: flex;
