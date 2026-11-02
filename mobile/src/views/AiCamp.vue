@@ -35,6 +35,18 @@
             {{ CAMP.hint }}
           </div>
         </div>
+        <div class="gallery">
+          <button
+            v-for="img in CAMP.gallery"
+            :key="img.src"
+            type="button"
+            class="fig"
+            @click="preview(img.src, img.alt)"
+          >
+            <img :src="media(img.src)" :alt="img.alt" />
+            <span>{{ img.alt }}</span>
+          </button>
+        </div>
         <div class="grid">
           <button
             v-for="item in CHAPTERS"
@@ -62,6 +74,15 @@
         </div>
         <article v-for="(block, i) in chapter.blocks" :key="i" class="block">
           <p v-if="block.type === 'lead'" class="lead">{{ block.text }}</p>
+          <button
+            v-else-if="block.type === 'image'"
+            type="button"
+            class="fig fig-block"
+            @click="preview(block.src, block.alt)"
+          >
+            <img :src="media(block.src)" :alt="block.alt" />
+            <span v-if="block.alt">{{ block.alt }}</span>
+          </button>
           <h3 v-else-if="block.type === 'h'" class="h">{{ block.text }}</h3>
           <p v-else-if="block.type === 'p'" class="p">{{ block.text }}</p>
           <blockquote v-else-if="block.type === 'quote'" class="quote">{{ block.text }}</blockquote>
@@ -156,11 +177,16 @@
         <button type="button" class="nav-btn" :disabled="!canNext" @click="go(1)">下一页 →</button>
       </div>
     </footer>
+
+    <div v-if="previewSrc" class="lightbox" @click="previewSrc = ''">
+      <img :src="media(previewSrc)" :alt="previewAlt" />
+      <p v-if="previewAlt">{{ previewAlt }}</p>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CAMP, CHAPTERS } from '../data/aiCamp';
 import { toast } from '../utils/helpers';
@@ -172,6 +198,18 @@ const chapter = computed(() => CHAPTERS.find((c) => c.id === route.params.id) ||
 const index = computed(() => CHAPTERS.findIndex((c) => c.id === chapter.value?.id));
 const canPrev = computed(() => !!chapter.value);
 const canNext = computed(() => !chapter.value || index.value < CHAPTERS.length - 1);
+const previewSrc = ref('');
+const previewAlt = ref('');
+
+function media(name) {
+  const base = import.meta.env.BASE_URL || '/m/';
+  return `${base}camp-media/${name}`;
+}
+
+function preview(src, alt = '') {
+  previewSrc.value = src;
+  previewAlt.value = alt;
+}
 
 watch(
   chapter,
@@ -639,4 +677,55 @@ td:first-child { background: #f8fbff; font-weight: 700; }
   font-size: 12px;
 }
 .bar-nav { display: flex; gap: 6px; }
+
+.gallery {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.fig {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(36, 90, 180, 0.08);
+  text-align: left;
+}
+.fig img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.fig span {
+  display: block;
+  padding: 8px 12px 10px;
+  color: #5b7aa8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.fig-block { margin: 0; }
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(8, 20, 48, 0.92);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px 12px 80px;
+}
+.lightbox img {
+  width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.lightbox p {
+  margin: 10px 4px 0;
+  color: #dbeafe;
+  font-size: 13px;
+  text-align: center;
+}
 </style>

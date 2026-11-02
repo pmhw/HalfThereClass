@@ -3,6 +3,14 @@ export const CAMP = {
   title: 'AI科研与跨学科创新实践营',
   slogan: '别只会用AI，用AI做出点不一样的！',
   hint: '点击任一章节即可跳转到对应内容',
+  gallery: [
+    { src: 'image1.jpg', alt: '课程总览海报：3天6小时实践课程' },
+    { src: 'image2.jpg', alt: '精选AI实验项目' },
+    { src: 'image3.jpg', alt: '从提问、实验到路演的课堂场景' },
+    { src: 'image5.jpg', alt: '12章课程路线图' },
+    { src: 'image6.jpg', alt: '研究实践流程与小组分工' },
+    { src: 'image7.jpg', alt: 'AI图像分类实验三步：样本、训练、导出' },
+  ],
 };
 
 export const CHAPTERS = [
@@ -13,6 +21,8 @@ export const CHAPTERS = [
     icon: 'book',
     blocks: [
       { type: 'lead', text: '面向高中生的 6 小时入门实践营：用可检验的小实验完成“提出问题—采集证据—分析结果—展示局限”的完整科研闭环。不以发表论文为目标，重点是掌握可迁移的研究方法，并负责任地使用 AI。' },
+      { type: 'image', src: 'image1.jpg', alt: '课程总览海报：3天6小时实践课程' },
+      { type: 'image', src: 'image6.jpg', alt: '研究实践流程与小组分工' },
       { type: 'h', text: '课程定位' },
       { type: 'p', text: '这不是“学会某个软件”的操作课，也不是让学生把 AI 生成的文字直接当成研究成果。三天课程要求每个小组完成一个可复现的小研究：提出问题、设计对照、采集证据、分析结果、识别限制，并说明 AI 在哪些环节提供了帮助、哪些判断由学生自己核验。' },
       {
@@ -99,6 +109,7 @@ export const CHAPTERS = [
     icon: 'laptop',
     blocks: [
       { type: 'lead', text: '当日目标：学生理解 AI 会在数据不足、数据偏移或提示不当时出错；完成一份可执行的研究设计，明确问题、假设、变量、数据来源和测试方案。' },
+      { type: 'image', src: 'image3.jpg', alt: '从提问、实验到路演的课堂场景' },
       { type: 'h', text: '120 分钟教学流程' },
       {
         type: 'table',
@@ -161,6 +172,7 @@ export const CHAPTERS = [
     icon: 'photos',
     blocks: [
       { type: 'lead', text: '当日目标：完成图像分类模型训练，并采集三种光照条件下的独立测试数据。重点不是把准确率做高，而是保证实验公平、记录完整、过程可复现。' },
+      { type: 'image', src: 'image7.jpg', alt: 'AI图像分类实验三步：样本、训练、导出' },
       { type: 'h', text: '120 分钟教学流程' },
       {
         type: 'table',
@@ -284,6 +296,7 @@ export const CHAPTERS = [
     icon: 'sun',
     blocks: [
       { type: 'lead', text: '推荐作为全班统一实操项目。难度低、设备要求少，能让学生体验数据采集、模型训练、对照测试和统计解释。' },
+      { type: 'image', src: 'image1.jpg', alt: '课程主线：光线变化会影响AI图像识别效果吗？' },
       { type: 'h', text: '1. 研究题目与核心问题' },
       { type: 'quote', text: '正式题目：不同光照条件对基于机器学习的图像分类模型识别准确率的影响研究' },
       { type: 'p', text: '研究问题：对于使用同一训练数据训练的图像分类模型，当测试环境的光照条件发生变化时，模型对塑料瓶、纸杯和铝罐三类物品的识别准确率是否会变化？' },
@@ -348,6 +361,7 @@ export const CHAPTERS = [
     icon: 'grid',
     blocks: [
       { type: 'lead', text: '如班级不方便使用摄像头，或学生更偏好语言、声音、教育研究，可从以下项目中替换主线实验。' },
+      { type: 'image', src: 'image2.jpg', alt: '精选AI实验项目' },
       { type: 'h', text: '选题 02｜提示词策略对科学问答准确性的影响' },
       { type: 'quote', text: '研究题目：不同提示词策略对生成式人工智能科学问答准确性的影响研究。' },
       {
