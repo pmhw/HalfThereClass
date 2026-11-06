@@ -1,6 +1,6 @@
 {
   "name": "half-there-class-backend",
-  "version": "1.0.116",
+  "version": "1.0.117",
   "description": "半堂课 - 课程平台后端接口",
   "private": true,
   "scripts": {
@@ -34,6 +34,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.15.0",
     "qiniu": "^7.8.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",
@@ -51,6 +52,7 @@
     "@types/node": "^20.0.0",
     "@types/passport": "^1.0.17",
     "@types/passport-jwt": "^4.0.1",
+    "@types/pdfkit": "^0.17.7",
     "@types/uuid": "^9.0.0",
     "jest": "^29.5.0",
     "prisma": "^5.0.0",
